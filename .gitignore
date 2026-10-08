@@ -1,0 +1,29 @@
+# Terraform / OpenTofu
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terragrunt-cache/
+
+# Lockfiles are committed only in roots (compositions/, examples/); ignore them
+# inside modules so consumers resolve providers themselves.
+modules/**/.terraform.lock.hcl
+
+# Generator cruft — never commit doc/release-note backups
+*.backup
+*.backup.*
+README.md.backup.*
+RELEASE_NOTES.md.backup.*
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/

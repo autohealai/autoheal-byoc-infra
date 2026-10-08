@@ -1,0 +1,20 @@
+name: azure/vnet
+title: Autoheal BYOC — Azure VNet
+description: |-
+  Network substrate for a BYOC-on-AKS Autoheal install. Creates a VNet with five
+  purpose-built subnets (AKS nodes, PG-delegated, private endpoints, Redis VNet
+  injection, runner VMSS), a NAT gateway for runner egress, the PostgreSQL
+  Flexible Server private DNS zone, and optional privatelink DNS zones for Blob,
+  Key Vault, and AI Foundry / Azure OpenAI.
+
+  The AWS analogue is modules/aws/vpc. Naming and tags follow the repo's
+  null-label convention (see context.tf and docs/MODULE_STANDARD.md).
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: Cloud Posse null-label
+    url: https://github.com/cloudposse/terraform-null-label

@@ -1,0 +1,74 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    name: fmt / validate / lint / security / docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: fmt
+        run: terraform fmt -check -recursive
+
+      - name: validate modules
+        run: |
+          set -e
+          for d in $(find modules -type f -name versions.tf -exec dirname {} \;); do
+            echo "== validate $d =="
+            terraform -chdir="$d" init -backend=false >/dev/null
+            terraform -chdir="$d" validate
+          done
+
+      - name: tflint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: v0.53.0
+      - run: tflint --init && tflint --recursive --config="$PWD/.tflint.hcl"
+
+      - name: trivy (IaC misconfig)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+
+      - name: terraform-docs check
+        uses: terraform-docs/gh-actions@v1
+        with:
+          find-dir: modules
+          output-file: README.md
+          output-method: inject
+          fail-on-diff: true
+
+  plan-examples:
+    name: plan examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+      # Example plans run against a sandbox subscription/account via OIDC.
+      # Wire cloud credentials here before enabling the apply/destroy test tier.
+      - name: plan module examples
+        run: |
+          set -e
+          for d in $(find modules -type d -path '*/examples/*' -maxdepth 4 | sort -u); do
+            [ -f "$d/main.tf" ] || continue
+            echo "== plan $d =="
+            terraform -chdir="$d" init -backend=false >/dev/null
+            terraform -chdir="$d" validate
+          done

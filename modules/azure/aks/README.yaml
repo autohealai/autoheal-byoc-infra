@@ -1,0 +1,24 @@
+name: azure/aks
+title: Autoheal BYOC — Azure Kubernetes Service
+description: |-
+  AKS cluster for a BYOC install, with a user-assigned control-plane identity
+  (Network Contributor on the custom VNet), OIDC issuer + workload identity enabled,
+  Azure CNI overlay + Cilium, and an autoscaling default node pool. The kubelet
+  identity is granted AcrPull on the customer registry. Supports create mode
+  (provision) and connect mode (read an existing cluster), like modules/aws/eks.
+
+  Clusters are the one place the repo may wrap a pinned upstream AVM module instead
+  of raw resources; that choice is deferred per-cluster. This is a faithful
+  own-model port so the output contract is stable either way. Naming and tags
+  follow the repo's null-label convention (see label.tf and docs/MODULE_STANDARD.md).
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: VNet (provides the node subnet)
+    url: ../vnet
+  - name: Workload identity (consumes the OIDC issuer)
+    url: ../workload-identity

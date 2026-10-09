@@ -1,0 +1,21 @@
+name: azure/blob
+title: Autoheal BYOC — Azure Blob storage
+description: |-
+  Storage account + private container for attachments / knowledge-base objects in
+  a BYOC-on-AKS Autoheal install. The app reaches it keyless via the app workload
+  identity (Storage Blob Data Contributor, granted in
+  modules/azure/workload-identity); no account key is stored anywhere.
+
+  The AWS analogue is modules/aws/s3. Account names reject dashes and cap at 24
+  characters, so the module derives a sanitized name from the label id (override
+  available). Naming and tags follow the repo's null-label convention (see
+  label.tf and docs/MODULE_STANDARD.md).
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: Workload identity (grants keyless Blob access)
+    url: ../workload-identity

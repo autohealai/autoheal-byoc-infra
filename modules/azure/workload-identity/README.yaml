@@ -1,0 +1,19 @@
+name: azure/workload-identity
+title: Autoheal BYOC — Azure Workload Identity
+description: |-
+  User-assigned identity federated to the app's Kubernetes service accounts (via
+  the AKS OIDC issuer), so pods get Entra tokens with no stored credentials. Role
+  assignments grant exactly what the app needs: Key Vault Secrets User (ESO), Blob
+  Data Contributor, and optionally AcrPull.
+
+  The AWS analogue is EKS Pod Identity / IRSA. Naming and tags follow the repo's
+  null-label convention (see label.tf and docs/MODULE_STANDARD.md).
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: AKS (provides the OIDC issuer)
+    url: ../aks

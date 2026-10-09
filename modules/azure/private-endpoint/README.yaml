@@ -1,0 +1,22 @@
+name: azure/private-endpoint
+title: Autoheal BYOC — Azure Private Endpoint
+description: |-
+  Generic private endpoint that projects a PaaS resource (Blob account, Key Vault,
+  AI Foundry account) into the private-endpoint subnet and registers its private IP
+  in the supplied privatelink DNS zones, so AKS pods resolve the resource to its
+  private address. Instantiate once per target, using attributes for a distinct
+  name.
+
+  The AWS analogue is a VPC interface endpoint. This module adds only the private
+  path; disabling a resource's public access is coordinated separately. Naming and
+  tags follow the repo's null-label convention (see label.tf and
+  docs/MODULE_STANDARD.md).
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: VNet (provides snet-pe and the privatelink DNS zones)
+    url: ../vnet

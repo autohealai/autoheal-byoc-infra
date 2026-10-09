@@ -1,0 +1,23 @@
+name: azure/postgres-flexible
+title: Autoheal BYOC — Azure PostgreSQL Flexible Server
+description: |-
+  Provisioned, private (VNet-integrated) PostgreSQL Flexible Server for a
+  BYOC-on-AKS Autoheal install. No public endpoint: it attaches to the
+  PG-delegated subnet and the private DNS zone created by modules/azure/vnet, so
+  it is reachable only from inside the VNet (AKS pods).
+
+  Sets the azure.extensions server configuration so CREATE EXTENSION (pgvector,
+  btree_gin, pg_trgm, ...) succeeds. Azure Flexible rejects any extension not
+  pre-listed, a gap RDS did not have.
+
+  The AWS analogue is modules/aws/rds-cluster. Naming and tags follow the repo's
+  null-label convention (see label.tf and docs/MODULE_STANDARD.md).
+
+usage: |-
+  See examples/basic for a runnable configuration wired to the vnet module.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: Azure VNet module (provides the subnet + DNS zone)
+    url: ../vnet

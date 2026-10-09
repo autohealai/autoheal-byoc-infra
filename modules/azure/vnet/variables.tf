@@ -1,5 +1,5 @@
 # Label inputs (namespace, environment, name, attributes, tags, ...) are declared
-# in context.tf via the null-label convention. Only module-specific inputs live here.
+# in label.tf and feed modules/_shared/label. Only module-specific inputs live here.
 
 variable "resource_group_name" {
   type        = string

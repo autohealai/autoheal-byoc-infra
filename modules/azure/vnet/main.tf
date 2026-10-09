@@ -7,7 +7,7 @@
 #     inline creation trips a "server name + zone suffix" validation).
 #   - Optional privatelink DNS zones for Blob / Key Vault / AI Foundry.
 #
-# Naming and tags come from the null-label context (module.this); see context.tf.
+# Naming and tags come from the null-label base (module.this); see label.tf.
 # The resource group is created by the composition and passed in, so children can
 # share one teardown unit (one RG = one delete).
 

@@ -41,5 +41,11 @@ All notable changes to this repo are documented here. Format follows
   separate post-Temporal apply.
 - `examples/azure-byoc/terragrunt.hcl` — copyable Terragrunt wrapper (inputs +
   remote state) that consumers run.
+- `compositions/azure-byoc-connect` — connect-mode (Nomura-style) Azure install:
+  reads existing VNet/AKS/PG/Key Vault/Redis/ACR/Storage via data sources, creates
+  only the app workload identity (+ federated credentials, role grants) and optional
+  seed secrets, and emits the identical output contract.
+- `examples/azure-byoc-connect/terragrunt.hcl` — copyable Terragrunt wrapper for the
+  connect-mode install.
 - Naming decision: null-label ids (`<namespace>-<environment>-<name>`) are
   canonical repo-wide; `*_override` inputs remain for fixed corporate schemes.

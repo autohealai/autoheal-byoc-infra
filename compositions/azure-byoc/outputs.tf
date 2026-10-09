@@ -12,8 +12,8 @@ output "postgres_host" {
 }
 
 output "redis_endpoint" {
-  description = "Redis endpoint. Empty: Redis is parked for Azure pending the Premium-vs-managed decision."
-  value       = ""
+  description = "Redis endpoint (host:ssl_port), Premium VNet-injected."
+  value       = module.redis.endpoint
 }
 
 output "object_store" {

@@ -1,0 +1,17 @@
+name: aws/secrets-manager
+title: Autoheal BYOC — AWS Secrets Manager
+description: |-
+  Secrets Manager storage for a BYOC-on-EKS Autoheal install. Creates one secret
+  per entry under a shared prefix (tenants/<tenant>/<key>). The app reads them via
+  its IRSA role (modules/aws/irsa); this module stores, it does not grant read.
+
+  Azure analogue: modules/azure/keyvault. Naming/tags via the null-label base.
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: AWS IRSA module
+    url: ../irsa

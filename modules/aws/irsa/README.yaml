@@ -1,0 +1,18 @@
+name: aws/irsa
+title: Autoheal BYOC — AWS IRSA (app identity)
+description: |-
+  IAM Role for Service Accounts (IRSA) for the Autoheal app. Trusts the EKS cluster
+  OIDC provider for the given Kubernetes service accounts and grants read access to
+  the Secrets Manager prefix and S3 bucket(s). The role ARN is the cross-cloud
+  runner_identity.
+
+  Azure analogue: modules/azure/workload-identity. Naming/tags via the null-label base.
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: AWS EKS module
+    url: ../eks

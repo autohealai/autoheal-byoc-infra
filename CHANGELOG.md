@@ -47,5 +47,35 @@ All notable changes to this repo are documented here. Format follows
   seed secrets, and emits the identical output contract.
 - `examples/azure-byoc-connect/terragrunt.hcl` — copyable Terragrunt wrapper for the
   connect-mode install.
+- `modules/aws/vpc` — VPC, public/private subnets per AZ, per-AZ NAT gateways, and
+  EKS discovery tags (`kubernetes.io/role/*`, `kubernetes.io/cluster/<name>=shared`).
+  Azure analogue of `azure/vnet`.
+- `modules/aws/rds-cluster` — Aurora PostgreSQL, provisioned (BYOC policy, NOT
+  Serverless v2); writer + optional multi-AZ reader, SG-gated on the EKS primary
+  security group. Azure analogue of `azure/postgres-flexible`.
+- `modules/aws/elasticache` — ElastiCache Redis replication group, node-based, in-
+  transit + at-rest encryption, SG-gated; automatic failover + Multi-AZ when >1 node.
+  Azure analogue of `azure/redis`.
+- `modules/aws/s3` — attachments bucket: versioned, SSE-S3, public access blocked,
+  noncurrent-version expiry, optional CORS. Azure analogue of `azure/blob`.
+- `modules/aws/secrets-manager` — connection secrets created under a shared prefix;
+  storage only (read is granted by IRSA). Azure analogue of `azure/keyvault`.
+- `modules/aws/ecr` — per-service repositories under the account registry with a
+  lifecycle-prune policy; exposes the registry endpoint. Azure analogue of `azure/acr`.
+- `modules/aws/eks` — EKS cluster, managed node group, IRSA OIDC provider, EBS CSI
+  add-on; trimmed to BYOC essentials (no ALB-controller IAM). Azure analogue of
+  `azure/aks`.
+- `modules/aws/irsa` — app IAM role federated to the cluster OIDC provider with
+  scoped Secrets Manager + S3 access; the cross-cloud `runner_identity`. Azure
+  analogue of `azure/workload-identity`.
+- `modules/aws/runner-asg` — runner-go EC2 Auto Scaling Group (Docker-out-of-Docker)
+  with cloud-init, ECR credential-helper pulls via instance profile, SSM access; a
+  separate post-Temporal apply. Azure analogue of `azure/runner-vmss`.
+- `compositions/aws-byoc` — wires the AWS modules into one install (VPC, EKS, Aurora,
+  ElastiCache, S3, ECR, generated PG password seeded to Secrets Manager, app IRSA)
+  and emits the cross-cloud output contract. Runner ASG is a separate post-Temporal
+  apply.
+- `examples/aws-byoc/terragrunt.hcl` — copyable Terragrunt wrapper (inputs + S3
+  remote state) that consumers run.
 - Naming decision: null-label ids (`<namespace>-<environment>-<name>`) are
   canonical repo-wide; `*_override` inputs remain for fixed corporate schemes.

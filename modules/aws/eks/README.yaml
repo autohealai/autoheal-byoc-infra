@@ -1,0 +1,21 @@
+name: aws/eks
+title: Autoheal BYOC — AWS EKS
+description: |-
+  EKS cluster + managed node group + IRSA OIDC provider for a BYOC Autoheal install.
+  The cluster OIDC provider is what modules/aws/irsa federates app service accounts
+  against; the EBS CSI add-on backs stateful PersistentVolumes. Trimmed to BYOC
+  essentials (no ALB controller IAM; the ingress controller is installed at
+  app-install time).
+
+  Azure analogue: modules/azure/aks. Naming/tags via the null-label base.
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: AWS VPC module
+    url: ../vpc
+  - name: AWS IRSA module
+    url: ../irsa

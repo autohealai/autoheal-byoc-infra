@@ -7,7 +7,7 @@ Server private DNS zone, and optional privatelink DNS zones for Blob, Key Vault,
 and AI Foundry / Azure OpenAI.
 
 The AWS analogue is `modules/aws/vpc`. Naming and tags follow the repo's
-null-label convention (see `context.tf` and
+null-label convention (see `label.tf` and
 [docs/MODULE_STANDARD.md](../../../docs/MODULE_STANDARD.md)).
 
 ## Usage
@@ -17,7 +17,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 <!-- BEGIN_TF_DOCS -->
 <!-- terraform-docs populates the providers / inputs / outputs tables here.
      The module-specific inputs are in variables.tf; label inputs (namespace,
-     environment, name, attributes, tags, ...) come from context.tf. -->
+     environment, name, attributes, tags, ...) come from label.tf. -->
 
 ### Key inputs
 

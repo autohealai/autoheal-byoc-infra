@@ -1,0 +1,24 @@
+name: azure/redis
+title: Autoheal BYOC — Azure Cache for Redis (Premium, VNet-injected)
+description: |-
+  Azure Cache for Redis, Premium SKU, injected directly into a dedicated subnet for
+  a BYOC-on-AKS Autoheal install. The cache gets a real IP in modules/azure/vnet's
+  snet-redis, so AKS pods reach it privately with no Private Endpoint and no
+  privatelink DNS zone, and no public endpoint is exposed.
+
+  BYOC decision: Premium + VNet injection, NOT Managed/Enterprise Redis. VNet
+  injection is Premium-only and immutable after create — the subnet must be
+  dedicated and undelegated (modules/azure/vnet provisions snet-redis for exactly
+  this).
+
+  The AWS analogue is modules/aws/elasticache. Naming and tags follow the repo's
+  null-label convention (see label.tf and docs/MODULE_STANDARD.md).
+
+usage: |-
+  See examples/basic for a runnable configuration wired to the vnet module.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: Azure VNet module (provides the dedicated redis subnet)
+    url: ../vnet

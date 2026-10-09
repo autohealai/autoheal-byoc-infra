@@ -20,6 +20,9 @@ All notable changes to this repo are documented here. Format follows
   vnet module's delegated subnet and PG private DNS zone.
 - `modules/azure/blob` — Storage Account + private container; name sanitized from
   the label id (override available).
+- `modules/azure/redis` — Azure Cache for Redis, Premium, injected into the vnet
+  module's dedicated `snet-redis` (no Private Endpoint, no public endpoint). BYOC
+  decision recorded: Premium + VNet injection, not Managed/Enterprise Redis.
 - `modules/azure/keyvault` — RBAC-mode Key Vault with deployer Secrets Officer
   grant and optional seed secrets.
 - `modules/azure/private-endpoint` — generic private endpoint (Blob/Vault/Foundry),
@@ -32,10 +35,10 @@ All notable changes to this repo are documented here. Format follows
   cloud-init, managed-identity AcrPull, NAT egress.
 - `modules/azure/aks` — AKS cluster (create/connect), UAMI control plane, OIDC +
   workload identity, Cilium overlay, kubelet AcrPull.
-- `compositions/azure-byoc` — wires the nine Azure modules into one install
-  (resource group, generated PG password seeded to Key Vault, optional private
-  endpoints) and emits the cross-cloud output contract. Redis parked; runner VMSS
-  is a separate post-Temporal apply.
+- `compositions/azure-byoc` — wires the Azure modules into one install (resource
+  group, generated PG password + Redis key seeded to Key Vault, Redis, optional
+  private endpoints) and emits the cross-cloud output contract. Runner VMSS is a
+  separate post-Temporal apply.
 - `examples/azure-byoc/terragrunt.hcl` — copyable Terragrunt wrapper (inputs +
   remote state) that consumers run.
 - Naming decision: null-label ids (`<namespace>-<environment>-<name>`) are

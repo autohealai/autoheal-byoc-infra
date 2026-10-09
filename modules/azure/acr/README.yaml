@@ -1,0 +1,23 @@
+name: azure/acr
+title: Autoheal BYOC — Azure Container Registry
+description: |-
+  Container registry for BYOC images in a BYOC-on-AKS Autoheal install. Pulls are
+  keyless via managed identity (AcrPull granted to the AKS kubelet identity and the
+  runner identity), so admin access stays disabled and no static registry
+  credentials exist.
+
+  The AWS analogue is modules/aws/ecr. Registry names reject dashes and allow 5-50
+  alphanumeric chars, so the module derives a sanitized name from the label id
+  (override available). Naming and tags follow the repo's null-label convention
+  (see label.tf and docs/MODULE_STANDARD.md).
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: AKS (kubelet identity gets AcrPull)
+    url: ../aks
+  - name: Runner VMSS (runner identity gets AcrPull)
+    url: ../runner-vmss

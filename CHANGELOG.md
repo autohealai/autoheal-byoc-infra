@@ -18,3 +18,17 @@ All notable changes to this repo are documented here. Format follows
 - `modules/azure/postgres-flexible` — provisioned, private (VNet-integrated)
   PostgreSQL Flexible Server with the `azure.extensions` allow-list; consumes the
   vnet module's delegated subnet and PG private DNS zone.
+- `modules/azure/blob` — Storage Account + private container; name sanitized from
+  the label id (override available).
+- `modules/azure/keyvault` — RBAC-mode Key Vault with deployer Secrets Officer
+  grant and optional seed secrets.
+- `modules/azure/private-endpoint` — generic private endpoint (Blob/Vault/Foundry),
+  instantiated per target via attributes.
+- `modules/azure/acr` — Azure Container Registry (new; was script-created),
+  keyless pulls, admin disabled.
+- `modules/azure/workload-identity` — UAMI + federated credentials + Key Vault /
+  Blob / ACR role grants (IRSA/Pod-Identity analogue).
+- `modules/azure/runner-vmss` — runner-go VMSS (Docker-out-of-Docker) with
+  cloud-init, managed-identity AcrPull, NAT egress.
+- `modules/azure/aks` — AKS cluster (create/connect), UAMI control plane, OIDC +
+  workload identity, Cilium overlay, kubelet AcrPull.

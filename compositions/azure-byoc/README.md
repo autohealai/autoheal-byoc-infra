@@ -1,24 +1,35 @@
 # compositions/azure-byoc
 
-The Azure recipe: wires the `modules/azure/*` building blocks into the full
-Autoheal BYOC stack and emits the shared output contract. This is what a consumer
-runs (via an `examples/azure-byoc` config).
+The Azure recipe: wires the `modules/azure/*` building blocks into the Autoheal
+BYOC stack and emits the shared output contract. Consumers run it via
+`examples/azure-byoc` (a Terragrunt wrapper); see
+[docs/CONSUMING.md](../../docs/CONSUMING.md).
 
-Wiring (planned, as modules land):
+## What it creates
 
 ```
-resource group
-module "vnet"              modules/azure/vnet
-module "postgres"          modules/azure/postgres-flexible  (subnet = vnet.subnet_db_id)
-module "redis"             modules/azure/redis-premium      (subnet = vnet.subnet_redis_id)
-module "blob"              modules/azure/blob
-module "keyvault"          modules/azure/keyvault
-module "acr"               modules/azure/acr
-module "aks"               modules/azure/aks                (subnet = vnet.subnet_aks_id)
-module "runner"            modules/azure/runner-vmss        (subnet = vnet.subnet_runner_id, acr = acr.id)
-module "workload_identity" modules/azure/workload-identity
+azurerm_resource_group         rg-<namespace>-<environment>-<name>
+random_password.postgres       -> seeded into Key Vault, never a root output
+module.vnet                    VNet + subnets + NAT + PG/privatelink DNS zones
+module.postgres                PG Flexible (subnet = vnet.subnet_db_id)
+module.blob                    Storage Account + container
+module.acr                     Container Registry
+module.keyvault                Key Vault + seeded PG secrets
+module.aks                     AKS (subnet = vnet.subnet_aks_id, acr = acr.acr_id)
+module.workload_identity       UAMI federated to the app SAs (+ KV/Blob grants)
+module.pe_blob / module.pe_vault   private endpoints (when private_endpoints_enabled)
 ```
 
-Outputs (shared contract — identical names in `aws-byoc`):
-`cluster_name`, `postgres_host`, `redis_endpoint`, `object_store`,
-`secret_store_uri`, `registry`, `runner_identity`.
+## Deliberately not here
+
+- **Redis** — parked (Premium VNet-injected vs managed is undecided).
+- **Runner VMSS** (`modules/azure/runner-vmss`) — it needs `temporal_host` (the
+  internal LB IP), which only exists after the app + Temporal are deployed. Run it
+  as a separate apply afterwards, fed by this composition's `runner_subnet_id`,
+  `acr_id`, and `acr_name`. This mirrors the AWS runner unit.
+
+## Outputs (shared contract — identical names in `aws-byoc`)
+
+`cluster_name`, `postgres_host`, `redis_endpoint` (empty while Redis is parked),
+`object_store`, `secret_store_uri`, `registry`, `runner_identity`. Plus
+`resource_group_name`, `oidc_issuer_url`, `acr_id`, `runner_subnet_id`, `kube_host`.

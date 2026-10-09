@@ -32,3 +32,11 @@ All notable changes to this repo are documented here. Format follows
   cloud-init, managed-identity AcrPull, NAT egress.
 - `modules/azure/aks` — AKS cluster (create/connect), UAMI control plane, OIDC +
   workload identity, Cilium overlay, kubelet AcrPull.
+- `compositions/azure-byoc` — wires the nine Azure modules into one install
+  (resource group, generated PG password seeded to Key Vault, optional private
+  endpoints) and emits the cross-cloud output contract. Redis parked; runner VMSS
+  is a separate post-Temporal apply.
+- `examples/azure-byoc/terragrunt.hcl` — copyable Terragrunt wrapper (inputs +
+  remote state) that consumers run.
+- Naming decision: null-label ids (`<namespace>-<environment>-<name>`) are
+  canonical repo-wide; `*_override` inputs remain for fixed corporate schemes.

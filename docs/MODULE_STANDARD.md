@@ -87,6 +87,11 @@ terraform {
 
 - Commit `.terraform.lock.hcl` **only** in `compositions/` and `examples/` (roots).
 - Never commit a lockfile inside a `modules/` directory — consumers resolve providers.
+- Committed locks target the **Terraform registry** (the CI toolchain) and carry
+  linux + darwin, amd64 + arm64 hashes — regenerate with
+  `terraform providers lock -platform=linux_amd64 -platform=linux_arm64 -platform=darwin_amd64 -platform=darwin_arm64`.
+  Terraform is canonical; OpenTofu consumers resolve from the OpenTofu registry and
+  regenerate their own lock on `init`.
 
 ## 5. Generated docs
 

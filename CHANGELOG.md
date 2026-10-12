@@ -6,6 +6,8 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-12
+
 ### Added
 - Repo scaffold: module standard, consuming guide, CI gates, pre-commit, tflint.
 - Cloud Posse null-label convention delivered via one shared base,

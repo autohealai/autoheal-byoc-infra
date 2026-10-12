@@ -2,6 +2,10 @@
 
 A copyable starting config that points at `compositions/azure-byoc` via Terragrunt.
 
+**First time? Follow the full step-by-step tutorial in
+[docs/CONSUMING.md](../../docs/CONSUMING.md)** — it covers the tools, permissions,
+and the one-time state bootstrap this short version assumes. The short version:
+
 ```bash
 cp -r examples/azure-byoc examples/azure-byoc-mine
 cd examples/azure-byoc-mine

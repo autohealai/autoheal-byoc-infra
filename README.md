@@ -28,10 +28,13 @@ docs/             MODULE_STANDARD.md (contributor contract), CONSUMING.md (usage
 
 ## Quick start
 
-Read [docs/CONSUMING.md](docs/CONSUMING.md) for the full per-cloud flow — the
-prerequisites (CLI auth, the exact cloud role set) and, on Azure, a one-time
-remote-state bootstrap that must run *before* `terragrunt init`. The core loop,
-once the backend exists, is:
+**New here? Follow [docs/CONSUMING.md](docs/CONSUMING.md) step by step.** It is a
+beginner's tutorial that walks the whole install — install the tools, check your
+permissions, sign in, copy an example, set up remote state, then
+`init` → `plan` → `apply` — with a troubleshooting table at the end.
+
+The core loop, once you have done the prerequisites and (on Azure) the one-time
+state bootstrap, is:
 
 ```bash
 terragrunt init
@@ -40,8 +43,8 @@ terragrunt apply     # provision
 terragrunt output -json > autoheal-infra-outputs.json   # feeds the app install
 ```
 
-> The snippet above is not a standalone runbook — on Azure it fails at `init`
-> without the state backend. Follow CONSUMING.md end to end for a real install.
+> This snippet is not a standalone runbook — on Azure it fails at `init` without
+> the state backend. Follow CONSUMING.md end to end for a real install.
 
 ## Versioning
 

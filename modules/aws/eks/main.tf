@@ -44,6 +44,9 @@ resource "aws_security_group" "cluster" {
   description = "EKS control-plane security group for ${local.cluster_name}"
   vpc_id      = var.vpc_id
 
+  # The control plane needs outbound reach to the managed node group, AWS APIs
+  # (STS/ECR/EC2) and image registries; nodes live in private subnets behind NAT.
+  #trivy:ignore:AVD-AWS-0104 Unrestricted egress is required for EKS control-plane/node operation; ingress is the controlled surface.
   egress {
     from_port   = 0
     to_port     = 0
@@ -55,11 +58,20 @@ resource "aws_security_group" "cluster" {
 }
 
 # EKS cluster
+# Envelope encryption of Kubernetes secrets is operator-gated: supply var.kms_key_arn
+# and the encryption_config block below activates. EKS already encrypts etcd at rest
+# with an AWS-managed key by default; the KMS key adds a customer-controlled envelope.
+#trivy:ignore:AVD-AWS-0039 Secret envelope encryption is operator-gated via kms_key_arn; etcd is AWS-encrypted at rest by default.
 resource "aws_eks_cluster" "this" {
   name     = local.cluster_name
   role_arn = aws_iam_role.cluster.arn
   version  = var.kubernetes_version
 
+  # Public API access is operator-gated: endpoint_public_access + public_access_cidrs
+  # are variables the deployment sets (restrict to admin/CI CIDRs in production).
+  # Private access is always on, so a closed public endpoint stays fully functional.
+  #trivy:ignore:AVD-AWS-0040 Public endpoint is operator-gated via endpoint_public_access; private access always on.
+  #trivy:ignore:AVD-AWS-0041 Public CIDRs are operator-gated via public_access_cidrs; set per deployment.
   vpc_config {
     subnet_ids              = concat(var.private_subnet_ids, var.public_subnet_ids)
     endpoint_private_access = true

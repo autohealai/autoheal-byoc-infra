@@ -17,7 +17,7 @@ provider "aws" {
 module "ecr" {
   source = "../../"
 
-  namespace   = "avid"
+  namespace   = "acme"
   environment = "play"
   name        = "autoheal"
 

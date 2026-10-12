@@ -10,6 +10,10 @@
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
+# Tag mutability is operator-controlled (var.image_tag_mutability). The BYOC image
+# flow mirrors upstream images under moving tags (e.g. :latest, :dev), which requires
+# MUTABLE; set IMMUTABLE per-repo for release repositories that only take digests.
+#trivy:ignore:AVD-AWS-0031 Mutable tags are required to mirror moving tags (:latest/:dev); operator-gated via image_tag_mutability.
 resource "aws_ecr_repository" "this" {
   for_each = toset(var.repository_names)
 

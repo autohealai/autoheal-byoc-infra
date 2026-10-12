@@ -22,53 +22,84 @@ jobs:
       - name: fmt
         run: terraform fmt -check -recursive
 
-      - name: validate modules
+      - name: validate modules and compositions
         run: |
           set -e
-          for d in $(find modules -type f -name versions.tf -exec dirname {} \;); do
+          for d in $(find modules compositions -type f -name versions.tf -exec dirname {} \;); do
             echo "== validate $d =="
             terraform -chdir="$d" init -backend=false >/dev/null
             terraform -chdir="$d" validate
           done
 
+      # validate does not evaluate lifecycle preconditions, so the Blob/Key Vault
+      # reachability logic in the azure-byoc composition is covered by a mocked-provider
+      # `terraform test` that runs a real plan. See the tests/ directory for the cases.
+      - name: composition precondition tests
+        run: |
+          set -e
+          terraform -chdir=compositions/azure-byoc init -backend=false >/dev/null
+          terraform -chdir=compositions/azure-byoc test
+
       - name: tflint
         uses: terraform-linters/setup-tflint@v4
         with:
           tflint_version: v0.53.0
-      - run: tflint --init && tflint --recursive --config="$PWD/.tflint.hcl"
+      - run: tflint --init && tflint --recursive --minimum-failure-severity=error --config="$PWD/.tflint.hcl"
 
       - name: trivy (IaC misconfig)
-        uses: aquasecurity/trivy-action@v0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         with:
           scan-type: config
           scan-ref: .
           severity: HIGH,CRITICAL
           exit-code: "1"
 
+      # Pinned terraform-docs (not the floating gh-action) so the generated tables are
+      # byte-reproducible: regenerate locally with the same version + flags and the diff
+      # check below stays deterministic. To refresh: run this loop and commit the READMEs.
       - name: terraform-docs check
-        uses: terraform-docs/gh-actions@v1
-        with:
-          find-dir: modules
-          output-file: README.md
-          output-method: inject
-          fail-on-diff: true
+        run: |
+          set -euo pipefail
+          VER=0.20.0
+          curl -sSLo /tmp/td.tgz "https://github.com/terraform-docs/terraform-docs/releases/download/v${VER}/terraform-docs-v${VER}-linux-amd64.tar.gz"
+          tar -xzf /tmp/td.tgz -C /tmp terraform-docs
+          chmod +x /tmp/terraform-docs
+          # terraform-docs reports a provider's *locked* version when a .terraform.lock.hcl
+          # is present (the validate step above writes one per module with resolved versions,
+          # e.g. 5.100.0). Remove them under modules/ so the tables render the version
+          # *constraints* (e.g. ~> 5.0) instead — stable across provider releases.
+          find modules -name '.terraform.lock.hcl' -delete
+          find modules -type d -name '.terraform' -prune -exec rm -rf {} + 2>/dev/null || true
+          # Only regenerate READMEs that are already terraform-docs-managed (contain the
+          # markers); leaves index/placeholder READMEs (e.g. modules/gcp) untouched.
+          for f in $(grep -rl 'BEGIN_TF_DOCS' modules --include=README.md | grep -v '/.terraform/' | sort -u); do
+            /tmp/terraform-docs markdown table --output-file README.md --output-mode inject "$(dirname "$f")" >/dev/null
+          done
+          if ! git diff --quiet -- '*/README.md'; then
+            echo "::error::module READMEs are out of date — regenerate with terraform-docs v${VER} and commit"
+            git --no-pager diff -- '*/README.md'
+            exit 1
+          fi
 
-  plan-examples:
-    name: plan examples
+  examples:
+    name: validate examples
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.9.8"
-      # Example plans run against a sandbox subscription/account via OIDC.
-      # Wire cloud credentials here before enabling the apply/destroy test tier.
-      - name: plan module examples
+      # init + validate only — no cloud credentials, so these do not plan against a real
+      # subscription. Wire OIDC credentials here and switch to `terraform plan` (then an
+      # apply/destroy tier) once a sandbox subscription is available.
+      - name: validate module examples
         run: |
           set -e
           for d in $(find modules -type d -path '*/examples/*' -maxdepth 4 | sort -u); do
             [ -f "$d/main.tf" ] || continue
-            echo "== plan $d =="
+            echo "== validate $d =="
             terraform -chdir="$d" init -backend=false >/dev/null
             terraform -chdir="$d" validate
           done

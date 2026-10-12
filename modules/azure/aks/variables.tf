@@ -66,6 +66,30 @@ variable "node_max_count" {
   description = "Default node pool autoscaler maximum."
 }
 
+variable "api_server_authorized_ip_ranges" {
+  type        = list(string)
+  default     = []
+  description = "CIDRs allowed to reach the public AKS API server. Empty = no IP restriction; set your admin/CI egress CIDRs for production. Ignored when private_cluster_enabled = true (a private cluster has no public endpoint)."
+}
+
+variable "private_cluster_enabled" {
+  type        = bool
+  default     = false
+  description = "Provision a private control plane: the API server is reachable only from the VNet and peered/connected networks, with no public endpoint. Default false = public endpoint (restrict it with api_server_authorized_ip_ranges). Whatever runs kubectl/Terraform must have in-VNet connectivity when true."
+}
+
+variable "admin_group_object_ids" {
+  type        = list(string)
+  default     = []
+  description = "Entra (AAD) group object IDs granted cluster-admin via managed-AAD + Azure RBAC. Empty = Kubernetes RBAC only (no managed-AAD integration). Deployment-specific, so there is no default."
+}
+
+variable "tenant_id" {
+  type        = string
+  default     = ""
+  description = "Entra tenant for managed-AAD RBAC. Empty = the current provider's tenant. Only used when admin_group_object_ids is set."
+}
+
 variable "acr_id" {
   type        = string
   default     = ""

@@ -18,11 +18,11 @@ provider "aws" {
 module "secrets" {
   source = "../../"
 
-  namespace   = "avid"
+  namespace   = "acme"
   environment = "play"
   name        = "autoheal"
 
-  secret_prefix = "tenants/avid"
+  secret_prefix = "tenants/acme"
   secrets = {
     "postgres-password" = "placeholder-not-real" # pragma: allowlist secret
   }

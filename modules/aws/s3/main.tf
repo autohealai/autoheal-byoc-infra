@@ -24,6 +24,10 @@ resource "aws_s3_bucket_versioning" "this" {
   }
 }
 
+# The bucket is encrypted at rest with SSE-S3 (AES256). This finding asks for a
+# customer-managed KMS key, which is left to the deployment to supply when CMK
+# control is required (keeps the base module free of a mandatory KMS key + its cost).
+#trivy:ignore:AVD-AWS-0132 SSE-S3 (AES256) is enabled; a customer-managed KMS key is operator-optional.
 resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
   bucket = aws_s3_bucket.this.id
 

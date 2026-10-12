@@ -3,7 +3,7 @@
 
 variable "secret_prefix" {
   type        = string
-  description = "Prefix each secret name is created under, e.g. 'tenants/avid'. The IRSA policy is scoped to '<prefix>/*'."
+  description = "Prefix each secret name is created under, e.g. 'tenants/acme'. The IRSA policy is scoped to '<prefix>/*'."
 
   validation {
     condition     = length(var.secret_prefix) > 0 && !startswith(var.secret_prefix, "/") && !endswith(var.secret_prefix, "/")

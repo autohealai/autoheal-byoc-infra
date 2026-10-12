@@ -54,7 +54,7 @@ variable "enabled" {
 variable "namespace" {
   type        = string
   default     = null
-  description = "ID element. Customer/tenant, e.g. 'avid'."
+  description = "ID element. Customer/tenant, e.g. 'acme'."
 }
 
 variable "environment" {

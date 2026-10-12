@@ -18,18 +18,18 @@ provider "aws" {
 module "vpc" {
   source = "../../../vpc"
 
-  namespace          = "avid"
+  namespace          = "acme"
   environment        = "play"
   name               = "autoheal"
   vpc_cidr           = "10.60.0.0/16"
   availability_zones = ["us-west-2a", "us-west-2b"]
-  cluster_name       = "avid-play-autoheal"
+  cluster_name       = "acme-play-autoheal"
 }
 
 module "redis" {
   source = "../../"
 
-  namespace   = "avid"
+  namespace   = "acme"
   environment = "play"
   name        = "autoheal"
   attributes  = ["redis"]

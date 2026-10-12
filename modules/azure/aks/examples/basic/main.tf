@@ -18,7 +18,7 @@ provider "azurerm" {
 module "vnet" {
   source = "../../../vnet"
 
-  namespace           = "avid"
+  namespace           = "acme"
   environment         = "play"
   name                = "autoheal"
   resource_group_name = "rg-autoheal-play"
@@ -28,7 +28,7 @@ module "vnet" {
 module "aks" {
   source = "../../"
 
-  namespace   = "avid"
+  namespace   = "acme"
   environment = "play"
   name        = "autoheal"
 

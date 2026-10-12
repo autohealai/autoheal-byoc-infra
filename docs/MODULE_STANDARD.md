@@ -38,7 +38,7 @@ The relative `source` means modules are versioned together with this repo — no
 external pin at the consume site. Resources then derive all names and tags from it:
 
 ```hcl
-name = module.this.id          # e.g. avid-prod-autoheal
+name = module.this.id          # e.g. acme-prod-autoheal
 tags = module.this.tags        # consistent tag map on every resource
 ```
 
@@ -50,7 +50,7 @@ Posse's defaults — document it, do not assume the upstream meaning):
 
 | Label | Meaning here | Example |
 |-------|--------------|---------|
-| `namespace`   | customer / tenant     | `avid` |
+| `namespace`   | customer / tenant     | `acme` |
 | `environment` | **lifecycle** (not region) | `stage`, `prod`, `play` |
 | `name`        | component             | `autoheal` |
 | `attributes`  | extra qualifiers      | `["db"]` |

@@ -18,7 +18,7 @@ provider "azurerm" {
 module "vnet" {
   source = "../../../vnet"
 
-  namespace                 = "avid"
+  namespace                 = "acme"
   environment               = "play"
   name                      = "autoheal"
   resource_group_name       = "rg-autoheal-play"
@@ -29,7 +29,7 @@ module "vnet" {
 module "blob" {
   source = "../../../blob"
 
-  namespace           = "avid"
+  namespace           = "acme"
   environment         = "play"
   name                = "autoheal"
   resource_group_name = "rg-autoheal-play"
@@ -40,7 +40,7 @@ module "pe_blob" {
   source = "../../"
 
   # attributes distinguishes this endpoint's name from vault/foundry endpoints
-  namespace   = "avid"
+  namespace   = "acme"
   environment = "play"
   name        = "autoheal"
   attributes  = ["blob"]

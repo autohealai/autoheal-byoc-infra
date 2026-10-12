@@ -7,7 +7,7 @@
 
 variable "namespace" {
   type        = string
-  description = "Customer / tenant, e.g. 'avid'. First element of every resource name."
+  description = "Customer / tenant, e.g. 'acme'. First element of every resource name."
 }
 
 variable "environment" {
@@ -65,7 +65,41 @@ variable "address_space" {
 variable "private_endpoints_enabled" {
   type        = bool
   default     = false
-  description = "Create privatelink DNS zones + private endpoints for Blob and Key Vault."
+  description = "Create privatelink DNS zones + private endpoints for Blob and Key Vault. This is the recommended runtime path for in-cluster pods. When false, the runtime path relies on workload_egress_ip_ranges (the cluster's outbound IP) or an Allow default action instead."
+}
+
+variable "deployer_ip_ranges" {
+  type        = list(string)
+  default     = []
+  description = "APPLY-TIME path. Public egress CIDR(s) of the Terraform apply host, allow-listed on the Blob and Key Vault firewalls so the apply can create the blob container and seed Key Vault secrets over the data plane (deny-all blocks this otherwise). This is NOT a runtime path for pods — see workload_egress_ip_ranges. Leave empty only when the *_network_default_action values are \"Allow\"."
+}
+
+variable "workload_egress_ip_ranges" {
+  type        = list(string)
+  default     = []
+  description = "RUNTIME path for the non-private-endpoint case. Public outbound/NAT CIDR(s) of the AKS cluster, allow-listed on the Blob and Key Vault firewalls so in-cluster ESO/app pods can reach them. This is the cluster's outbound IP, NOT the apply host's. NOTE: with the default AKS load balancer, Azure assigns this IP during cluster creation, so it is not known until after the first apply — using this path is an inherently two-stage flow (apply once with Allow or private endpoints, read the cluster's outbound IP, then set this and re-apply to tighten). Prefer private_endpoints_enabled = true, which needs no second stage."
+}
+
+variable "storage_network_default_action" {
+  type        = string
+  default     = "Deny"
+  description = "Blob storage firewall default action. Deny (recommended) = only private endpoints, trusted Azure services, and the allow-listed CIDRs reach the account. Allow only for throwaway/playground installs."
+
+  validation {
+    condition     = contains(["Allow", "Deny"], var.storage_network_default_action)
+    error_message = "storage_network_default_action must be exactly \"Allow\" or \"Deny\" (case-sensitive; the Azure API and the reachability preconditions reject any other value)."
+  }
+}
+
+variable "key_vault_network_default_action" {
+  type        = string
+  default     = "Deny"
+  description = "Key Vault firewall default action. Deny (recommended) = only private endpoints, trusted Azure services, and the allow-listed CIDRs reach the vault. Allow only for throwaway/playground installs."
+
+  validation {
+    condition     = contains(["Allow", "Deny"], var.key_vault_network_default_action)
+    error_message = "key_vault_network_default_action must be exactly \"Allow\" or \"Deny\" (case-sensitive; the Azure API and the reachability preconditions reject any other value)."
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -110,6 +144,30 @@ variable "node_max_count" {
   type        = number
   default     = 4
   description = "Node pool autoscaler maximum."
+}
+
+variable "admin_group_object_ids" {
+  type        = list(string)
+  default     = []
+  description = "Entra (AAD) group object IDs granted cluster-admin via managed-AAD + Azure RBAC. Supplying any also disables the static-cert local admin accounts. Empty = Kubernetes RBAC only (no Entra integration)."
+}
+
+variable "aks_admin_tenant_id" {
+  type        = string
+  default     = ""
+  description = "Entra tenant for AKS managed-AAD RBAC. Empty = the deploying provider's tenant. Only used when admin_group_object_ids is set."
+}
+
+variable "api_server_authorized_ip_ranges" {
+  type        = list(string)
+  default     = []
+  description = "CIDRs allowed to reach the public AKS API server. Empty = no IP restriction (production should set admin/CI egress CIDRs). Ignored when private_cluster_enabled = true."
+}
+
+variable "private_cluster_enabled" {
+  type        = bool
+  default     = false
+  description = "Provision a private AKS control plane (no public API endpoint; reachable only from the VNet / peered networks). Default false = public endpoint restricted by api_server_authorized_ip_ranges."
 }
 
 # ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@ provider "aws" {
 module "irsa" {
   source = "../../"
 
-  namespace   = "avid"
+  namespace   = "acme"
   environment = "play"
   name        = "autoheal"
 
@@ -29,8 +29,8 @@ module "irsa" {
     { namespace = "autoheal", service_account = "api-server-go" },
   ]
 
-  secret_arns    = ["arn:aws:secretsmanager:us-west-2:111122223333:secret:tenants/avid/*"]
-  s3_bucket_arns = ["arn:aws:s3:::avid-play-autoheal-attachments"]
+  secret_arns    = ["arn:aws:secretsmanager:us-west-2:111122223333:secret:tenants/acme/*"]
+  s3_bucket_arns = ["arn:aws:s3:::acme-play-autoheal-attachments"]
 }
 
 output "role_arn" {

@@ -24,6 +24,10 @@ resource "aws_internet_gateway" "this" {
   tags   = merge(module.this.tags, { Name = "${module.this.id}-igw" })
 }
 
+# Public subnets host the IGW-facing tier (NAT gateways, and the ALB when the edge
+# is public); auto-assigning public IPs is required there. Workloads run in the
+# private subnets (map_public_ip_on_launch defaults to false).
+#trivy:ignore:AVD-AWS-0164 Public-tier subnets (NAT/ALB) require auto-assigned public IPs; workloads are in private subnets.
 resource "aws_subnet" "public" {
   count                   = length(var.availability_zones)
   vpc_id                  = aws_vpc.this.id

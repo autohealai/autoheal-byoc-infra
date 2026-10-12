@@ -35,12 +35,6 @@ variable "subnet_pe_prefix" {
   description = "Subnet for private endpoints (KV/Blob/Foundry when private)."
 }
 
-variable "subnet_redis_prefix" {
-  type        = string
-  default     = "10.60.18.0/24"
-  description = "Dedicated subnet for Azure Cache for Redis Premium VNet injection (must hold nothing else)."
-}
-
 variable "subnet_runner_prefix" {
   type        = string
   default     = "10.60.19.0/24"

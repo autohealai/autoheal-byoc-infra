@@ -1,0 +1,82 @@
+#cloud-config
+package_update: true
+packages:
+  - docker
+  - amazon-ecr-credential-helper
+write_files:
+  - path: /opt/runner-go/config.env
+    permissions: '0644'
+    content: |
+      TEMPORAL_HOST=${temporal_host}
+      TEMPORAL_NAMESPACE=runners
+      TEMPORAL_TLS=false
+      TEMPORAL_TOKEN=
+      NAME=${runner_name}
+      API_WORKER_MAX_CONCURRENT_ACTIVITIES=${max_concurrent_activities}
+      WORKER_SHUTDOWN_GRACE_SECONDS=30
+      DEBUG_MODE=false
+      DOCKER_SOCKET_PATH=/var/run/docker.sock
+      LAMBDA_DOWNLOAD_PATH=/var/lib/runner-go/lambdas
+      DATA_SOURCES_PATH=/var/lib/runner-go/datasources
+      SANDBOX_BASE_DIR=/var/lib/runner-go/sandboxes
+      AGENT_SESSION_SHARED_BASE_DIR=/var/lib/runner-go/agent-sessions
+      LOG_LEVEL=info
+      LOG_FORMAT=json
+      SANDBOX_WORKER_DEPLOYMENT_NAME=sandbox
+  # The ecr-login credential helper pulls a fresh token per `docker pull` using the
+  # instance profile, so there is no login timer and no static registry creds.
+  - path: /root/.docker/config.json
+    permissions: '0600'
+    content: |
+      {
+        "credHelpers": {
+          "${ecr_registry}": "ecr-login"
+        }
+      }
+  - path: /etc/systemd/system/runner-go.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Autoheal runner-go (Docker-out-of-Docker sandbox worker)
+      After=docker.service
+      Requires=docker.service
+      [Service]
+      Restart=always
+      RestartSec=10
+      Environment=DOCKER_CONFIG=/root/.docker
+      ExecStartPre=-/usr/bin/docker rm -f runner-go
+      ExecStartPre=/usr/bin/docker pull ${runner_image}
+      # --group-add <docker-gid>: the runner container runs as uid/gid 1000 (alpine
+      # adduser 'runner'); the host docker.sock is root:docker mode 660, so the
+      # runner must join the host docker group to drive the daemon (DooD).
+      # __DOCKER_GID__ is substituted from the host's real docker gid in runcmd.
+      # Each identity dir is bind-mounted at an IDENTICAL host<->container path:
+      # startup.ValidateIdentityMounts requires a mount whose Destination equals
+      # SANDBOX_BASE_DIR / DATA_SOURCES_PATH (a single parent mount does NOT satisfy
+      # the subpath check), and sandbox bind-mounts resolve on the HOST, so paths
+      # must match.
+      ExecStart=/usr/bin/docker run --rm --name runner-go --group-add __DOCKER_GID__ \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        -v /var/lib/runner-go/lambdas:/var/lib/runner-go/lambdas \
+        -v /var/lib/runner-go/datasources:/var/lib/runner-go/datasources \
+        -v /var/lib/runner-go/sandboxes:/var/lib/runner-go/sandboxes \
+        -v /var/lib/runner-go/agent-sessions:/var/lib/runner-go/agent-sessions \
+        --env-file /opt/runner-go/config.env \
+        ${runner_image}
+      ExecStop=/usr/bin/docker stop runner-go
+      [Install]
+      WantedBy=multi-user.target
+runcmd:
+  # runner-go container runs as uid/gid 1000 (alpine adduser); the bind-mounted
+  # state dir must be writable by it, and sandbox bind-mounts resolve on the HOST at
+  # the same path (DooD), so keep paths identical container<->host.
+  - mkdir -p /var/lib/runner-go/{lambdas,datasources,sandboxes,agent-sessions}
+  - chown -R 1000:1000 /var/lib/runner-go
+  - systemctl enable --now docker
+  # Substitute the host's real docker gid into the runner unit (only known now that
+  # docker is installed), so the container can access the host socket.
+  - sed -i "s/__DOCKER_GID__/$(getent group docker | cut -d: -f3)/" /etc/systemd/system/runner-go.service
+  # Pre-pull the sandbox image so the first investigation doesn't wait on a cold pull.
+  - DOCKER_CONFIG=/root/.docker docker pull ${sandbox_image} || true
+  - systemctl daemon-reload
+  - systemctl enable --now runner-go.service

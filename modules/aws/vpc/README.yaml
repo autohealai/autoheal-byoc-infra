@@ -1,0 +1,19 @@
+name: aws/vpc
+title: Autoheal BYOC — AWS VPC
+description: |-
+  VPC network substrate for a BYOC-on-EKS Autoheal install: public + private subnets
+  (one pair per AZ), an Internet Gateway, one NAT gateway per AZ for private egress,
+  and the EKS subnet discovery tags (kubernetes.io/role/{elb,internal-elb} and the
+  per-cluster shared tag) so the load-balancer controllers work.
+
+  The Azure analogue is modules/azure/vnet. Naming and tags follow the repo's
+  null-label convention (see label.tf and docs/MODULE_STANDARD.md).
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: AWS EKS module
+    url: ../eks

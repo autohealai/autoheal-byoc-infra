@@ -71,3 +71,9 @@ variable "acr_id" {
   default     = ""
   description = "ACR resource id to grant the kubelet identity AcrPull on. Empty skips (e.g. pull-through or public registry)."
 }
+
+variable "acr_pull_enabled" {
+  type        = bool
+  default     = true
+  description = "Grant the kubelet identity AcrPull on var.acr_id. Plan-time bool: acr_id is usually a computed ACR id (module.acr.acr_id), which cannot gate count directly — so a composition that creates its ACR must gate on this instead. Set false (with acr_id empty) for pull-through / public-registry clusters."
+}

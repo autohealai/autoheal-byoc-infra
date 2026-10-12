@@ -1,9 +1,9 @@
 name: azure/vnet
 title: Autoheal BYOC — Azure VNet
 description: |-
-  Network substrate for a BYOC-on-AKS Autoheal install. Creates a VNet with five
-  purpose-built subnets (AKS nodes, PG-delegated, private endpoints, Redis VNet
-  injection, runner VMSS), a NAT gateway for runner egress, the PostgreSQL
+  Network substrate for a BYOC-on-AKS Autoheal install. Creates a VNet with four
+  purpose-built subnets (AKS nodes, PG-delegated, private endpoints, runner VMSS),
+  a NAT gateway for runner egress, the PostgreSQL
   Flexible Server private DNS zone, and optional privatelink DNS zones for Blob,
   Key Vault, and AI Foundry / Azure OpenAI.
 

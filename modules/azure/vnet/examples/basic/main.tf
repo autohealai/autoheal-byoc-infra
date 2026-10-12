@@ -1,4 +1,4 @@
-# Minimal VNet: the default five subnets + runner NAT, no private endpoints.
+# Minimal VNet: the default four subnets + runner NAT, no private endpoints.
 # Doubles as the CI plan/validate fixture.
 
 terraform {

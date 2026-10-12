@@ -22,7 +22,16 @@ git checkout v1.0.0                       # pin a release, don't run main
 
 cp -r examples/azure-byoc examples/azure-byoc-mine
 cd examples/azure-byoc-mine
-# edit terragrunt.hcl: namespace, environment, location, subscription_id, resource_group
+# edit terragrunt.hcl: namespace, environment, location, subscription_id,
+# and the remote_state resource_group_name / storage_account_name
+
+# Step 0 — create the remote-state backend ONCE (Terraform can't create the
+# account that holds its own state). Names must match the remote_state block above.
+../../scripts/bootstrap-state-azure.sh \
+  --subscription   "<subscription-id>" \
+  --resource-group rg-autoheal-tfstate \
+  --storage-account stautohealtfstate \
+  --location       centralus
 
 terragrunt init
 terragrunt plan                           # review; nothing created yet
@@ -56,6 +65,10 @@ terragrunt output -json > autoheal-infra-outputs.json
 `redis_endpoint`, `object_store`, `secret_store_uri`, `registry`, and
 `runner_identity`. The Autoheal application install reads these; the output names
 are identical on AWS and Azure, so the install does not care which cloud it ran on.
+
+> Exception: `redis_endpoint` is AWS-only. The `azure-byoc` composition runs Redis
+> in-cluster (shipped by the app Helm chart) and does not emit it. If you bring your
+> own managed Redis on Azure, use `azure-byoc-connect`, which still emits it.
 
 ## Notes
 

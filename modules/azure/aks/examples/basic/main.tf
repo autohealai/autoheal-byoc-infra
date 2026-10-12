@@ -37,6 +37,9 @@ module "aks" {
 
   vnet_id        = module.vnet.vnet_id
   vnet_subnet_id = module.vnet.subnet_aks_id
+
+  # No ACR in this fixture; skip the kubelet AcrPull grant.
+  acr_pull_enabled = false
 }
 
 output "cluster_name" {

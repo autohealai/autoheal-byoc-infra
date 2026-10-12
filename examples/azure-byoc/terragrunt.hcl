@@ -15,13 +15,14 @@ terraform {
 }
 
 # Remote state: one storage account/container holds this install's state. Create it
-# once (or have the install guide create it) and fill the values in. Terragrunt feeds
+# ONCE with scripts/bootstrap-state-azure.sh (Terraform cannot create the account
+# that stores its own state), then put the matching names here. Terragrunt feeds
 # these to the composition's partial `backend "azurerm"` block at init.
 remote_state {
   backend = "azurerm"
   config = {
-    resource_group_name  = "rg-autoheal-tfstate"      # EDIT: state RG
-    storage_account_name = "stautohealtfstate"        # EDIT: state storage account (globally unique)
+    resource_group_name  = "rg-autoheal-tfstate"      # EDIT: state RG (bootstrap arg)
+    storage_account_name = "stautohealtfstate"        # EDIT: state storage account, 3-24 lowercase alnum, globally unique (bootstrap arg)
     container_name       = "tfstate"
     key                  = "azure-byoc/terraform.tfstate"
   }
@@ -29,13 +30,13 @@ remote_state {
 
 inputs = {
   # Identity / naming (environment = lifecycle, not region)
-  namespace   = "avid"       # EDIT: customer / tenant
+  namespace   = "REPLACE_ME" # EDIT: customer / tenant short name, e.g. "avid"
   environment = "play"       # EDIT: stage | prod | play
   name        = "autoheal"
 
   # Placement
-  subscription_id = "00000000-0000-0000-0000-000000000000" # EDIT
-  location        = "centralus"                            # EDIT
+  subscription_id = "REPLACE_ME" # EDIT: az account show --query id -o tsv
+  location        = "centralus"  # EDIT: PG Flexible region (centralus | westus3 | northcentralus)
 
   # Optional knobs (defaults are sensible; uncomment to change)
   # address_space             = ["10.60.0.0/16"]

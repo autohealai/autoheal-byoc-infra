@@ -23,11 +23,6 @@ output "subnet_pe_id" {
   value       = azurerm_subnet.pe.id
 }
 
-output "subnet_redis_id" {
-  description = "Subnet ID for Redis Premium VNet injection."
-  value       = azurerm_subnet.redis.id
-}
-
 output "subnet_runner_id" {
   description = "Subnet ID for the runner VMSS."
   value       = azurerm_subnet.runner.id

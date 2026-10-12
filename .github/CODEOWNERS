@@ -1,0 +1,19 @@
+# Code owners for autoheal-byoc-infra.
+# A review from a listed owner is required before any change to the paths they
+# own can merge to `main` (enforced by branch protection).
+#
+# TODO: replace @Vishalb20 with a GitHub team (e.g. @autohealai/infra) once one
+# exists, so ownership survives individual membership changes.
+
+# Everything, by default.
+*                       @Vishalb20
+
+# Infrastructure modules and compositions — the deployed surface.
+/modules/               @Vishalb20
+/compositions/          @Vishalb20
+
+# Release and governance surface.
+/CHANGELOG.md           @Vishalb20
+/docs/MODULE_STANDARD.md @Vishalb20
+/LICENSE                @Vishalb20
+/.github/               @Vishalb20

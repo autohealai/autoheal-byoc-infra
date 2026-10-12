@@ -6,6 +6,13 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-12
+
+> Docs- and governance-only release. No infrastructure (module/composition)
+> changes from `v1.1.0` — the deployed stack is identical. This tag exists so a
+> customer who pins a release also gets the `LICENSE`, which was added after the
+> `v1.1.0` tag.
+
 ### Added
 - Repository governance files: `LICENSE` (MIT, matching `autohealai/agents`),
   `.github/CODEOWNERS`, `SECURITY.md` (private vulnerability reporting), and
@@ -14,7 +21,8 @@ All notable changes to this repo are documented here. Format follows
 
 ### Changed
 - Point the README source example and the `docs/CONSUMING.md` checkout steps at
-  `v1.1.0` (was `v1.0.0`, which predates the workload-identity federation fix).
+  `v1.1.1` (was `v1.0.0`, which predates the workload-identity federation fix;
+  `v1.1.0` carried the fix but predates the `LICENSE`).
 
 ## [1.1.0] - 2026-10-12
 

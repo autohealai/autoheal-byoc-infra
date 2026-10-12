@@ -120,7 +120,7 @@ az account set --subscription "<subscription-id>"   # az account show --query id
 ```bash
 git clone https://github.com/autohealai/autoheal-byoc-infra.git
 cd autoheal-byoc-infra
-git checkout v1.1.0          # pin a released version; don't run main
+git checkout v1.1.1          # pin a released version; don't run main
 ```
 
 ### Step 3 — Make your own copy of the example
@@ -233,7 +233,7 @@ export AWS_PROFILE=<profile>
 ```bash
 git clone https://github.com/autohealai/autoheal-byoc-infra.git
 cd autoheal-byoc-infra
-git checkout v1.1.0
+git checkout v1.1.1
 ```
 
 ### Step 3 — Make your own copy of the example

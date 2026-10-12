@@ -1,5 +1,10 @@
 # The cross-cloud output contract. compositions/aws-byoc emits the SAME names, so
 # the Autoheal app install is cloud-agnostic (docs/MODULE_STANDARD.md §8).
+#
+# NOTE: there is intentionally no "redis_endpoint" output on Azure. Redis runs
+# in-cluster (a StatefulSet shipped by the app Helm chart) at a fixed service DNS
+# name, so the app does not learn it from infra. Customers who bring their own
+# managed Redis use compositions/azure-byoc-connect, which still emits it.
 
 output "cluster_name" {
   description = "AKS cluster name."
@@ -9,11 +14,6 @@ output "cluster_name" {
 output "postgres_host" {
   description = "PostgreSQL Flexible Server FQDN (private)."
   value       = module.postgres.host
-}
-
-output "redis_endpoint" {
-  description = "Redis endpoint. Empty: Redis is parked for Azure pending the Premium-vs-managed decision."
-  value       = ""
 }
 
 output "object_store" {
@@ -51,6 +51,25 @@ output "oidc_issuer_url" {
 output "acr_id" {
   description = "ACR resource id (the runner VMSS step grants its identity AcrPull here)."
   value       = module.acr.acr_id
+}
+
+# ESO wiring for the app/install layer. The operator install + ClusterSecretStore +
+# ExternalSecrets live in the chart/install-aks.sh, which reads these to wire the
+# ClusterSecretStore (provider.azurekv, authType WorkloadIdentity) and to stamp the
+# ESO controller ServiceAccount's azure.workload.identity/client-id annotation.
+output "eso_identity_client_id" {
+  description = "Client id of the dedicated ESO identity (stamp on the ESO controller ServiceAccount)."
+  value       = module.eso_identity.client_id
+}
+
+output "eso_tenant_id" {
+  description = "Entra tenant id for the ClusterSecretStore provider.azurekv.tenantId."
+  value       = module.eso_identity.tenant_id
+}
+
+output "eso_service_account" {
+  description = "namespace/name of the federated ESO ServiceAccount (ClusterSecretStore serviceAccountRef)."
+  value       = module.eso_identity.service_account
 }
 
 output "runner_subnet_id" {

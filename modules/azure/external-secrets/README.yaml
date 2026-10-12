@@ -1,0 +1,31 @@
+name: azure/external-secrets
+title: Autoheal BYOC — External Secrets Operator identity
+description: |-
+  Dedicated, least-scoped Entra identity for the External Secrets Operator (ESO)
+  on AKS. Creates a user-assigned identity, federates it to the ESO controller
+  ServiceAccount (default external-secrets/external-secrets) via the AKS OIDC
+  issuer, and grants it Key Vault Secrets User on exactly this install's Key Vault
+  — so ESO can read the vault and nothing else, with no stored credentials.
+
+  Scope is cloud primitives only. It does NOT install the ESO operator, create the
+  ClusterSecretStore, or declare ExternalSecrets — those are in-cluster objects
+  owned by the app/install layer (install-aks.sh / the Helm chart), which consumes
+  this module's client_id, tenant_id, and the Key Vault vault_uri. This repo is
+  pure cloud-infra (no helm/kubernetes providers) shipped as one composition per
+  apply, so installing the operator here would mean configuring a provider from the
+  cluster resource's own output — deliberately avoided.
+
+  The AWS analogue is the IAM-role + Pod-Identity half of modules/byoc-eso-install.
+  Naming and tags follow the repo's null-label convention (see label.tf and
+  docs/MODULE_STANDARD.md).
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: Key Vault (the secret store ESO reads)
+    url: ../keyvault
+  - name: AKS (provides the OIDC issuer)
+    url: ../aks

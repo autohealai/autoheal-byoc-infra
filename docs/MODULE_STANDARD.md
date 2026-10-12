@@ -114,7 +114,7 @@ names** so the Autoheal app install is cloud-agnostic and GKE can drop in later:
 |--------|---------|
 | `cluster_name`     | AKS/EKS cluster name |
 | `postgres_host`    | PostgreSQL FQDN |
-| `redis_endpoint`   | Redis endpoint |
+| `redis_endpoint`   | Redis endpoint — AWS only. Azure `azure-byoc` runs Redis in-cluster (app Helm chart) and omits this; `azure-byoc-connect` still emits it for bring-your-own managed Redis. |
 | `object_store`     | Blob container / S3 bucket |
 | `secret_store_uri` | Key Vault URI / SM ARN prefix |
 | `registry`         | ACR login server / ECR registry |

@@ -1,0 +1,17 @@
+name: aws/ecr
+title: Autoheal BYOC — AWS ECR
+description: |-
+  ECR repositories for a BYOC-on-EKS Autoheal install. ECR is an account-level
+  registry; this module creates the per-service repositories and a lifecycle policy
+  that prunes old images. The registry endpoint is exposed as registry_url.
+
+  Azure analogue: modules/azure/acr. Naming/tags via the null-label base.
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: AWS EKS module
+    url: ../eks

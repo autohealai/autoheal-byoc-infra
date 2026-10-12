@@ -1,0 +1,22 @@
+name: aws/runner-asg
+title: Autoheal BYOC — AWS runner ASG
+description: |-
+  EC2 Auto Scaling Group runner, the EKS analogue of the AKS VMSS runner. Each
+  instance runs the runner-go worker as a container (Docker-out-of-Docker) and polls
+  Temporal on the `runners` namespace via the internal NLB. A SEPARATE unit from the
+  main composition: it is fed temporal_host after the cluster + Temporal are up.
+  Image pulls use the ECR credential helper via the instance profile; access is via
+  SSM Session Manager (no SSH key, no inbound port).
+
+  Azure analogue: modules/azure/runner-vmss. Naming/tags via the null-label base.
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: AWS VPC module
+    url: ../vpc
+  - name: AWS ECR module
+    url: ../ecr

@@ -1,0 +1,19 @@
+name: aws/s3
+title: Autoheal BYOC — AWS S3 (attachments)
+description: |-
+  S3 bucket for attachments / knowledge base for a BYOC-on-EKS Autoheal install.
+  Versioned, SSE-S3 encrypted, all public access blocked, noncurrent versions expired
+  after 90 days. The app reaches it via an IRSA role (modules/aws/irsa), so no static
+  keys are stored.
+
+  The Azure analogue is modules/azure/blob. Naming and tags follow the repo's
+  null-label convention (see label.tf and docs/MODULE_STANDARD.md).
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: AWS IRSA module
+    url: ../irsa

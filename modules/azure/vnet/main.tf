@@ -1,7 +1,6 @@
 # Azure network substrate for a BYOC-on-AKS install. The AWS analogue is
 # modules/aws/vpc. Provides:
-#   - VNet + five subnets: AKS nodes, PG-delegated, private endpoints,
-#     Redis-injected, runner.
+#   - VNet + four subnets: AKS nodes, PG-delegated, private endpoints, runner.
 #   - A NAT gateway for the runner subnet (runner VMSS has no public IP).
 #   - PostgreSQL Flexible Server private DNS zone (pre-created + VNet-linked;
 #     inline creation trips a "server name + zone suffix" validation).
@@ -47,17 +46,6 @@ resource "azurerm_subnet" "pe" {
   virtual_network_name              = azurerm_virtual_network.this.name
   address_prefixes                  = [var.subnet_pe_prefix]
   private_endpoint_network_policies = "Disabled"
-}
-
-# Dedicated subnet for Azure Cache for Redis Premium VNet INJECTION: the cache is
-# placed directly into this subnet and gets a real VNet IP (no Private Endpoint,
-# no privatelink DNS zone). The subnet must contain nothing else, have no
-# delegation, and be sized for the SKU (a /24 is ample for P1).
-resource "azurerm_subnet" "redis" {
-  name                 = "snet-redis"
-  resource_group_name  = var.resource_group_name
-  virtual_network_name = azurerm_virtual_network.this.name
-  address_prefixes     = [var.subnet_redis_prefix]
 }
 
 # Dedicated subnet for the runner VMSS (Docker-out-of-Docker job runners). Kept

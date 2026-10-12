@@ -1,8 +1,8 @@
 name: azure/keyvault
 title: Autoheal BYOC — Azure Key Vault
 description: |-
-  RBAC-mode Key Vault that holds the app secrets (generated PG password, Redis URL,
-  etc.) for a BYOC-on-AKS Autoheal install. ESO reads them via the app workload
+  RBAC-mode Key Vault that holds the app secrets (generated PG password, etc.)
+  for a BYOC-on-AKS Autoheal install. ESO reads them via the app workload
   identity (modules/azure/workload-identity grants Key Vault Secrets User).
 
   The AWS analogue is modules/aws/secrets-manager. The deployer is granted Key

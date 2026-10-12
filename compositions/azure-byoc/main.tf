@@ -21,6 +21,38 @@ resource "azurerm_resource_group" "this" {
   name     = local.resource_group_name
   location = var.location
   tags     = var.tags
+
+  # Blob and Key Vault default to deny-all firewalls, so a workable install must open two
+  # DISTINCT data-plane paths — they do not share a source IP:
+  #   1. Apply-time. Terraform seeds Key Vault secrets and creates the blob container from
+  #      the apply host over the data plane. Its public egress IP must be allow-listed via
+  #      deployer_ip_ranges (unless default_action = Allow). A private endpoint does NOT
+  #      cover the apply host unless Terraform runs inside the VNet, which this composition
+  #      does not assume — so seeding always takes the public+allow-list path and never
+  #      races the (sibling) private-endpoint module.
+  #   2. Runtime. AKS pods (ESO reading secrets, the app reading blobs) egress via the
+  #      cluster's outbound IP, NOT the apply host, so deployer_ip_ranges does nothing for
+  #      them. That path needs a private endpoint, the cluster outbound CIDR(s) in
+  #      workload_egress_ip_ranges, or default_action = Allow.
+  # Both are checked at plan time so a missing path surfaces here, not as a 403 mid-apply
+  # or a silently broken ESO at runtime.
+  lifecycle {
+    precondition {
+      condition = (
+        length(var.deployer_ip_ranges) > 0 ||
+        (var.storage_network_default_action == "Allow" && var.key_vault_network_default_action == "Allow")
+      )
+      error_message = "No apply-time path to Blob/Key Vault. Terraform seeds Key Vault secrets and creates the blob container from the apply host over the data plane. Set deployer_ip_ranges to the apply host's public egress CIDR(s), or set storage_network_default_action and key_vault_network_default_action to \"Allow\" for a throwaway install. A private endpoint does not cover the apply host unless Terraform runs inside the VNet."
+    }
+    precondition {
+      condition = (
+        var.private_endpoints_enabled ||
+        length(var.workload_egress_ip_ranges) > 0 ||
+        (var.storage_network_default_action == "Allow" && var.key_vault_network_default_action == "Allow")
+      )
+      error_message = "No runtime path to Blob/Key Vault. AKS pods (ESO, app) egress via the cluster's outbound IP, not the apply host, so deployer_ip_ranges does not help them. Set private_endpoints_enabled = true, or set workload_egress_ip_ranges to the cluster's outbound CIDR(s), or set storage_network_default_action and key_vault_network_default_action to \"Allow\" for a throwaway install."
+    }
+  }
 }
 
 # Admin password for PostgreSQL; seeded into Key Vault, never surfaced as a root
@@ -76,6 +108,12 @@ module "blob" {
 
   resource_group_name = azurerm_resource_group.this.name
   location            = var.location
+
+  # Firewall posture. Default-deny; the allow-list covers both the apply host
+  # (deployer_ip_ranges, for creating the container) and the cluster's outbound IP
+  # (workload_egress_ip_ranges, for app pods when private endpoints are off).
+  network_default_action = var.storage_network_default_action
+  allowed_ip_ranges      = distinct(concat(var.deployer_ip_ranges, var.workload_egress_ip_ranges))
 }
 
 module "acr" {
@@ -105,6 +143,12 @@ module "keyvault" {
   deployer_object_id       = data.azurerm_client_config.current.object_id
   purge_protection_enabled = var.key_vault_purge_protection_enabled
 
+  # Firewall posture. Default-deny; the allow-list covers both the apply host
+  # (deployer_ip_ranges, for seeding the secrets below) and the cluster's outbound IP
+  # (workload_egress_ip_ranges, for ESO when private endpoints are off).
+  network_default_action = var.key_vault_network_default_action
+  allowed_ip_ranges      = distinct(concat(var.deployer_ip_ranges, var.workload_egress_ip_ranges))
+
   secrets = {
     "postgres-password" = random_password.postgres.result
     "postgres-host"     = module.postgres.host
@@ -130,6 +174,14 @@ module "aks" {
   node_min_count     = var.node_min_count
   node_max_count     = var.node_max_count
   acr_id             = module.acr.acr_id
+
+  # Access controls. Supplying admin_group_object_ids turns on managed-Entra RBAC and
+  # disables the static-cert local admin accounts. api_server_authorized_ip_ranges locks
+  # the public API server to known CIDRs; private_cluster_enabled removes it entirely.
+  admin_group_object_ids          = var.admin_group_object_ids
+  tenant_id                       = var.aks_admin_tenant_id
+  api_server_authorized_ip_ranges = var.api_server_authorized_ip_ranges
+  private_cluster_enabled         = var.private_cluster_enabled
 }
 
 module "workload_identity" {

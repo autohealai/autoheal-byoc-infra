@@ -18,6 +18,10 @@
 # federate pod identities to Key Vault / Blob / Foundry. Naming and tags come from
 # the null-label base (module.this); see label.tf.
 
+# Used to default the tenant for managed-AAD RBAC when the operator supplies admin
+# groups but not an explicit tenant_id.
+data "azurerm_client_config" "current" {}
+
 resource "azurerm_user_assigned_identity" "cluster" {
   count               = var.create_cluster ? 1 : 0
   name                = "${module.this.id}-uami"
@@ -35,6 +39,7 @@ resource "azurerm_role_assignment" "cluster_network" {
   principal_id         = azurerm_user_assigned_identity.cluster[0].principal_id
 }
 
+#trivy:ignore:AVD-AZU-0041 Operator-gated via api_server_authorized_ip_ranges (below); no safe default CIDR for an admin/CI-facing API server. Private access unaffected.
 resource "azurerm_kubernetes_cluster" "this" {
   count               = var.create_cluster ? 1 : 0
   name                = module.this.id
@@ -47,6 +52,33 @@ resource "azurerm_kubernetes_cluster" "this" {
   # Keyless pod access to Azure services (Key Vault, Blob, Foundry).
   oidc_issuer_enabled       = true
   workload_identity_enabled = true
+
+  # API server exposure. Default is a public endpoint (optionally CIDR-restricted via
+  # api_server_access_profile below). private_cluster_enabled = true provisions a fully
+  # private control plane reachable only from the VNet / peered networks — whatever runs
+  # kubectl or Terraform must then have in-VNet (or peered) connectivity.
+  private_cluster_enabled = var.private_cluster_enabled
+
+  # Kubernetes RBAC authorization is always on. Managed-AAD integration with Azure RBAC
+  # is operator-gated: supply admin_group_object_ids and cluster access is governed by
+  # Entra identities + Azure role assignments. The group IDs and tenant are
+  # deployment-specific, so that block is only emitted when set.
+  role_based_access_control_enabled = true
+
+  # Disable the local (static-certificate) admin accounts once Entra is wired up;
+  # otherwise `az aks get-credentials --admin` hands out a cluster-admin kubeconfig that
+  # bypasses Entra entirely. Only disabled when admin groups are supplied, so a cluster
+  # brought up without Entra configured does not lock itself out of all access.
+  local_account_disabled = length(var.admin_group_object_ids) > 0
+
+  dynamic "azure_active_directory_role_based_access_control" {
+    for_each = length(var.admin_group_object_ids) > 0 ? [1] : []
+    content {
+      azure_rbac_enabled     = true
+      tenant_id              = var.tenant_id != "" ? var.tenant_id : data.azurerm_client_config.current.tenant_id
+      admin_group_object_ids = var.admin_group_object_ids
+    }
+  }
 
   default_node_pool {
     name                        = "system"
@@ -67,6 +99,21 @@ resource "azurerm_kubernetes_cluster" "this" {
     network_plugin      = "azure"
     network_plugin_mode = "overlay"
     network_data_plane  = "cilium"
+    # Enforce Kubernetes NetworkPolicy via Cilium (matches the cilium data plane).
+    network_policy = "cilium"
+  }
+
+  # Restrict the public API server to operator-supplied CIDRs. Emitted only when
+  # api_server_authorized_ip_ranges is non-empty and the cluster is public: an AKS API
+  # server is reached by admins/CI from varying networks, so there is no universally-safe
+  # default CIDR — the restriction is inherently operator-gated per deployment (production
+  # must set it, or use private_cluster_enabled). A private cluster rejects an authorized
+  # IP list, so this block is suppressed in that case.
+  dynamic "api_server_access_profile" {
+    for_each = length(var.api_server_authorized_ip_ranges) > 0 && !var.private_cluster_enabled ? [1] : []
+    content {
+      authorized_ip_ranges = var.api_server_authorized_ip_ranges
+    }
   }
 
   tags = module.this.tags

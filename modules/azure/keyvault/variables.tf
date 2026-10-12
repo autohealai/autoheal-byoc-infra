@@ -39,3 +39,20 @@ variable "purge_protection_enabled" {
   default     = false
   description = "Enable purge protection (irreversible; leave false for play/throwaway vaults)."
 }
+
+variable "network_default_action" {
+  type        = string
+  default     = "Deny"
+  description = "Key Vault firewall default action. Deny (recommended) = only the private endpoint, bypassed Azure services, and allowed_ip_ranges may reach the vault. Use Allow only for playground vaults without a private endpoint."
+
+  validation {
+    condition     = contains(["Allow", "Deny"], var.network_default_action)
+    error_message = "network_default_action must be exactly \"Allow\" or \"Deny\" (case-sensitive; the Azure Key Vault API rejects any other value)."
+  }
+}
+
+variable "allowed_ip_ranges" {
+  type        = list(string)
+  default     = []
+  description = "Public IPs/CIDRs allowed through the vault firewall when default_action=Deny (e.g. the Terraform apply host, which seeds secrets over the data plane)."
+}

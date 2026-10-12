@@ -45,6 +45,10 @@ resource "aws_db_subnet_group" "this" {
   tags       = merge(module.this.tags, { Name = "${module.this.id}-subnet-group" })
 }
 
+# Storage is already encrypted at rest (storage_encrypted = true, below) using the
+# AWS-managed RDS key. This finding asks for a customer-managed key (kms_key_id),
+# which is left to the deployment to supply when CMK control is required.
+#trivy:ignore:AVD-AWS-0079 Storage is encrypted (storage_encrypted=true); CMK (kms_key_id) is operator-optional.
 resource "aws_rds_cluster" "this" {
   cluster_identifier     = module.this.id
   engine                 = "aurora-postgresql"

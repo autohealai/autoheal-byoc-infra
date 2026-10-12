@@ -38,6 +38,17 @@ inputs = {
   subscription_id = "REPLACE_ME" # EDIT: az account show --query id -o tsv
   location        = "centralus"  # EDIT: PG Flexible region (centralus | westus3 | northcentralus)
 
+  # Network reachability for Blob + Key Vault. Both default to deny-all firewalls, and
+  # the composition refuses to plan without a reachable path. This is a PLAYGROUND config,
+  # so it opens them with default_action = Allow to keep the copy-paste flow working.
+  #
+  # For stage/prod, DELETE the two Allow lines below and instead set:
+  #   private_endpoints_enabled = true                      # runtime path for AKS pods
+  #   deployer_ip_ranges        = ["<apply-host-egress>/32"] # apply-time path to seed Key Vault
+  # (or, without private endpoints, add workload_egress_ip_ranges = ["<cluster-outbound>/32"]).
+  storage_network_default_action   = "Allow"
+  key_vault_network_default_action = "Allow"
+
   # Optional knobs (defaults are sensible; uncomment to change)
   # address_space             = ["10.60.0.0/16"]
   # private_endpoints_enabled = false

@@ -7,6 +7,34 @@ All notable changes to this repo are documented here. Format follows
 ## [Unreleased]
 
 ### Added
+- `acr_name` output on `compositions/azure-byoc` — the separate runner-VMSS apply
+  needs it alongside `acr_id`.
+- Azure AKS access controls on `compositions/azure-byoc`: `admin_group_object_ids`
+  (managed-Entra RBAC; also disables the static-cert local admin accounts),
+  `api_server_authorized_ip_ranges`, and `private_cluster_enabled`.
+- Azure Blob/Key Vault firewall controls: `storage_network_default_action` and
+  `key_vault_network_default_action` (default `Deny`), the `deployer_ip_ranges` /
+  `workload_egress_ip_ranges` allow-lists, and plan-time reachability preconditions
+  (with a mocked-provider `terraform test`) that fail fast on an unreachable deny-all.
+
+### Changed
+- Replaced the example customer placeholder name with a neutral `acme` across
+  examples, docs, and generated module READMEs.
+- Expanded `docs/CONSUMING.md`: Azure role set (subscription scope, Owner or
+  Contributor + User Access Administrator), resource-provider registration,
+  region/quota note, the app-install hand-off, the runner stage-2 inputs, and
+  teardown (Key Vault soft-delete behaviour).
+- Designated Terraform as the canonical, tested CLI; the committed composition
+  locks target the Terraform registry. OpenTofu still works but resolves from the
+  OpenTofu registry and regenerates its own lock on `init`.
+
+### Fixed
+- Federate the app workload identity to the chart's real app ServiceAccounts
+  (`api-server-go`, `agents-py-http`, `agents-py-worker` in namespace `autoheal`).
+
+## [1.0.0] - 2026-10-12
+
+### Added
 - Repo scaffold: module standard, consuming guide, CI gates, pre-commit, tflint.
 - Cloud Posse null-label convention delivered via one shared base,
   `modules/_shared/label` (the harness-label equivalent; the single place

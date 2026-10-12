@@ -5,7 +5,10 @@ is identical apart from the auth step and the composition path.
 
 ## Prerequisites
 
-- `terraform` (>= 1.6) or `opentofu`, and `terragrunt`
+- `terraform` (>= 1.6) and `terragrunt`. Terraform is the canonical, tested CLI —
+  CI runs it and the committed composition locks target the Terraform registry.
+  OpenTofu also works, but it resolves providers from the OpenTofu registry and will
+  regenerate `.terraform.lock.hcl` in your working copy on `init`.
 - Azure: `az` CLI. AWS: `aws` CLI.
 - **Azure role set.** The composition **creates the install resource group** and
   then creates **role assignments** inside it (the app and ESO workload identities

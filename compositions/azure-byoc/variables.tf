@@ -131,8 +131,16 @@ variable "federated_service_accounts" {
     namespace       = string
     service_account = string
   }))
-  default     = [{ namespace = "app", service_account = "autoheal-app" }]
-  description = "Kubernetes service accounts federated to the app identity. Set these to match the Autoheal app install's service accounts."
+  # Defaults match the Autoheal BYOC chart: the three app pods that read Blob
+  # (api-server-go attachments; agents prompt storage) run in namespace "autoheal"
+  # with these ServiceAccount names. The chart annotates them with runner_identity's
+  # client-id. Override only if you install into a different namespace.
+  default = [
+    { namespace = "autoheal", service_account = "api-server-go" },
+    { namespace = "autoheal", service_account = "agents-py-http" },
+    { namespace = "autoheal", service_account = "agents-py-worker" },
+  ]
+  description = "Kubernetes service accounts federated to the app identity. Defaults match the autoheal-byoc chart's app SAs in namespace 'autoheal'."
 }
 
 # ---------------------------------------------------------------------------

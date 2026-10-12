@@ -2,6 +2,10 @@
 
 A copyable starting config that points at `compositions/aws-byoc` via Terragrunt.
 
+**First time? Follow the full step-by-step tutorial in
+[docs/CONSUMING.md](../../docs/CONSUMING.md)** — it covers the tools, permissions,
+and remote-state setup this short version assumes. The short version:
+
 ```bash
 cp -r examples/aws-byoc examples/aws-byoc-mine
 cd examples/aws-byoc-mine

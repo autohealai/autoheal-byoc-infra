@@ -27,6 +27,15 @@ All notable changes to this repo are documented here. Format follows
 - Designated Terraform as the canonical, tested CLI; the committed composition
   locks target the Terraform registry. OpenTofu still works but resolves from the
   OpenTofu registry and regenerates its own lock on `init`.
+- Rewrote `docs/CONSUMING.md` as a beginner, step-by-step tutorial: what you end
+  up with, a tools-to-install table, a permissions check, numbered per-cloud steps
+  (sign in → clone → copy example → fill settings → bootstrap state → init → plan
+  → apply → save outputs → verify), and a troubleshooting table. README and the
+  example READMEs now point newcomers at it first.
+- Corrected the `[1.0.0]` `compositions/azure-byoc` changelog entry: it no longer
+  claims managed Redis is provisioned or a Redis key is seeded (Redis runs
+  in-cluster; only PG password/host/user are seeded), and the previously
+  undocumented `modules/azure/external-secrets` is now listed.
 
 ### Fixed
 - Federate the app workload identity to the chart's real app ServiceAccounts
@@ -59,14 +68,18 @@ All notable changes to this repo are documented here. Format follows
   keyless pulls, admin disabled.
 - `modules/azure/workload-identity` — UAMI + federated credentials + Key Vault /
   Blob / ACR role grants (IRSA/Pod-Identity analogue).
+- `modules/azure/external-secrets` — dedicated least-privilege UAMI for the External
+  Secrets Operator (Key Vault Secrets User), federated to the ESO controller
+  ServiceAccount; the composition wires it as `eso_identity`.
 - `modules/azure/runner-vmss` — runner-go VMSS (Docker-out-of-Docker) with
   cloud-init, managed-identity AcrPull, NAT egress.
 - `modules/azure/aks` — AKS cluster (create/connect), UAMI control plane, OIDC +
   workload identity, Cilium overlay, kubelet AcrPull.
 - `compositions/azure-byoc` — wires the Azure modules into one install (resource
-  group, generated PG password + Redis key seeded to Key Vault, Redis, optional
-  private endpoints) and emits the cross-cloud output contract. Runner VMSS is a
-  separate post-Temporal apply.
+  group, generated PG password + host/user seeded to Key Vault, a dedicated
+  External Secrets Operator identity, optional private endpoints) and emits the
+  cross-cloud output contract. Redis runs in-cluster (app Helm chart), so it is
+  not provisioned here. Runner VMSS is a separate post-Temporal apply.
 - `examples/azure-byoc/terragrunt.hcl` — copyable Terragrunt wrapper (inputs +
   remote state) that consumers run.
 - `compositions/azure-byoc-connect` — connect-mode (Nomura-style) Azure install:

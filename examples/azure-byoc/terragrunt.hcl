@@ -21,8 +21,8 @@ terraform {
 remote_state {
   backend = "azurerm"
   config = {
-    resource_group_name  = "rg-autoheal-tfstate"      # EDIT: state RG (bootstrap arg)
-    storage_account_name = "stautohealtfstate"        # EDIT: state storage account, 3-24 lowercase alnum, globally unique (bootstrap arg)
+    resource_group_name  = "rg-autoheal-tfstate" # EDIT: state RG (bootstrap arg)
+    storage_account_name = "stautohealtfstate"   # EDIT: state storage account, 3-24 lowercase alnum, globally unique (bootstrap arg)
     container_name       = "tfstate"
     key                  = "azure-byoc/terraform.tfstate"
   }
@@ -47,8 +47,12 @@ inputs = {
   # node_max_count            = 4
   # acr_sku                   = "Standard"
 
-  # Set to match the Autoheal app install's Kubernetes service accounts.
+  # App-identity federation. The default already matches the autoheal-byoc chart
+  # (api-server-go, agents-py-http, agents-py-worker in namespace "autoheal").
+  # Only override if you install the app into a different namespace or SA names.
   # federated_service_accounts = [
-  #   { namespace = "app", service_account = "autoheal-app" },
+  #   { namespace = "autoheal", service_account = "api-server-go" },
+  #   { namespace = "autoheal", service_account = "agents-py-http" },
+  #   { namespace = "autoheal", service_account = "agents-py-worker" },
   # ]
 }

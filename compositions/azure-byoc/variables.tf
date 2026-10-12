@@ -167,7 +167,7 @@ variable "api_server_authorized_ip_ranges" {
 variable "private_cluster_enabled" {
   type        = bool
   default     = false
-  description = "Provision a private AKS control plane (no public API endpoint; reachable only from the VNet / peered networks). Default false = public endpoint restricted by api_server_authorized_ip_ranges."
+  description = "Provision a private AKS control plane (no public API endpoint; reachable only from the VNet / peered networks). Default false = public endpoint restricted by api_server_authorized_ip_ranges. NOTE: when true, the API server is unreachable from the public internet, so the apply host, your kubectl, and the stage-2 app/Helm install must all have VNet connectivity (a jumpbox in the VNet, VPN/ExpressRoute, or a self-hosted runner on a peered network) plus private-DNS resolution of the cluster FQDN. Do not enable this without that connectivity in place."
 }
 
 # ---------------------------------------------------------------------------

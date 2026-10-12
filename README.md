@@ -18,15 +18,20 @@ modules/          Reusable building blocks, one concern each (the "ingredients")
                   shipped by the app Helm chart — see azure-byoc.)
   gcp/            Planned.
 compositions/     Opinionated full-stack wiring, one per cloud (the "recipes").
-  azure-byoc/     VNet + PG + Blob + KV + ACR + AKS + runner (Redis in-cluster).
-  aws-byoc/       VPC + Aurora + ElastiCache + S3 + EKS + runner.
+  azure-byoc/     VNet + PG + Blob + KV + ACR + AKS (Redis in-cluster). The runner
+                  (runner-vmss) is a separate stage-2 apply — see CONSUMING.md.
+  aws-byoc/       VPC + Aurora + ElastiCache + S3 + EKS. The runner (runner-asg) is
+                  likewise a separate stage-2 apply.
 examples/         Runnable, copyable starting configs per composition.
 docs/             MODULE_STANDARD.md (contributor contract), CONSUMING.md (usage).
 ```
 
 ## Quick start
 
-See [docs/CONSUMING.md](docs/CONSUMING.md). In short, from an example config:
+Read [docs/CONSUMING.md](docs/CONSUMING.md) for the full per-cloud flow — the
+prerequisites (CLI auth, the exact cloud role set) and, on Azure, a one-time
+remote-state bootstrap that must run *before* `terragrunt init`. The core loop,
+once the backend exists, is:
 
 ```bash
 terragrunt init
@@ -34,6 +39,9 @@ terragrunt plan      # review; nothing is created yet
 terragrunt apply     # provision
 terragrunt output -json > autoheal-infra-outputs.json   # feeds the app install
 ```
+
+> The snippet above is not a standalone runbook — on Azure it fails at `init`
+> without the state backend. Follow CONSUMING.md end to end for a real install.
 
 ## Versioning
 

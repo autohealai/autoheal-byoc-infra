@@ -51,7 +51,7 @@ terragrunt output -json > autoheal-infra-outputs.json   # feeds the app install
 One semver version for the whole repo. Consumers pin a release tag:
 
 ```hcl
-source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure-byoc?ref=v1.0.0"
+source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure-byoc?ref=v1.1.0"
 ```
 
 See [docs/MODULE_STANDARD.md](docs/MODULE_STANDARD.md) for the full contributor

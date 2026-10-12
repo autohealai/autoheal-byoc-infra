@@ -6,6 +6,15 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-12
+
+> **Upgrade notes.** The Blob and Key Vault firewalls now **default to `Deny`**, and
+> the composition refuses to `plan` without a reachable data-plane path. A config
+> that planned cleanly on `v1.0.0` may now stop at a precondition until you set one
+> of: `private_endpoints_enabled = true`, `deployer_ip_ranges` /
+> `workload_egress_ip_ranges`, or `*_network_default_action = "Allow"` (playgrounds
+> only). The shipped `examples/azure-byoc` uses `Allow` so the first run just works.
+
 ### Added
 - `acr_name` output on `compositions/azure-byoc` — the separate runner-VMSS apply
   needs it alongside `acr_id`.
@@ -20,18 +29,17 @@ All notable changes to this repo are documented here. Format follows
 ### Changed
 - Replaced the example customer placeholder name with a neutral `acme` across
   examples, docs, and generated module READMEs.
-- Expanded `docs/CONSUMING.md`: Azure role set (subscription scope, Owner or
-  Contributor + User Access Administrator), resource-provider registration,
-  region/quota note, the app-install hand-off, the runner stage-2 inputs, and
-  teardown (Key Vault soft-delete behaviour).
+- Rewrote `docs/CONSUMING.md` as a beginner, step-by-step tutorial: what you end
+  up with, a tools-to-install table, a permissions check (Azure role set — Owner or
+  Contributor + User Access Administrator at subscription scope), resource-provider
+  registration, region/quota notes, numbered per-cloud steps (sign in → clone →
+  copy example → fill settings → bootstrap state → init → plan → apply → save
+  outputs → verify), the app-install hand-off, the runner stage-2 inputs, teardown
+  (Key Vault soft-delete behaviour), and a troubleshooting table. README and the
+  example READMEs now point newcomers at it first.
 - Designated Terraform as the canonical, tested CLI; the committed composition
   locks target the Terraform registry. OpenTofu still works but resolves from the
   OpenTofu registry and regenerates its own lock on `init`.
-- Rewrote `docs/CONSUMING.md` as a beginner, step-by-step tutorial: what you end
-  up with, a tools-to-install table, a permissions check, numbered per-cloud steps
-  (sign in → clone → copy example → fill settings → bootstrap state → init → plan
-  → apply → save outputs → verify), and a troubleshooting table. README and the
-  example READMEs now point newcomers at it first.
 - Corrected the `[1.0.0]` `compositions/azure-byoc` changelog entry: it no longer
   claims managed Redis is provisioned or a Redis key is seeded (Redis runs
   in-cluster; only PG password/host/user are seeded), and the previously

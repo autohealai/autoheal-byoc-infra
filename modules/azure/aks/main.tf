@@ -86,9 +86,10 @@ locals {
 }
 
 # Grant the kubelet identity AcrPull so nodes can pull from the customer ACR.
-# Connect clusters are granted this too (idempotent) when an ACR is supplied.
+# Gated on a plan-time bool, not on acr_id: a composition that creates its own ACR
+# passes module.acr.acr_id (known only after apply), which cannot be used in count.
 resource "azurerm_role_assignment" "acr_pull" {
-  count                = var.acr_id == "" ? 0 : 1
+  count                = var.acr_pull_enabled ? 1 : 0
   scope                = var.acr_id
   role_definition_name = "AcrPull"
   principal_id         = local.cluster.kubelet_identity[0].object_id

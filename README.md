@@ -13,11 +13,12 @@ consumes. Consumers never wire individual modules themselves.
 ```
 modules/          Reusable building blocks, one concern each (the "ingredients").
   aws/            VPC, Aurora, ElastiCache, S3, EKS, runner ASG, IRSA.
-  azure/          VNet, PostgreSQL Flexible, Redis Premium, Blob, Key Vault, ACR,
-                  AKS, runner VMSS, workload identity.
+  azure/          VNet, PostgreSQL Flexible, Blob, Key Vault, ACR, AKS,
+                  runner VMSS, workload identity. (No Redis: it runs in-cluster,
+                  shipped by the app Helm chart — see azure-byoc.)
   gcp/            Planned.
 compositions/     Opinionated full-stack wiring, one per cloud (the "recipes").
-  azure-byoc/     VNet + PG + Redis + Blob + KV + ACR + AKS + runner.
+  azure-byoc/     VNet + PG + Blob + KV + ACR + AKS + runner (Redis in-cluster).
   aws-byoc/       VPC + Aurora + ElastiCache + S3 + EKS + runner.
 examples/         Runnable, copyable starting configs per composition.
 docs/             MODULE_STANDARD.md (contributor contract), CONSUMING.md (usage).

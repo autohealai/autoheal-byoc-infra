@@ -1,5 +1,10 @@
 # The cross-cloud output contract. compositions/aws-byoc emits the SAME names, so
 # the Autoheal app install is cloud-agnostic (docs/MODULE_STANDARD.md §8).
+#
+# NOTE: there is intentionally no "redis_endpoint" output on Azure. Redis runs
+# in-cluster (a StatefulSet shipped by the app Helm chart) at a fixed service DNS
+# name, so the app does not learn it from infra. Customers who bring their own
+# managed Redis use compositions/azure-byoc-connect, which still emits it.
 
 output "cluster_name" {
   description = "AKS cluster name."
@@ -9,11 +14,6 @@ output "cluster_name" {
 output "postgres_host" {
   description = "PostgreSQL Flexible Server FQDN (private)."
   value       = module.postgres.host
-}
-
-output "redis_endpoint" {
-  description = "Redis endpoint (host:ssl_port), Premium VNet-injected."
-  value       = module.redis.endpoint
 }
 
 output "object_store" {

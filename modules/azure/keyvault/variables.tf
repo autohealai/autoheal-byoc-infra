@@ -31,7 +31,7 @@ variable "secrets" {
   type        = map(string)
   default     = {}
   sensitive   = true
-  description = "Secret name -> value to seed (e.g. the generated PG password, Redis URL). ESO syncs these into the cluster."
+  description = "Secret name -> value to seed (e.g. the generated PG password). ESO syncs these into the cluster."
 }
 
 variable "purge_protection_enabled" {

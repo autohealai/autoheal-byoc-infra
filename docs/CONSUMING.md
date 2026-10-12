@@ -57,6 +57,10 @@ terragrunt output -json > autoheal-infra-outputs.json
 `runner_identity`. The Autoheal application install reads these; the output names
 are identical on AWS and Azure, so the install does not care which cloud it ran on.
 
+> Exception: `redis_endpoint` is AWS-only. The `azure-byoc` composition runs Redis
+> in-cluster (shipped by the app Helm chart) and does not emit it. If you bring your
+> own managed Redis on Azure, use `azure-byoc-connect`, which still emits it.
+
 ## Notes
 
 - `plan` is a safe dry run. Nothing exists until `apply`.

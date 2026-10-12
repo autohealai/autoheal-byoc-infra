@@ -78,22 +78,6 @@ module "blob" {
   location            = var.location
 }
 
-module "redis" {
-  source = "../../modules/azure/redis"
-
-  namespace   = var.namespace
-  environment = var.environment
-  name        = var.name
-  tags        = var.tags
-
-  resource_group_name = azurerm_resource_group.this.name
-  location            = var.location
-
-  # Premium VNet injection into the vnet module's dedicated redis subnet.
-  subnet_id = module.vnet.subnet_redis_id
-  capacity  = var.redis_capacity
-}
-
 module "acr" {
   source = "../../modules/azure/acr"
 
@@ -125,9 +109,6 @@ module "keyvault" {
     "postgres-password" = random_password.postgres.result
     "postgres-host"     = module.postgres.host
     "postgres-user"     = module.postgres.administrator_login
-    "redis-host"        = module.redis.hostname
-    "redis-port"        = tostring(module.redis.ssl_port)
-    "redis-password"    = module.redis.primary_access_key
   }
 }
 

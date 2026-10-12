@@ -1,7 +1,7 @@
 # Minimal Flexible Server wired to a vnet module's delegated subnet + PG private
 # DNS zone. Doubles as the CI plan/validate fixture.
 #
-# attributes = ["db"] gives the server a distinct name (avid-play-autoheal-db)
+# attributes = ["db"] gives the server a distinct name (acme-play-autoheal-db)
 # from the other components sharing the same namespace/environment/name.
 
 terraform {
@@ -21,19 +21,19 @@ provider "azurerm" {
 module "vnet" {
   source = "../../../vnet"
 
-  namespace                = "avid"
+  namespace                = "acme"
   environment              = "play"
   name                     = "autoheal"
   resource_group_name      = "rg-autoheal-play"
   location                 = "centralus"
-  pg_private_dns_zone_name = "avid-play.private.postgres.database.azure.com"
+  pg_private_dns_zone_name = "acme-play.private.postgres.database.azure.com"
 }
 
 module "postgres" {
   source = "../../"
 
   # null-label (environment = lifecycle, not region); "db" distinguishes the name
-  namespace   = "avid"
+  namespace   = "acme"
   environment = "play"
   name        = "autoheal"
   attributes  = ["db"]

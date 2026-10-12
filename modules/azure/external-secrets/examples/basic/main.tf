@@ -21,7 +21,7 @@ provider "azurerm" {
 module "external_secrets" {
   source = "../../"
 
-  namespace   = "avid"
+  namespace   = "acme"
   environment = "play"
   name        = "autoheal"
   attributes  = ["eso"]

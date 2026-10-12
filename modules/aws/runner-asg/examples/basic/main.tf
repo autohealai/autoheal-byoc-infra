@@ -19,18 +19,18 @@ provider "aws" {
 module "vpc" {
   source = "../../../vpc"
 
-  namespace   = "avid"
+  namespace   = "acme"
   environment = "play"
   name        = "autoheal"
 
   availability_zones = ["us-west-2a", "us-west-2b", "us-west-2c"]
-  cluster_name       = "avid-play-autoheal"
+  cluster_name       = "acme-play-autoheal"
 }
 
 module "runner" {
   source = "../../"
 
-  namespace   = "avid"
+  namespace   = "acme"
   environment = "play"
   name        = "autoheal"
   attributes  = ["runner"]

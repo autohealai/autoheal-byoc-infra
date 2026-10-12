@@ -7,7 +7,7 @@
 
 variable "namespace" {
   type        = string
-  description = "Customer / tenant, e.g. 'avid'. First element of every resource name."
+  description = "Customer / tenant, e.g. 'acme'. First element of every resource name."
 }
 
 variable "environment" {

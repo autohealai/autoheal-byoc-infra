@@ -53,7 +53,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_location"></a> [location](#input\_location) | Azure region. | `string` | n/a | yes |
 | <a name="input_name"></a> [name](#input\_name) | ID element. Component name, e.g. 'autoheal'. | `string` | `null` | no |
 | <a name="input_name_override"></a> [name\_override](#input\_name\_override) | Force an exact registry name (5-50 lowercase alphanumeric). Empty = derive a sanitized name from the label id. | `string` | `""` | no |
-| <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'avid'. | `string` | `null` | no |
+| <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'acme'. | `string` | `null` | no |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Resource group the registry lands in (created by the composition). | `string` | n/a | yes |
 | <a name="input_sku"></a> [sku](#input\_sku) | Registry SKU: Basic \| Standard \| Premium. Private endpoints and geo-replication require Premium. | `string` | `"Standard"` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Additional tags, merged into the generated tag set. | `map(string)` | `{}` | no |

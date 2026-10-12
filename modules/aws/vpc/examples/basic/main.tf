@@ -19,13 +19,13 @@ module "vpc" {
   source = "../../"
 
   # null-label (environment = lifecycle, not region)
-  namespace   = "avid"
+  namespace   = "acme"
   environment = "play"
   name        = "autoheal"
 
   vpc_cidr           = "10.60.0.0/16"
   availability_zones = ["us-west-2a", "us-west-2b"]
-  cluster_name       = "avid-play-autoheal"
+  cluster_name       = "acme-play-autoheal"
 }
 
 output "private_subnet_ids" {

@@ -30,7 +30,7 @@ remote_state {
 
 inputs = {
   # Identity / naming (environment = lifecycle, not region)
-  namespace   = "REPLACE_ME" # EDIT: customer / tenant short name, e.g. "avid"
+  namespace   = "REPLACE_ME" # EDIT: customer / tenant short name, e.g. "acme"
   environment = "play"       # EDIT: stage | prod | play
   name        = "autoheal"
 

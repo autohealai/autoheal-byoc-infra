@@ -19,7 +19,7 @@ provider "azurerm" {
 module "vnet" {
   source = "../../../vnet"
 
-  namespace           = "avid"
+  namespace           = "acme"
   environment         = "play"
   name                = "autoheal"
   resource_group_name = "rg-autoheal-play"
@@ -29,7 +29,7 @@ module "vnet" {
 module "acr" {
   source = "../../../acr"
 
-  namespace           = "avid"
+  namespace           = "acme"
   environment         = "play"
   name                = "autoheal"
   resource_group_name = "rg-autoheal-play"
@@ -39,7 +39,7 @@ module "acr" {
 module "runner" {
   source = "../../"
 
-  namespace   = "avid"
+  namespace   = "acme"
   environment = "play"
   name        = "autoheal"
   attributes  = ["runner"]

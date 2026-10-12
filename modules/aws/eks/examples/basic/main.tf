@@ -21,22 +21,22 @@ provider "aws" {
 module "vpc" {
   source = "../../../vpc"
 
-  namespace   = "avid"
+  namespace   = "acme"
   environment = "play"
   name        = "autoheal"
 
   availability_zones = ["us-west-2a", "us-west-2b", "us-west-2c"]
-  cluster_name       = "avid-play-autoheal"
+  cluster_name       = "acme-play-autoheal"
 }
 
 module "eks" {
   source = "../../"
 
-  namespace   = "avid"
+  namespace   = "acme"
   environment = "play"
   name        = "autoheal"
 
-  cluster_name       = "avid-play-autoheal"
+  cluster_name       = "acme-play-autoheal"
   vpc_id             = module.vpc.vpc_id
   private_subnet_ids = module.vpc.private_subnet_ids
   public_subnet_ids  = module.vpc.public_subnet_ids

@@ -74,7 +74,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_max_size"></a> [max\_size](#input\_max\_size) | Maximum ASG size. | `number` | `3` | no |
 | <a name="input_min_size"></a> [min\_size](#input\_min\_size) | Minimum ASG size. | `number` | `1` | no |
 | <a name="input_name"></a> [name](#input\_name) | ID element. Component name, e.g. 'autoheal'. | `string` | `null` | no |
-| <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'avid'. | `string` | `null` | no |
+| <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'acme'. | `string` | `null` | no |
 | <a name="input_root_volume_size_gb"></a> [root\_volume\_size\_gb](#input\_root\_volume\_size\_gb) | Root EBS volume size. Holds Docker layers + sandbox dirs + git datasource caches; 30GB proved insufficient, so default large. | `number` | `200` | no |
 | <a name="input_runner_image"></a> [runner\_image](#input\_runner\_image) | Fully-qualified runner-go image, e.g. <registry>/release/runner-go:<ver>. | `string` | n/a | yes |
 | <a name="input_runner_name"></a> [runner\_name](#input\_runner\_name) | NAME env the worker registers under. | `string` | `"runner-byoc-eks"` | no |

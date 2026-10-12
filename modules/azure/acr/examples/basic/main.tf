@@ -17,7 +17,7 @@ provider "azurerm" {
 module "acr" {
   source = "../../"
 
-  namespace   = "avid"
+  namespace   = "acme"
   environment = "play"
   name        = "autoheal"
 

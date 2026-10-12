@@ -58,7 +58,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_federated_service_accounts"></a> [federated\_service\_accounts](#input\_federated\_service\_accounts) | Kubernetes service accounts allowed to assume this role (trust subject system:serviceaccount:<namespace>:<service\_account>). | <pre>list(object({<br/>    namespace       = string<br/>    service_account = string<br/>  }))</pre> | n/a | yes |
 | <a name="input_label_order"></a> [label\_order](#input\_label\_order) | Order of ID elements in id. Repo default drops 'stage'. | `list(string)` | <pre>[<br/>  "namespace",<br/>  "environment",<br/>  "name",<br/>  "attributes"<br/>]</pre> | no |
 | <a name="input_name"></a> [name](#input\_name) | ID element. Component name, e.g. 'autoheal'. | `string` | `null` | no |
-| <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'avid'. | `string` | `null` | no |
+| <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'acme'. | `string` | `null` | no |
 | <a name="input_oidc_provider_arn"></a> [oidc\_provider\_arn](#input\_oidc\_provider\_arn) | ARN of the EKS cluster OIDC provider (modules/aws/eks output oidc\_provider\_arn). | `string` | n/a | yes |
 | <a name="input_oidc_provider_url"></a> [oidc\_provider\_url](#input\_oidc\_provider\_url) | URL of the EKS cluster OIDC issuer (modules/aws/eks output oidc\_provider\_url), e.g. https://oidc.eks.<region>.amazonaws.com/id/XXXX. | `string` | n/a | yes |
 | <a name="input_role_name_override"></a> [role\_name\_override](#input\_role\_name\_override) | Force an exact IAM role name. Empty derives '<label id>-irsa'. | `string` | `""` | no |

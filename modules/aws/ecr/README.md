@@ -58,7 +58,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_label_order"></a> [label\_order](#input\_label\_order) | Order of ID elements in id. Repo default drops 'stage'. | `list(string)` | <pre>[<br/>  "namespace",<br/>  "environment",<br/>  "name",<br/>  "attributes"<br/>]</pre> | no |
 | <a name="input_max_image_count"></a> [max\_image\_count](#input\_max\_image\_count) | Keep at most this many tagged images per repository; older ones expire. | `number` | `100` | no |
 | <a name="input_name"></a> [name](#input\_name) | ID element. Component name, e.g. 'autoheal'. | `string` | `null` | no |
-| <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'avid'. | `string` | `null` | no |
+| <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'acme'. | `string` | `null` | no |
 | <a name="input_repository_names"></a> [repository\_names](#input\_repository\_names) | ECR repository names to create (relative to the account registry), e.g. ['release/api-server-go', 'release/runner-go']. | `list(string)` | `[]` | no |
 | <a name="input_scan_on_push"></a> [scan\_on\_push](#input\_scan\_on\_push) | Run the basic image vulnerability scan on push. | `bool` | `true` | no |
 | <a name="input_tag_prefix_list"></a> [tag\_prefix\_list](#input\_tag\_prefix\_list) | Only tags starting with one of these count toward max\_image\_count. | `list(string)` | <pre>[<br/>  "v",<br/>  "release",<br/>  "main"<br/>]</pre> | no |

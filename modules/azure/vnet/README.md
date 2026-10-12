@@ -65,7 +65,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_label_order"></a> [label\_order](#input\_label\_order) | Order of ID elements in id. Repo default drops 'stage'. | `list(string)` | <pre>[<br/>  "namespace",<br/>  "environment",<br/>  "name",<br/>  "attributes"<br/>]</pre> | no |
 | <a name="input_location"></a> [location](#input\_location) | Azure region for the VNet and its NAT gateway. | `string` | n/a | yes |
 | <a name="input_name"></a> [name](#input\_name) | ID element. Component name, e.g. 'autoheal'. | `string` | `null` | no |
-| <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'avid'. | `string` | `null` | no |
+| <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'acme'. | `string` | `null` | no |
 | <a name="input_pg_private_dns_zone_name"></a> [pg\_private\_dns\_zone\_name](#input\_pg\_private\_dns\_zone\_name) | Private DNS zone name for PG Flexible Server. Empty disables the zone (connect installs that bring their own). Must end in .private.postgres.database.azure.com. | `string` | `""` | no |
 | <a name="input_private_endpoints_enabled"></a> [private\_endpoints\_enabled](#input\_private\_endpoints\_enabled) | Create privatelink DNS zones + VNet links for Blob and Key Vault private endpoints. | `bool` | `false` | no |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Resource group the network lands in (created by the composition). | `string` | n/a | yes |

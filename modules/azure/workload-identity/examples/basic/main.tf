@@ -20,7 +20,7 @@ provider "azurerm" {
 module "workload_identity" {
   source = "../../"
 
-  namespace   = "avid"
+  namespace   = "acme"
   environment = "play"
   name        = "autoheal"
 

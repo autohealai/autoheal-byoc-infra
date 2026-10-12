@@ -53,6 +53,11 @@ output "acr_id" {
   value       = module.acr.acr_id
 }
 
+output "acr_name" {
+  description = "ACR registry name (the runner VMSS stage-2 apply needs this alongside acr_id)."
+  value       = module.acr.acr_name
+}
+
 # ESO wiring for the app/install layer. The operator install + ClusterSecretStore +
 # ExternalSecrets live in the chart/install-aks.sh, which reads these to wire the
 # ClusterSecretStore (provider.azurekv, authType WorkloadIdentity) and to stamp the

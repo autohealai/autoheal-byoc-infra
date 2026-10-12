@@ -64,7 +64,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_label_order"></a> [label\_order](#input\_label\_order) | Order of ID elements in id. Repo default drops 'stage'. | `list(string)` | <pre>[<br/>  "namespace",<br/>  "environment",<br/>  "name",<br/>  "attributes"<br/>]</pre> | no |
 | <a name="input_location"></a> [location](#input\_location) | Azure region. | `string` | n/a | yes |
 | <a name="input_name"></a> [name](#input\_name) | ID element. Component name, e.g. 'autoheal'. | `string` | `null` | no |
-| <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'avid'. | `string` | `null` | no |
+| <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'acme'. | `string` | `null` | no |
 | <a name="input_network_role_enabled"></a> [network\_role\_enabled](#input\_network\_role\_enabled) | Grant the control-plane UAMI Network Contributor on var.vnet\_id (create mode, custom VNet). Must be a plan-time bool: vnet\_id is a computed id, so it cannot gate count directly. Set false only for an AKS-managed VNet. | `bool` | `true` | no |
 | <a name="input_node_max_count"></a> [node\_max\_count](#input\_node\_max\_count) | Default node pool autoscaler maximum. | `number` | `4` | no |
 | <a name="input_node_min_count"></a> [node\_min\_count](#input\_node\_min\_count) | Default node pool autoscaler minimum. | `number` | `2` | no |

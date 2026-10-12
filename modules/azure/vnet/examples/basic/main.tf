@@ -19,7 +19,7 @@ module "vnet" {
   source = "../../"
 
   # null-label (environment = lifecycle, not region)
-  namespace   = "avid"
+  namespace   = "acme"
   environment = "play"
   name        = "autoheal"
 

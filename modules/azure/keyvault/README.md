@@ -56,7 +56,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_location"></a> [location](#input\_location) | Azure region. | `string` | n/a | yes |
 | <a name="input_name"></a> [name](#input\_name) | ID element. Component name, e.g. 'autoheal'. | `string` | `null` | no |
 | <a name="input_name_override"></a> [name\_override](#input\_name\_override) | Force an exact vault name (<=24 chars). Empty = derive from the label id (truncated to 24). | `string` | `""` | no |
-| <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'avid'. | `string` | `null` | no |
+| <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'acme'. | `string` | `null` | no |
 | <a name="input_network_default_action"></a> [network\_default\_action](#input\_network\_default\_action) | Key Vault firewall default action. Deny (recommended) = only the private endpoint, bypassed Azure services, and allowed\_ip\_ranges may reach the vault. Use Allow only for playground vaults without a private endpoint. | `string` | `"Deny"` | no |
 | <a name="input_purge_protection_enabled"></a> [purge\_protection\_enabled](#input\_purge\_protection\_enabled) | Enable purge protection (irreversible; leave false for play/throwaway vaults). | `bool` | `false` | no |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Resource group the vault lands in (created by the composition). | `string` | n/a | yes |

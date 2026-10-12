@@ -70,7 +70,7 @@ module.
 | <a name="input_master_username"></a> [master\_username](#input\_master\_username) | Master username. | `string` | `"pgadmin"` | no |
 | <a name="input_multi_az"></a> [multi\_az](#input\_multi\_az) | Add a reader instance in a second AZ for HA failover. | `bool` | `true` | no |
 | <a name="input_name"></a> [name](#input\_name) | ID element. Component name, e.g. 'autoheal'. | `string` | `null` | no |
-| <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'avid'. | `string` | `null` | no |
+| <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'acme'. | `string` | `null` | no |
 | <a name="input_subnet_ids"></a> [subnet\_ids](#input\_subnet\_ids) | Private subnet ids for the DB subnet group (modules/aws/vpc output private\_subnet\_ids). | `list(string)` | n/a | yes |
 | <a name="input_tags"></a> [tags](#input\_tags) | Additional tags, merged into the generated tag set. | `map(string)` | `{}` | no |
 | <a name="input_vpc_cidr_block"></a> [vpc\_cidr\_block](#input\_vpc\_cidr\_block) | VPC CIDR for the SG egress rule. | `string` | n/a | yes |

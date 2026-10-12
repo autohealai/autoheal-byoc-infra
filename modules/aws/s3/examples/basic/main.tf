@@ -17,7 +17,7 @@ provider "aws" {
 module "s3" {
   source = "../../"
 
-  namespace   = "avid"
+  namespace   = "acme"
   environment = "play"
   name        = "autoheal"
   attributes  = ["attachments"]

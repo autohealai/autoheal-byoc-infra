@@ -58,7 +58,7 @@ module.
 | <a name="input_environment"></a> [environment](#input\_environment) | ID element. Lifecycle (stage/prod/play) in this repo — NOT region. | `string` | `null` | no |
 | <a name="input_label_order"></a> [label\_order](#input\_label\_order) | Order of ID elements in id. Repo default drops 'stage'. | `list(string)` | <pre>[<br/>  "namespace",<br/>  "environment",<br/>  "name",<br/>  "attributes"<br/>]</pre> | no |
 | <a name="input_name"></a> [name](#input\_name) | ID element. Component name, e.g. 'autoheal'. | `string` | `null` | no |
-| <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'avid'. | `string` | `null` | no |
+| <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'acme'. | `string` | `null` | no |
 | <a name="input_node_type"></a> [node\_type](#input\_node\_type) | Node type (e.g. cache.t4g.small, cache.m7g.large). BYOC uses node-based/provisioned caches. | `string` | `"cache.m7g.large"` | no |
 | <a name="input_num_cache_clusters"></a> [num\_cache\_clusters](#input\_num\_cache\_clusters) | Number of nodes. 1 = single node; >= 2 = primary + replica(s) with Multi-AZ automatic failover (prod HA). | `number` | `2` | no |
 | <a name="input_replication_group_id_override"></a> [replication\_group\_id\_override](#input\_replication\_group\_id\_override) | Force an exact replication group id (<=40 chars). Empty = derive from the label id (truncated to 40). | `string` | `""` | no |

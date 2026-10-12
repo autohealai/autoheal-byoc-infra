@@ -1,7 +1,7 @@
 # Autoheal BYOC — AWS Secrets Manager
 
 Secrets Manager storage for a BYOC-on-EKS Autoheal install. Creates one secret per
-entry in `secrets` under a shared prefix (e.g. `tenants/avid/<key>`). The app reads
+entry in `secrets` under a shared prefix (e.g. `tenants/acme/<key>`). The app reads
 them through its IRSA role (`modules/aws/irsa`), which is granted `GetSecretValue`
 on `<prefix>/*` — this module stores secrets, it does not grant read access.
 
@@ -55,9 +55,9 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_environment"></a> [environment](#input\_environment) | ID element. Lifecycle (stage/prod/play) in this repo — NOT region. | `string` | `null` | no |
 | <a name="input_label_order"></a> [label\_order](#input\_label\_order) | Order of ID elements in id. Repo default drops 'stage'. | `list(string)` | <pre>[<br/>  "namespace",<br/>  "environment",<br/>  "name",<br/>  "attributes"<br/>]</pre> | no |
 | <a name="input_name"></a> [name](#input\_name) | ID element. Component name, e.g. 'autoheal'. | `string` | `null` | no |
-| <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'avid'. | `string` | `null` | no |
+| <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'acme'. | `string` | `null` | no |
 | <a name="input_recovery_window_in_days"></a> [recovery\_window\_in\_days](#input\_recovery\_window\_in\_days) | Days AWS retains a deleted secret before permanent removal. 0 = delete immediately (no recovery). | `number` | `7` | no |
-| <a name="input_secret_prefix"></a> [secret\_prefix](#input\_secret\_prefix) | Prefix each secret name is created under, e.g. 'tenants/avid'. The IRSA policy is scoped to '<prefix>/*'. | `string` | n/a | yes |
+| <a name="input_secret_prefix"></a> [secret\_prefix](#input\_secret\_prefix) | Prefix each secret name is created under, e.g. 'tenants/acme'. The IRSA policy is scoped to '<prefix>/*'. | `string` | n/a | yes |
 | <a name="input_secrets"></a> [secrets](#input\_secrets) | Map of secret key -> secret string. Each becomes a secret named '<secret\_prefix>/<key>'. Values land in state; seed only what the app needs, pass via sensitive composition inputs. | `map(string)` | `{}` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Additional tags, merged into the generated tag set. | `map(string)` | `{}` | no |
 

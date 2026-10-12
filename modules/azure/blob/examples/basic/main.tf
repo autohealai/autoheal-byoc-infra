@@ -17,7 +17,7 @@ provider "azurerm" {
 module "blob" {
   source = "../../"
 
-  namespace   = "avid"
+  namespace   = "acme"
   environment = "play"
   name        = "autoheal"
 

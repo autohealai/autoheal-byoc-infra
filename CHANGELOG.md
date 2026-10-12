@@ -6,6 +6,12 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- Repository governance files: `LICENSE` (MIT, matching `autohealai/agents`),
+  `.github/CODEOWNERS`, `SECURITY.md` (private vulnerability reporting), and
+  `CONTRIBUTING.md` (the module-standard contract, local checks, and the
+  release/versioning flow).
+
 ### Changed
 - Point the README source example and the `docs/CONSUMING.md` checkout steps at
   `v1.1.0` (was `v1.0.0`, which predates the workload-identity federation fix).

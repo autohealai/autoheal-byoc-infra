@@ -146,9 +146,35 @@ module "workload_identity" {
 
   oidc_issuer_url            = module.aks.oidc_issuer_url
   federated_service_accounts = var.federated_service_accounts
-  key_vault_id               = module.keyvault.key_vault_id
-  storage_account_id         = module.blob.account_id
-  acr_id                     = ""
+  # The app identity does NOT read Key Vault: app pods consume the Kubernetes
+  # Secrets that ESO syncs, and ESO reads the vault with its own dedicated identity
+  # (module.eso_identity below). Keeping KV read off the app identity is the
+  # least-privilege model and mirrors the EKS split (app role != ESO role).
+  key_vault_id       = module.keyvault.key_vault_id
+  kv_role_enabled    = false
+  storage_account_id = module.blob.account_id
+  acr_id             = ""
+}
+
+# Dedicated, least-scoped identity for the External Secrets Operator. ESO reads
+# Key Vault with THIS identity (Key Vault Secrets User), federated to its own
+# controller ServiceAccount. The operator install + ClusterSecretStore +
+# ExternalSecrets are in-cluster objects owned by the app/install layer, which
+# consumes the outputs below (client_id, tenant_id) plus the vault_uri.
+module "eso_identity" {
+  source = "../../modules/azure/external-secrets"
+
+  namespace   = var.namespace
+  environment = var.environment
+  name        = var.name
+  attributes  = ["eso"]
+  tags        = var.tags
+
+  resource_group_name = azurerm_resource_group.this.name
+  location            = var.location
+
+  oidc_issuer_url = module.aks.oidc_issuer_url
+  key_vault_id    = module.keyvault.key_vault_id
 }
 
 # Optional private endpoints for Blob + Key Vault (zones come from the vnet module

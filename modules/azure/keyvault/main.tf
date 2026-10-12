@@ -1,6 +1,8 @@
 # Key Vault, RBAC mode. The AWS analogue is modules/aws/secrets-manager. ESO reads
-# these secrets via the app workload identity (modules/azure/workload-identity
-# grants Key Vault Secrets User; the ClusterSecretStore is wired by the app layer).
+# these secrets via its own dedicated, least-scoped identity (modules/azure/
+# external-secrets grants that identity Key Vault Secrets User — NOT the app
+# identity). The ClusterSecretStore + ExternalSecrets are in-cluster objects wired
+# by the app/install layer, which consumes the composition's eso_* outputs.
 #
 # RBAC mode means the principal running Terraform needs a data-plane role to seed
 # secrets, so we grant the deployer Key Vault Secrets Officer. The seed secrets

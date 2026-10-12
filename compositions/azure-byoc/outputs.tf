@@ -53,6 +53,25 @@ output "acr_id" {
   value       = module.acr.acr_id
 }
 
+# ESO wiring for the app/install layer. The operator install + ClusterSecretStore +
+# ExternalSecrets live in the chart/install-aks.sh, which reads these to wire the
+# ClusterSecretStore (provider.azurekv, authType WorkloadIdentity) and to stamp the
+# ESO controller ServiceAccount's azure.workload.identity/client-id annotation.
+output "eso_identity_client_id" {
+  description = "Client id of the dedicated ESO identity (stamp on the ESO controller ServiceAccount)."
+  value       = module.eso_identity.client_id
+}
+
+output "eso_tenant_id" {
+  description = "Entra tenant id for the ClusterSecretStore provider.azurekv.tenantId."
+  value       = module.eso_identity.tenant_id
+}
+
+output "eso_service_account" {
+  description = "namespace/name of the federated ESO ServiceAccount (ClusterSecretStore serviceAccountRef)."
+  value       = module.eso_identity.service_account
+}
+
 output "runner_subnet_id" {
   description = "Runner subnet id (fed to the separate runner-vmss apply)."
   value       = module.vnet.subnet_runner_id

@@ -6,6 +6,10 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+- Point the README source example and the `docs/CONSUMING.md` checkout steps at
+  `v1.1.0` (was `v1.0.0`, which predates the workload-identity federation fix).
+
 ## [1.1.0] - 2026-10-12
 
 > **Upgrade notes.** The Blob and Key Vault firewalls now **default to `Deny`**, and

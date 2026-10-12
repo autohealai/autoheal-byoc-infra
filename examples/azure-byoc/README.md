@@ -3,7 +3,7 @@
 A copyable starting config that points at `compositions/azure-byoc` via Terragrunt.
 
 **First time? Follow the full step-by-step tutorial in
-[docs/CONSUMING.md](../../docs/CONSUMING.md)** — it covers the tools, permissions,
+[docs/getting-started.md](../../docs/getting-started.md)** — it covers the tools, permissions,
 and the one-time state bootstrap this short version assumes. The short version:
 
 ```bash
@@ -16,5 +16,5 @@ terragrunt apply
 terragrunt output -json > autoheal-infra-outputs.json
 ```
 
-See [docs/CONSUMING.md](../../docs/CONSUMING.md) for the full flow and what the
+See [docs/getting-started.md](../../docs/getting-started.md) for the full flow and what the
 outputs feed.

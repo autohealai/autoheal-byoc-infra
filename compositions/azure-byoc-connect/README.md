@@ -3,7 +3,7 @@
 The **connect-mode** Azure recipe (Nomura-style): the customer provisions all base
 infrastructure and Autoheal only connects the app to it. Consumers run it via
 `examples/azure-byoc-connect` (a Terragrunt wrapper); see
-[docs/CONSUMING.md](../../docs/CONSUMING.md).
+[docs/getting-started.md](../../docs/getting-started.md).
 
 Contrast with [`azure-byoc`](../azure-byoc) (create mode), which provisions
 everything. This composition provisions almost nothing — it reads existing

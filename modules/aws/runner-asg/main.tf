@@ -61,6 +61,9 @@ resource "aws_security_group" "runner" {
   description = "Autoheal runner-go worker (egress only; access via SSM)"
   vpc_id      = var.vpc_id
 
+  # Egress-only worker (no inbound; access is via SSM). Needs outbound reach to pull
+  # runner/sandbox images and call AWS APIs; it sits in a private subnet behind NAT.
+  #trivy:ignore:AVD-AWS-0104 Unrestricted egress is required to pull images and reach AWS APIs; there is no inbound rule.
   egress {
     from_port   = 0
     to_port     = 0

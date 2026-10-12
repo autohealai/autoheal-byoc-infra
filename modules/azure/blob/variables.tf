@@ -34,3 +34,20 @@ variable "account_replication_type" {
   default     = "LRS"
   description = "Replication: LRS, ZRS, GRS, ..."
 }
+
+variable "network_default_action" {
+  type        = string
+  default     = "Deny"
+  description = "Storage firewall default action. Deny (recommended) = only the private endpoint, bypassed Azure services, and allowed_ip_ranges may reach the account. Use Allow only for playground accounts without a private endpoint."
+
+  validation {
+    condition     = contains(["Allow", "Deny"], var.network_default_action)
+    error_message = "network_default_action must be exactly \"Allow\" or \"Deny\" (case-sensitive; the Azure storage API rejects any other value)."
+  }
+}
+
+variable "allowed_ip_ranges" {
+  type        = list(string)
+  default     = []
+  description = "Public IPs/CIDRs allowed through the storage firewall when default_action=Deny (e.g. the Terraform apply host, which creates the container over the data plane)."
+}

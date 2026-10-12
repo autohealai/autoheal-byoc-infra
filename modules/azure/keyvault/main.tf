@@ -26,6 +26,18 @@ resource "azurerm_key_vault" "this" {
   purge_protection_enabled   = var.purge_protection_enabled
   soft_delete_retention_days = 7
   tags                       = module.this.tags
+
+  # Firewall: default-deny. ESO reads secrets over a private endpoint, so the public
+  # path stays closed. bypass=AzureServices admits trusted Azure platform services;
+  # allowed_ip_ranges opens the apply host's public IP so the deployer can seed
+  # secrets over the data plane (RBAC-mode vaults enforce data-plane access, which
+  # default_action=Deny would otherwise block). Set network_default_action=Allow
+  # only for throwaway/playground vaults with no private endpoint.
+  network_acls {
+    default_action = var.network_default_action
+    bypass         = "AzureServices"
+    ip_rules       = var.allowed_ip_ranges
+  }
 }
 
 resource "azurerm_role_assignment" "deployer" {

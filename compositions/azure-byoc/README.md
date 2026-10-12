@@ -3,7 +3,7 @@
 The Azure recipe: wires the `modules/azure/*` building blocks into the Autoheal
 BYOC stack and emits the shared output contract. Consumers run it via
 `examples/azure-byoc` (a Terragrunt wrapper); see
-[docs/CONSUMING.md](../../docs/CONSUMING.md).
+[docs/getting-started.md](../../docs/getting-started.md).
 
 ## What it creates
 

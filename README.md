@@ -19,16 +19,16 @@ modules/          Reusable building blocks, one concern each (the "ingredients")
   gcp/            Planned.
 compositions/     Opinionated full-stack wiring, one per cloud (the "recipes").
   azure-byoc/     VNet + PG + Blob + KV + ACR + AKS (Redis in-cluster). The runner
-                  (runner-vmss) is a separate stage-2 apply — see CONSUMING.md.
+                  (runner-vmss) is a separate stage-2 apply — see getting-started.md.
   aws-byoc/       VPC + Aurora + ElastiCache + S3 + EKS. The runner (runner-asg) is
                   likewise a separate stage-2 apply.
 examples/         Runnable, copyable starting configs per composition.
-docs/             MODULE_STANDARD.md (contributor contract), CONSUMING.md (usage).
+docs/             MODULE_STANDARD.md (contributor contract), getting-started.md (usage).
 ```
 
 ## Quick start
 
-**New here? Follow [docs/CONSUMING.md](docs/CONSUMING.md) step by step.** It is a
+**New here? Follow [docs/getting-started.md](docs/getting-started.md) step by step.** It is a
 beginner's tutorial that walks the whole install — install the tools, check your
 permissions, sign in, copy an example, set up remote state, then
 `init` → `plan` → `apply` — with a troubleshooting table at the end.
@@ -44,14 +44,14 @@ terragrunt output -json > autoheal-infra-outputs.json   # feeds the app install
 ```
 
 > This snippet is not a standalone runbook — on Azure it fails at `init` without
-> the state backend. Follow CONSUMING.md end to end for a real install.
+> the state backend. Follow getting-started.md end to end for a real install.
 
 ## Versioning
 
 One semver version for the whole repo. Consumers pin a release tag:
 
 ```hcl
-source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure-byoc?ref=v1.1.1"
+source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure-byoc?ref=v1.1.2"
 ```
 
 See [docs/MODULE_STANDARD.md](docs/MODULE_STANDARD.md) for the full contributor

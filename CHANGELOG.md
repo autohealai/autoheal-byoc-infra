@@ -6,6 +6,18 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-10-12
+
+> Docs-only release. No infrastructure (module/composition) changes from
+> `v1.1.0`/`v1.1.1` — the deployed stack is identical.
+
+### Changed
+- Renamed the consumer guide `docs/CONSUMING.md` → `docs/getting-started.md`
+  (clearer, industry-standard "start here" name) and updated all references in
+  the README, compositions, and examples.
+- Point the README source example and the `docs/getting-started.md` checkout
+  steps at `v1.1.2`.
+
 ## [1.1.1] - 2026-10-12
 
 > Docs- and governance-only release. No infrastructure (module/composition)

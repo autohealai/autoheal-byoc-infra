@@ -6,7 +6,7 @@
 #   terragrunt init && terragrunt plan && terragrunt apply
 #   terragrunt output -json > autoheal-infra-outputs.json
 #
-# See docs/CONSUMING.md.
+# See docs/getting-started.md.
 
 terraform {
   # Pin a release when consuming across repos; here we point at the composition in

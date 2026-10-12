@@ -9,7 +9,7 @@
 # After the app + Temporal are up, apply modules/aws/runner-asg separately, feeding
 # it this stack's vpc_id + private_subnet_ids and the discovered internal NLB host.
 #
-# See docs/CONSUMING.md.
+# See docs/getting-started.md.
 
 terraform {
   # Pin a release when consuming across repos; here we point at the composition in

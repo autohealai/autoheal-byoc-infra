@@ -1,8 +1,8 @@
 # Azure BYOC CONNECT: the Nomura-style install where the customer provisions all
 # base infrastructure and Autoheal only connects the app to it. This composition
 # reads the existing VNet/AKS/PG/Key Vault/Redis/ACR/Storage via data sources,
-# creates the app workload identity that binds Autoheal pods to those resources,
-# optionally seeds the data-tier secrets, and emits the SAME output contract as the
+# creates the app and ESO workload identities that bind Autoheal pods to those
+# resources, optionally seeds the data-tier secrets, and emits the SAME output contract as the
 # create composition (compositions/azure-byoc) so the app install is identical.
 #
 # What it CREATES: two user-assigned identities, both federated against the existing

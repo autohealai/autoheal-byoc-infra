@@ -40,6 +40,9 @@ mock_provider "azurerm" {
     defaults = {
       id        = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-customer-autoheal/providers/Microsoft.KeyVault/vaults/kv-customer-autoheal"
       vault_uri = "https://kv-customer-autoheal.vault.azure.net/"
+      # RBAC-mode vault: satisfies the kv_rbac_guard precondition. The
+      # access-policy-vault rejection is asserted in refuses_access_policy_vault below.
+      rbac_authorization_enabled = true
     }
   }
 
@@ -157,4 +160,75 @@ run "plans_with_seeding_off" {
     condition     = output.eso_service_account == "external-secrets/external-secrets"
     error_message = "eso_service_account output must exist even with seeding off."
   }
+}
+
+# The identities' client_ids are computed (unknown at plan) and mock_provider can't mint a
+# parseable ARM id for them (apply then fails parsing parent_id on the federated creds), so
+# override BOTH user-assigned identities with valid, DISTINCT ids/client_ids. This proves
+# the installer-facing outputs are wired to the right module: eso_identity_client_id must
+# resolve from module.eso_identity and runner_identity from module.workload_identity — if
+# either output pointed at the wrong module both would collapse to the same value and the
+# distinctness assert would fail. (That the app identity holds no Key Vault role is enforced
+# one level down in modules/azure/workload-identity by kv_role_enabled = false.)
+#
+# This run must `apply`: the client_id outputs are computed, so they stay unknown under a
+# plan even with the overrides. The overrides supply valid ARM ids so the federated-credential
+# parent_id parses (a bare mock id does not), letting the apply — and teardown — complete.
+run "wires_distinct_app_and_eso_identity_outputs" {
+  command = apply
+
+  override_resource {
+    target = module.workload_identity.azurerm_user_assigned_identity.app
+    values = {
+      id           = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-customer-autoheal/providers/Microsoft.ManagedIdentity/userAssignedIdentities/uami-autoheal-app"
+      client_id    = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+      principal_id = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa"
+      tenant_id    = "00000000-0000-0000-0000-000000000000"
+    }
+  }
+
+  override_resource {
+    target = module.eso_identity.azurerm_user_assigned_identity.eso
+    values = {
+      id           = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-customer-autoheal/providers/Microsoft.ManagedIdentity/userAssignedIdentities/uami-autoheal-eso"
+      client_id    = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+      principal_id = "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb"
+      tenant_id    = "00000000-0000-0000-0000-000000000000"
+    }
+  }
+
+  assert {
+    condition     = output.eso_identity_client_id != output.runner_identity
+    error_message = "The ESO identity and the app identity must be separate principals (only ESO holds Key Vault access); their client-id outputs must not resolve from the same module."
+  }
+
+  assert {
+    condition     = output.eso_identity_client_id == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" && output.runner_identity == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    error_message = "eso_identity_client_id must come from module.eso_identity and runner_identity from module.workload_identity."
+  }
+
+  assert {
+    condition     = output.eso_tenant_id != ""
+    error_message = "eso_tenant_id must be populated for the installer to configure the ClusterSecretStore."
+  }
+}
+
+# The RBAC guard must REJECT an access-policy vault. Override just the Key Vault data source
+# to enable_rbac_authorization = false (everything else stays valid); the plan must stop at
+# the kv_rbac_guard precondition rather than ship role assignments that grant nothing.
+run "refuses_access_policy_vault" {
+  command = plan
+
+  override_data {
+    target = data.azurerm_key_vault.existing
+    values = {
+      id                         = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-customer-autoheal/providers/Microsoft.KeyVault/vaults/kv-customer-autoheal"
+      vault_uri                  = "https://kv-customer-autoheal.vault.azure.net/"
+      rbac_authorization_enabled = false
+    }
+  }
+
+  expect_failures = [
+    terraform_data.kv_rbac_guard,
+  ]
 }

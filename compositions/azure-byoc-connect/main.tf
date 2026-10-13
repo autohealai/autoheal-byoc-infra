@@ -48,6 +48,24 @@ data "azurerm_storage_account" "existing" {
   resource_group_name = var.resource_group_name
 }
 
+# --- Guard: the customer's Key Vault must use RBAC authorization -----------
+
+# Every Key Vault grant this composition makes is an Azure RBAC role assignment:
+# the ESO identity's Key Vault Secrets User and (when seeding) the deployer's Secrets
+# Officer. On an access-policy vault (rbac_authorization_enabled = false) those
+# assignments apply cleanly but grant NOTHING at the data plane — ESO would 403 at
+# runtime and the seed writes would fail. Fail the plan here instead of shipping a
+# green apply with a dead runtime; the customer must enable RBAC on the vault (or
+# switch us to access-policy grants, which this composition does not emit).
+resource "terraform_data" "kv_rbac_guard" {
+  lifecycle {
+    precondition {
+      condition     = data.azurerm_key_vault.existing.rbac_authorization_enabled
+      error_message = "Key Vault '${var.key_vault_name}' must use RBAC authorization (rbac_authorization_enabled = true). This composition grants Key Vault access via Azure RBAC role assignments, which have no effect on an access-policy vault."
+    }
+  }
+}
+
 # --- App workload identity (the thing we create) --------------------------
 
 module "workload_identity" {
@@ -70,6 +88,16 @@ module "workload_identity" {
   # (module.eso_identity below). Keeping KV read off the app identity is the
   # least-privilege model and mirrors the create composition (azure-byoc) and the
   # EKS split (app role != ESO role).
+  #
+  # CROSS-REPO CONTRACT (important): because the app identity holds NO Key Vault grant,
+  # the ONLY principal that can read Key Vault is module.eso_identity, which is granted
+  # Key Vault Secrets User on the federated subject
+  # system:serviceaccount:external-secrets:external-secrets (the external-secrets module
+  # defaults). The app install (install-aks.sh / the chart) MUST therefore (a) deploy the
+  # ESO controller under exactly that namespace/ServiceAccount, and (b) stamp it with the
+  # eso_identity_client_id output. If it deploys ESO under a different ns/SA or ignores the
+  # outputs, no identity can read Key Vault and every app secret fails to sync — a green
+  # apply with a dead runtime. Change the federated subject here and in the installer together.
   key_vault_id       = data.azurerm_key_vault.existing.id
   kv_role_enabled    = false
   storage_account_id = data.azurerm_storage_account.existing.id

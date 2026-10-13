@@ -15,10 +15,16 @@ All notable changes to this repo are documented here. Format follows
 - `azure-byoc-connect` outputs `eso_identity_client_id`, `eso_tenant_id`,
   `eso_service_account` (the ESO wiring the installer reads to stamp the controller
   ServiceAccount and configure the `ClusterSecretStore`).
+- `azure-byoc-connect`: a plan-time precondition that the existing Key Vault uses RBAC
+  authorization (`rbac_authorization_enabled = true`). The composition grants Key Vault
+  access via Azure RBAC role assignments, which silently grant nothing on an access-policy
+  vault; the guard fails the plan instead of shipping a green apply with a dead runtime.
 - `azure-byoc-connect/tests/connect.tftest.hcl`: a mocked-provider `terraform test` that
-  plans the composition and asserts the shared output contract + optional seeding.
+  plans the composition and asserts the shared output contract + optional seeding, applies
+  to prove the app and ESO identities are distinct principals, and asserts the RBAC guard
+  rejects an access-policy vault.
 - CI runs `terraform test` on every composition that ships a `tests/` directory (was
-  `azure-byoc` only).
+  `azure-byoc` only), and fails the step if discovery finds none.
 
 ### Changed
 - `azure-byoc-connect`: `federated_service_accounts` now defaults to the three real chart

@@ -23,6 +23,10 @@ Storage Account         var.storage_account_name
 Names are passed explicitly (not derived from the null-label) because the customer's
 resources usually follow their own naming.
 
+The Key Vault **must use RBAC authorization** (`rbac_authorization_enabled = true`): this
+composition grants Key Vault access via Azure RBAC role assignments, which have no effect
+on an access-policy vault. A plan-time precondition fails fast if it is not RBAC-mode.
+
 ## What it creates
 
 ```
@@ -48,9 +52,18 @@ identity only reads/writes Blob (and optionally pulls ACR).
 `postgres-password` cannot be read back from a server, so pass it (and anything else
 the customer created out-of-band) via `additional_secrets`.
 
-## Outputs (shared contract — identical names in `azure-byoc` and `aws-byoc`)
+## Outputs
 
-`cluster_name`, `postgres_host`, `redis_endpoint`, `object_store`,
-`secret_store_uri`, `registry`, `runner_identity`. Plus `resource_group_name`,
-`oidc_issuer_url`, `acr_id`, `kube_host`, and the ESO wiring the installer consumes:
-`eso_identity_client_id`, `eso_tenant_id`, `eso_service_account`.
+The cross-cloud contract the installer reads — identical names in `azure-byoc` and
+`aws-byoc`:
+
+`cluster_name`, `postgres_host`, `object_store`, `secret_store_uri`, `registry`,
+`runner_identity`.
+
+`redis_endpoint` (host:ssl_port of the managed Redis) is shared with `aws-byoc` but
+**not** `azure-byoc`: the create composition runs Redis in-cluster via the app chart and
+emits no managed-Redis endpoint, whereas connect customers always bring a managed Redis.
+
+Plus `resource_group_name`, `oidc_issuer_url`, `acr_id`, `kube_host`, and the ESO wiring
+the installer consumes (shared with `azure-byoc`): `eso_identity_client_id`,
+`eso_tenant_id`, `eso_service_account`.

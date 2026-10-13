@@ -23,24 +23,47 @@ Storage Account         var.storage_account_name
 Names are passed explicitly (not derived from the null-label) because the customer's
 resources usually follow their own naming.
 
+The Key Vault **must use RBAC authorization** (`rbac_authorization_enabled = true`): this
+composition grants Key Vault access via Azure RBAC role assignments, which have no effect
+on an access-policy vault. A plan-time precondition fails fast if it is not RBAC-mode.
+
 ## What it creates
 
 ```
 module.workload_identity   app UAMI + federated credentials against the existing
                            cluster's OIDC issuer + role grants:
-                             - Key Vault Secrets User   (ESO reads app secrets)
                              - Storage Blob Data Contributor
                              - AcrPull                  (only if grant_app_acr_pull)
+                           (NOT Key Vault — app pods consume ESO-synced Secrets)
+module.eso_identity        dedicated ESO UAMI + federated credential against the
+                           existing cluster's OIDC issuer (ESO controller SA) +
+                           Key Vault Secrets User on the existing vault. The
+                           installer reads eso_identity_client_id / eso_tenant_id /
+                           eso_service_account to wire the ClusterSecretStore.
 azurerm_key_vault_secret   seed secrets (redis-*, postgres-host/user + additional_
                            secrets) when seed_secrets_enabled; the deployer is
                            granted Key Vault Secrets Officer to write them
 ```
 
+The app identity and ESO identity are split for least privilege (same model as the
+create composition and EKS): ESO reads Key Vault with its own identity; the app
+identity only reads/writes Blob (and optionally pulls ACR).
+
 `postgres-password` cannot be read back from a server, so pass it (and anything else
 the customer created out-of-band) via `additional_secrets`.
 
-## Outputs (shared contract — identical names in `azure-byoc` and `aws-byoc`)
+## Outputs
 
-`cluster_name`, `postgres_host`, `redis_endpoint`, `object_store`,
-`secret_store_uri`, `registry`, `runner_identity`. Plus `resource_group_name`,
-`oidc_issuer_url`, `acr_id`, `kube_host`.
+The cross-cloud contract the installer reads — identical names in `azure-byoc` and
+`aws-byoc`:
+
+`cluster_name`, `postgres_host`, `object_store`, `secret_store_uri`, `registry`,
+`runner_identity`.
+
+`redis_endpoint` (host:ssl_port of the managed Redis) is shared with `aws-byoc` but
+**not** `azure-byoc`: the create composition runs Redis in-cluster via the app chart and
+emits no managed-Redis endpoint, whereas connect customers always bring a managed Redis.
+
+Plus `resource_group_name`, `oidc_issuer_url`, `acr_id`, `kube_host`, and the ESO wiring
+the installer consumes (shared with `azure-byoc`): `eso_identity_client_id`,
+`eso_tenant_id`, `eso_service_account`.

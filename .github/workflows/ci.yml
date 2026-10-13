@@ -31,14 +31,26 @@ jobs:
             terraform -chdir="$d" validate
           done
 
-      # validate does not evaluate lifecycle preconditions, so the Blob/Key Vault
-      # reachability logic in the azure-byoc composition is covered by a mocked-provider
-      # `terraform test` that runs a real plan. See the tests/ directory for the cases.
-      - name: composition precondition tests
+      # validate does not evaluate lifecycle preconditions, so the plan-time logic in
+      # each composition (azure-byoc data-plane reachability; azure-byoc-connect RBAC
+      # guard + output contract) is covered by a mocked-provider `terraform test` that
+      # runs a real plan. Every composition shipping a tests/ dir is exercised here; the
+      # guard below fails the step if discovery turns up none (a moved/renamed dir would
+      # otherwise pass silently). See each composition's tests/ directory for the cases.
+      - name: composition tests
         run: |
-          set -e
-          terraform -chdir=compositions/azure-byoc init -backend=false >/dev/null
-          terraform -chdir=compositions/azure-byoc test
+          set -euo pipefail
+          dirs="$(find compositions -type d -name tests | sort -u)"
+          if [ -z "$dirs" ]; then
+            echo "no composition tests discovered under compositions/**/tests" >&2
+            exit 1
+          fi
+          for d in $dirs; do
+            c="$(dirname "$d")"
+            echo "== test $c =="
+            terraform -chdir="$c" init -backend=false >/dev/null
+            terraform -chdir="$c" test
+          done
 
       - name: tflint
         uses: terraform-linters/setup-tflint@v4

@@ -1,14 +1,18 @@
 # Azure BYOC CONNECT: the Nomura-style install where the customer provisions all
 # base infrastructure and Autoheal only connects the app to it. This composition
 # reads the existing VNet/AKS/PG/Key Vault/Redis/ACR/Storage via data sources,
-# creates the app workload identity that binds Autoheal pods to those resources,
-# optionally seeds the data-tier secrets, and emits the SAME output contract as the
+# creates the app and ESO workload identities that bind Autoheal pods to those
+# resources, optionally seeds the data-tier secrets, and emits the SAME output contract as the
 # create composition (compositions/azure-byoc) so the app install is identical.
 #
-# What it CREATES: an app user-assigned identity, its federated credentials against
-# the existing cluster's OIDC issuer, role grants (Key Vault Secrets User / Storage
-# Blob Data Contributor / optional AcrPull), and optional seed secrets.
-# Everything else is read-only.
+# What it CREATES: two user-assigned identities, both federated against the existing
+# cluster's OIDC issuer —
+#   - an app identity for the chart ServiceAccounts, granted Storage Blob Data
+#     Contributor (+ optional AcrPull). It is NOT granted Key Vault access: app pods
+#     consume the Kubernetes Secrets that ESO syncs.
+#   - a dedicated ESO identity (module.eso_identity) federated to the External Secrets
+#     controller ServiceAccount, granted Key Vault Secrets User so ESO reads the vault.
+# Plus optional seed secrets into the existing Key Vault. Everything else is read-only.
 
 data "azurerm_client_config" "current" {}
 
@@ -44,6 +48,24 @@ data "azurerm_storage_account" "existing" {
   resource_group_name = var.resource_group_name
 }
 
+# --- Guard: the customer's Key Vault must use RBAC authorization -----------
+
+# Every Key Vault grant this composition makes is an Azure RBAC role assignment:
+# the ESO identity's Key Vault Secrets User and (when seeding) the deployer's Secrets
+# Officer. On an access-policy vault (rbac_authorization_enabled = false) those
+# assignments apply cleanly but grant NOTHING at the data plane — ESO would 403 at
+# runtime and the seed writes would fail. Fail the plan here instead of shipping a
+# green apply with a dead runtime; the customer must enable RBAC on the vault (or
+# switch us to access-policy grants, which this composition does not emit).
+resource "terraform_data" "kv_rbac_guard" {
+  lifecycle {
+    precondition {
+      condition     = data.azurerm_key_vault.existing.rbac_authorization_enabled
+      error_message = "Key Vault '${var.key_vault_name}' must use RBAC authorization (rbac_authorization_enabled = true). This composition grants Key Vault access via Azure RBAC role assignments, which have no effect on an access-policy vault."
+    }
+  }
+}
+
 # --- App workload identity (the thing we create) --------------------------
 
 module "workload_identity" {
@@ -61,9 +83,49 @@ module "workload_identity" {
   oidc_issuer_url            = data.azurerm_kubernetes_cluster.existing.oidc_issuer_url
   federated_service_accounts = var.federated_service_accounts
 
+  # The app identity does NOT read Key Vault: app pods consume the Kubernetes
+  # Secrets that ESO syncs, and ESO reads the vault with its own dedicated identity
+  # (module.eso_identity below). Keeping KV read off the app identity is the
+  # least-privilege model and mirrors the create composition (azure-byoc) and the
+  # EKS split (app role != ESO role).
+  #
+  # CROSS-REPO CONTRACT (important): because the app identity holds NO Key Vault grant,
+  # the ONLY principal that can read Key Vault is module.eso_identity, which is granted
+  # Key Vault Secrets User on the federated subject
+  # system:serviceaccount:external-secrets:external-secrets (the external-secrets module
+  # defaults). The app install (install-aks.sh / the chart) MUST therefore (a) deploy the
+  # ESO controller under exactly that namespace/ServiceAccount, and (b) stamp it with the
+  # eso_identity_client_id output. If it deploys ESO under a different ns/SA or ignores the
+  # outputs, no identity can read Key Vault and every app secret fails to sync — a green
+  # apply with a dead runtime. Change the federated subject here and in the installer together.
   key_vault_id       = data.azurerm_key_vault.existing.id
+  kv_role_enabled    = false
   storage_account_id = data.azurerm_storage_account.existing.id
   acr_id             = var.grant_app_acr_pull ? data.azurerm_container_registry.existing.id : ""
+}
+
+# --- ESO identity (reads the existing Key Vault) --------------------------
+
+# Dedicated, least-scoped identity for the External Secrets Operator, federated to
+# the EXISTING cluster's OIDC issuer and granted Key Vault Secrets User on the
+# EXISTING vault. The installer (install-aks.sh, azurekeyvault path) reads the
+# eso_identity_* outputs to stamp the ESO controller ServiceAccount and wire the
+# ClusterSecretStore (provider.azurekv). Same module and output contract as the
+# create composition (azure-byoc) so the app install is identical either way.
+module "eso_identity" {
+  source = "../../modules/azure/external-secrets"
+
+  namespace   = var.namespace
+  environment = var.environment
+  name        = var.name
+  attributes  = ["eso"]
+  tags        = var.tags
+
+  resource_group_name = var.resource_group_name
+  location            = var.location
+
+  oidc_issuer_url = data.azurerm_kubernetes_cluster.existing.oidc_issuer_url
+  key_vault_id    = data.azurerm_key_vault.existing.id
 }
 
 # --- Optional secret seeding into the existing Key Vault ------------------

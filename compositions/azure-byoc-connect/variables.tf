@@ -2,8 +2,8 @@
 # does not provision base infrastructure and so does NOT derive names from the
 # null-label — the customer already built the VNet, AKS, PG, Key Vault, Redis, ACR
 # and Storage, usually under their own naming. You therefore pass the existing
-# resource names/RG explicitly; the only things this composition creates are the
-# app workload identity (+ its federated credentials and role grants) and,
+# resource names/RG explicitly; the only things this composition creates are the app
+# and ESO workload identities (+ their federated credentials and role grants) and,
 # optionally, seed secrets.
 
 # ---------------------------------------------------------------------------
@@ -17,12 +17,12 @@ variable "subscription_id" {
 
 variable "location" {
   type        = string
-  description = "Azure region of the existing resources (where the new app identity is created)."
+  description = "Azure region of the existing resources (where the new app and ESO identities are created)."
 }
 
 variable "resource_group_name" {
   type        = string
-  description = "Resource group that holds the existing resources (and where the app identity is created)."
+  description = "Resource group that holds the existing resources (and where the app and ESO identities are created)."
 }
 
 variable "aks_cluster_name" {
@@ -92,7 +92,16 @@ variable "federated_service_accounts" {
     namespace       = string
     service_account = string
   }))
-  default     = [{ namespace = "app", service_account = "autoheal-app" }]
+  # Defaults match the Autoheal BYOC chart (same as the create composition): the
+  # three app pods that read Blob (api-server-go attachments; agents prompt storage)
+  # run in namespace "autoheal" with these ServiceAccount names. The chart annotates
+  # them with runner_identity's client-id. Override only if the customer installs the
+  # app into a different namespace or with different ServiceAccount names.
+  default = [
+    { namespace = "autoheal", service_account = "api-server-go" },
+    { namespace = "autoheal", service_account = "agents-py-http" },
+    { namespace = "autoheal", service_account = "agents-py-worker" },
+  ]
   description = "Kubernetes service accounts federated to the app identity (subject system:serviceaccount:<ns>:<sa>). Match the app install."
 }
 

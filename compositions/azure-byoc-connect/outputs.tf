@@ -37,6 +37,25 @@ output "runner_identity" {
   value       = module.workload_identity.client_id
 }
 
+# ESO wiring for the app/install layer — identical to the create composition. The
+# installer reads these to stamp the ESO controller SA's azure.workload.identity/
+# client-id annotation and to wire the ClusterSecretStore (provider.azurekv,
+# authType WorkloadIdentity): client_id + tenant_id + the Key Vault vault_uri.
+output "eso_identity_client_id" {
+  description = "Client id of the dedicated ESO identity (stamp on the ESO controller ServiceAccount)."
+  value       = module.eso_identity.client_id
+}
+
+output "eso_tenant_id" {
+  description = "Entra tenant id for the ClusterSecretStore provider.azurekv.tenantId."
+  value       = module.eso_identity.tenant_id
+}
+
+output "eso_service_account" {
+  description = "namespace/name of the federated ESO ServiceAccount (ClusterSecretStore serviceAccountRef)."
+  value       = module.eso_identity.service_account
+}
+
 # -- Extras the app install / later steps need (not part of the shared contract) --
 
 output "resource_group_name" {

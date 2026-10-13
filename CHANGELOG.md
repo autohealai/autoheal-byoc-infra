@@ -6,6 +6,8 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-13
+
 ### Added
 - `azure-byoc-connect`: a dedicated, least-scoped **ESO identity** (`module.eso_identity`,
   `modules/azure/external-secrets`) — a user-assigned identity federated to the existing
@@ -31,6 +33,13 @@ All notable changes to this repo are documented here. Format follows
   ServiceAccounts in namespace `autoheal` (`api-server-go`, `agents-py-http`,
   `agents-py-worker`), matching the create composition; the previous `app/autoheal-app`
   default matched no pod.
+- Rewrote `compositions/azure-byoc-connect/README.md` as a step-by-step tutorial:
+  a "Before you start" prerequisites checklist, ten numbered steps (sign in → collect
+  existing resource names → copy the example → fill `terragrunt.hcl` → seed the PG
+  password → init → plan → apply → save outputs → hand off to the app install), a
+  troubleshooting table, and a reference section.
+- Point the README source example and the `docs/getting-started.md` checkout steps at
+  `v1.2.0`.
 
 ### Removed
 - `azure-byoc-connect`: the **app** identity no longer receives Key Vault Secrets User

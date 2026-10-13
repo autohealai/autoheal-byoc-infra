@@ -13,7 +13,10 @@ cd examples/azure-byoc-connect-mine
 # edit terragrunt.hcl: subscription_id, location, resource_group_name, and the
 # existing resource names (aks/postgres/keyvault/redis/acr/storage), plus remote_state
 terragrunt init
-terragrunt plan      # review; only the app identity (+ optional secrets) is created
+terragrunt plan      # review; creates the app + ESO identities, their federated
+                     # credentials and role grants (Blob Data Contributor on the app
+                     # identity; Key Vault Secrets User on the ESO identity), and
+                     # optional seed secrets — everything else is read-only
 terragrunt apply
 terragrunt output -json > autoheal-infra-outputs.json
 ```

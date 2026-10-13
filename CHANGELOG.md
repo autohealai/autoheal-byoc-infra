@@ -6,6 +6,37 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- `azure-byoc-connect`: a dedicated, least-scoped **ESO identity** (`module.eso_identity`,
+  `modules/azure/external-secrets`) — a user-assigned identity federated to the existing
+  cluster's OIDC issuer and the External Secrets controller ServiceAccount, granted
+  **Key Vault Secrets User** on the existing vault. Brings connect to parity with the create
+  composition so the installer's Azure Key Vault + ESO path can stand up app secrets.
+- `azure-byoc-connect` outputs `eso_identity_client_id`, `eso_tenant_id`,
+  `eso_service_account` (the ESO wiring the installer reads to stamp the controller
+  ServiceAccount and configure the `ClusterSecretStore`).
+- `azure-byoc-connect/tests/connect.tftest.hcl`: a mocked-provider `terraform test` that
+  plans the composition and asserts the shared output contract + optional seeding.
+- CI runs `terraform test` on every composition that ships a `tests/` directory (was
+  `azure-byoc` only).
+
+### Changed
+- `azure-byoc-connect`: `federated_service_accounts` now defaults to the three real chart
+  ServiceAccounts in namespace `autoheal` (`api-server-go`, `agents-py-http`,
+  `agents-py-worker`), matching the create composition; the previous `app/autoheal-app`
+  default matched no pod.
+
+### Removed
+- `azure-byoc-connect`: the **app** identity no longer receives Key Vault Secrets User
+  (`kv_role_enabled = false`). ESO reads the vault with its own identity; app pods consume
+  the Kubernetes Secrets ESO syncs (least privilege; mirrors create and EKS).
+
+> **Upgrade note (connect installs):** re-applying `azure-byoc-connect` creates the new ESO
+> user-assigned identity, its federated credential, and a Key Vault Secrets User role
+> assignment, and **removes** the app identity's Key Vault Secrets User role assignment. The
+> app install must now consume the `eso_identity_*` outputs (ESO reads Key Vault via its own
+> identity). No data-plane resources are modified.
+
 ## [1.1.2] - 2026-10-12
 
 > Docs-only release. No infrastructure (module/composition) changes from

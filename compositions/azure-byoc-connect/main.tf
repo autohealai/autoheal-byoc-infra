@@ -5,10 +5,14 @@
 # optionally seeds the data-tier secrets, and emits the SAME output contract as the
 # create composition (compositions/azure-byoc) so the app install is identical.
 #
-# What it CREATES: an app user-assigned identity, its federated credentials against
-# the existing cluster's OIDC issuer, role grants (Key Vault Secrets User / Storage
-# Blob Data Contributor / optional AcrPull), and optional seed secrets.
-# Everything else is read-only.
+# What it CREATES: two user-assigned identities, both federated against the existing
+# cluster's OIDC issuer —
+#   - an app identity for the chart ServiceAccounts, granted Storage Blob Data
+#     Contributor (+ optional AcrPull). It is NOT granted Key Vault access: app pods
+#     consume the Kubernetes Secrets that ESO syncs.
+#   - a dedicated ESO identity (module.eso_identity) federated to the External Secrets
+#     controller ServiceAccount, granted Key Vault Secrets User so ESO reads the vault.
+# Plus optional seed secrets into the existing Key Vault. Everything else is read-only.
 
 data "azurerm_client_config" "current" {}
 

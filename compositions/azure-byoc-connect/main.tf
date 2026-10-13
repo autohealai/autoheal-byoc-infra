@@ -61,9 +61,39 @@ module "workload_identity" {
   oidc_issuer_url            = data.azurerm_kubernetes_cluster.existing.oidc_issuer_url
   federated_service_accounts = var.federated_service_accounts
 
+  # The app identity does NOT read Key Vault: app pods consume the Kubernetes
+  # Secrets that ESO syncs, and ESO reads the vault with its own dedicated identity
+  # (module.eso_identity below). Keeping KV read off the app identity is the
+  # least-privilege model and mirrors the create composition (azure-byoc) and the
+  # EKS split (app role != ESO role).
   key_vault_id       = data.azurerm_key_vault.existing.id
+  kv_role_enabled    = false
   storage_account_id = data.azurerm_storage_account.existing.id
   acr_id             = var.grant_app_acr_pull ? data.azurerm_container_registry.existing.id : ""
+}
+
+# --- ESO identity (reads the existing Key Vault) --------------------------
+
+# Dedicated, least-scoped identity for the External Secrets Operator, federated to
+# the EXISTING cluster's OIDC issuer and granted Key Vault Secrets User on the
+# EXISTING vault. The installer (install-aks.sh, azurekeyvault path) reads the
+# eso_identity_* outputs to stamp the ESO controller ServiceAccount and wire the
+# ClusterSecretStore (provider.azurekv). Same module and output contract as the
+# create composition (azure-byoc) so the app install is identical either way.
+module "eso_identity" {
+  source = "../../modules/azure/external-secrets"
+
+  namespace   = var.namespace
+  environment = var.environment
+  name        = var.name
+  attributes  = ["eso"]
+  tags        = var.tags
+
+  resource_group_name = var.resource_group_name
+  location            = var.location
+
+  oidc_issuer_url = data.azurerm_kubernetes_cluster.existing.oidc_issuer_url
+  key_vault_id    = data.azurerm_key_vault.existing.id
 }
 
 # --- Optional secret seeding into the existing Key Vault ------------------

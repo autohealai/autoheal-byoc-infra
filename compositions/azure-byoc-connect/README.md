@@ -28,13 +28,22 @@ resources usually follow their own naming.
 ```
 module.workload_identity   app UAMI + federated credentials against the existing
                            cluster's OIDC issuer + role grants:
-                             - Key Vault Secrets User   (ESO reads app secrets)
                              - Storage Blob Data Contributor
                              - AcrPull                  (only if grant_app_acr_pull)
+                           (NOT Key Vault — app pods consume ESO-synced Secrets)
+module.eso_identity        dedicated ESO UAMI + federated credential against the
+                           existing cluster's OIDC issuer (ESO controller SA) +
+                           Key Vault Secrets User on the existing vault. The
+                           installer reads eso_identity_client_id / eso_tenant_id /
+                           eso_service_account to wire the ClusterSecretStore.
 azurerm_key_vault_secret   seed secrets (redis-*, postgres-host/user + additional_
                            secrets) when seed_secrets_enabled; the deployer is
                            granted Key Vault Secrets Officer to write them
 ```
+
+The app identity and ESO identity are split for least privilege (same model as the
+create composition and EKS): ESO reads Key Vault with its own identity; the app
+identity only reads/writes Blob (and optionally pulls ACR).
 
 `postgres-password` cannot be read back from a server, so pass it (and anything else
 the customer created out-of-band) via `additional_secrets`.
@@ -43,4 +52,5 @@ the customer created out-of-band) via `additional_secrets`.
 
 `cluster_name`, `postgres_host`, `redis_endpoint`, `object_store`,
 `secret_store_uri`, `registry`, `runner_identity`. Plus `resource_group_name`,
-`oidc_issuer_url`, `acr_id`, `kube_host`.
+`oidc_issuer_url`, `acr_id`, `kube_host`, and the ESO wiring the installer consumes:
+`eso_identity_client_id`, `eso_tenant_id`, `eso_service_account`.

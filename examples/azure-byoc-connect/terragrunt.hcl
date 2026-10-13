@@ -45,9 +45,12 @@ inputs = {
   environment = "prod"     # EDIT: stage | prod | play
   name        = "autoheal"
 
-  # Match the Autoheal app install's Kubernetes service accounts.
+  # Match the Autoheal app install's Kubernetes service accounts. Defaults to the
+  # three chart SAs in namespace "autoheal"; override only for a non-default install.
   # federated_service_accounts = [
-  #   { namespace = "app", service_account = "autoheal-app" },
+  #   { namespace = "autoheal", service_account = "api-server-go" },
+  #   { namespace = "autoheal", service_account = "agents-py-http" },
+  #   { namespace = "autoheal", service_account = "agents-py-worker" },
   # ]
 
   # Secret seeding (needs the deployer to hold Key Vault Secrets Officer). The PG

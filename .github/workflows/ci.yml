@@ -34,11 +34,15 @@ jobs:
       # validate does not evaluate lifecycle preconditions, so the Blob/Key Vault
       # reachability logic in the azure-byoc composition is covered by a mocked-provider
       # `terraform test` that runs a real plan. See the tests/ directory for the cases.
-      - name: composition precondition tests
+      - name: composition tests
         run: |
           set -e
-          terraform -chdir=compositions/azure-byoc init -backend=false >/dev/null
-          terraform -chdir=compositions/azure-byoc test
+          for d in $(find compositions -type d -name tests | sort -u); do
+            c="$(dirname "$d")"
+            echo "== test $c =="
+            terraform -chdir="$c" init -backend=false >/dev/null
+            terraform -chdir="$c" test
+          done
 
       - name: tflint
         uses: terraform-linters/setup-tflint@v4

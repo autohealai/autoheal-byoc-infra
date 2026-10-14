@@ -29,6 +29,39 @@ variable "versioning_enabled" {
   description = "Enable blob versioning on the account. The Git Registry expects it on (it is the Azure equivalent of the S3 bucket versioning the app sets on AWS)."
 }
 
+variable "noncurrent_version_expiration_days" {
+  type        = number
+  default     = 90
+  description = "Delete noncurrent blob versions this many days after they become noncurrent (same default as modules/aws/s3). 0 = keep them forever. Ignored when versioning_enabled = false."
+
+  validation {
+    condition     = var.noncurrent_version_expiration_days >= 0 && var.noncurrent_version_expiration_days == floor(var.noncurrent_version_expiration_days)
+    error_message = "noncurrent_version_expiration_days must be a whole number >= 0."
+  }
+}
+
+variable "blob_soft_delete_retention_days" {
+  type        = number
+  default     = 7
+  description = "Blob soft-delete retention in days (1-365). 0 = soft delete off."
+
+  validation {
+    condition     = var.blob_soft_delete_retention_days == 0 || (var.blob_soft_delete_retention_days >= 1 && var.blob_soft_delete_retention_days <= 365)
+    error_message = "blob_soft_delete_retention_days must be 0 (off) or 1-365."
+  }
+}
+
+variable "container_soft_delete_retention_days" {
+  type        = number
+  default     = 7
+  description = "Container soft-delete retention in days (1-365). 0 = soft delete off. Protects the per-tenant Git Registry containers."
+
+  validation {
+    condition     = var.container_soft_delete_retention_days == 0 || (var.container_soft_delete_retention_days >= 1 && var.container_soft_delete_retention_days <= 365)
+    error_message = "container_soft_delete_retention_days must be 0 (off) or 1-365."
+  }
+}
+
 variable "account_tier" {
   type        = string
   default     = "Standard"

@@ -40,6 +40,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 |------|------|
 | [azurerm_storage_account.this](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/storage_account) | resource |
 | [azurerm_storage_container.attachments](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/storage_container) | resource |
+| [azurerm_storage_management_policy.this](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/storage_management_policy) | resource |
 
 ## Inputs
 
@@ -50,7 +51,9 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_account_tier"></a> [account\_tier](#input\_account\_tier) | Storage account tier. | `string` | `"Standard"` | no |
 | <a name="input_allowed_ip_ranges"></a> [allowed\_ip\_ranges](#input\_allowed\_ip\_ranges) | Public IPs/CIDRs allowed through the storage firewall when default\_action=Deny (e.g. the Terraform apply host, which creates the container over the data plane). | `list(string)` | `[]` | no |
 | <a name="input_attributes"></a> [attributes](#input\_attributes) | ID element. Extra qualifiers appended to id, e.g. ['db']. | `list(string)` | `[]` | no |
+| <a name="input_blob_soft_delete_retention_days"></a> [blob\_soft\_delete\_retention\_days](#input\_blob\_soft\_delete\_retention\_days) | Blob soft-delete retention in days (1-365). 0 = soft delete off. | `number` | `7` | no |
 | <a name="input_container_name"></a> [container\_name](#input\_container\_name) | Blob container name. | `string` | `"attachments"` | no |
+| <a name="input_container_soft_delete_retention_days"></a> [container\_soft\_delete\_retention\_days](#input\_container\_soft\_delete\_retention\_days) | Container soft-delete retention in days (1-365). 0 = soft delete off. Protects the per-tenant Git Registry containers. | `number` | `7` | no |
 | <a name="input_context"></a> [context](#input\_context) | Single object to set the entire naming/tagging context at once (inheritance from the composition). Individual non-null inputs below override it. | `any` | <pre>{<br/>  "additional_tag_map": {},<br/>  "attributes": [],<br/>  "delimiter": null,<br/>  "descriptor_formats": {},<br/>  "enabled": true,<br/>  "environment": null,<br/>  "id_length_limit": null,<br/>  "label_key_case": null,<br/>  "label_order": [],<br/>  "label_value_case": null,<br/>  "labels_as_tags": [<br/>    "unset"<br/>  ],<br/>  "name": null,<br/>  "namespace": null,<br/>  "regex_replace_chars": null,<br/>  "stage": null,<br/>  "tags": {},<br/>  "tenant": null<br/>}</pre> | no |
 | <a name="input_enabled"></a> [enabled](#input\_enabled) | Set to false to prevent the module from creating any resources. | `bool` | `null` | no |
 | <a name="input_environment"></a> [environment](#input\_environment) | ID element. Lifecycle (stage/prod/play) in this repo — NOT region. | `string` | `null` | no |
@@ -59,6 +62,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_name"></a> [name](#input\_name) | ID element. Component name, e.g. 'autoheal'. | `string` | `null` | no |
 | <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'acme'. | `string` | `null` | no |
 | <a name="input_network_default_action"></a> [network\_default\_action](#input\_network\_default\_action) | Storage firewall default action. Deny (recommended) = only the private endpoint, bypassed Azure services, and allowed\_ip\_ranges may reach the account. Use Allow only for playground accounts without a private endpoint. | `string` | `"Deny"` | no |
+| <a name="input_noncurrent_version_expiration_days"></a> [noncurrent\_version\_expiration\_days](#input\_noncurrent\_version\_expiration\_days) | Delete noncurrent blob versions this many days after they become noncurrent (same default as modules/aws/s3). 0 = keep them forever. Ignored when versioning\_enabled = false. | `number` | `90` | no |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Resource group the account lands in (created by the composition). | `string` | n/a | yes |
 | <a name="input_tags"></a> [tags](#input\_tags) | Additional tags, merged into the generated tag set. | `map(string)` | `{}` | no |
 | <a name="input_versioning_enabled"></a> [versioning\_enabled](#input\_versioning\_enabled) | Enable blob versioning on the account. The Git Registry expects it on (it is the Azure equivalent of the S3 bucket versioning the app sets on AWS). | `bool` | `true` | no |

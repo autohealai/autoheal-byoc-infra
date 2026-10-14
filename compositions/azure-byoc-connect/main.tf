@@ -66,6 +66,22 @@ resource "terraform_data" "kv_rbac_guard" {
   }
 }
 
+# --- Guard: the customer's Storage Account must have a flat namespace ------
+
+# The Git Registry keeps one container per tenant in this account and renames with
+# Copy Blob + delete. Hierarchical namespace (ADLS Gen2) changes those semantics, and
+# it cannot be turned off after the account exists. Fail the plan instead of shipping
+# a green apply that breaks the registry at runtime. Versioning is also required, but
+# the data source does not expose it; the README gives the command to check it.
+resource "terraform_data" "storage_hns_guard" {
+  lifecycle {
+    precondition {
+      condition     = !data.azurerm_storage_account.existing.is_hns_enabled
+      error_message = "Storage Account '${var.storage_account_name}' has hierarchical namespace on (ADLS Gen2). The Git Registry needs a flat namespace. Use an account with is_hns_enabled = false."
+    }
+  }
+}
+
 # --- App workload identity (the thing we create) --------------------------
 
 module "workload_identity" {

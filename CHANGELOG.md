@@ -6,6 +6,8 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-14
+
 ### Added
 - `azure/blob`: blob versioning on the storage account (`versioning_enabled`, default
   `true`). It is the Azure equivalent of the S3 bucket versioning the app sets on AWS.

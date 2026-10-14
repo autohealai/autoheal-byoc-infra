@@ -6,6 +6,21 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- `azure/blob`: blob versioning on the storage account (`versioning_enabled`, default
+  `true`). It is the Azure equivalent of the S3 bucket versioning the app sets on AWS.
+  The Git Registry expects it. The app identity has data-plane access only, so the
+  module owns this account setting.
+- `azure-byoc` and `azure-byoc-connect` output `blob_endpoint` (the primary blob
+  endpoint of the storage account). The installer passes it to api-server-go as
+  `GIT_REGISTRY_AZURE_STORAGE_ACCOUNT_URL`.
+
+### Changed
+- `azure/blob`: set `is_hns_enabled = false` explicitly. The Git Registry needs a flat
+  namespace. This is the provider default, so existing accounts do not change.
+- `azure-byoc-connect` README: the existing Storage Account must have blob versioning
+  on and hierarchical namespace off.
+
 ## [1.2.0] - 2026-10-13
 
 ### Added

@@ -1,4 +1,4 @@
-# Blob storage for attachments / knowledge base. The AWS analogue is
+# Blob storage for attachments, knowledge base and the Git Registry. The AWS analogue is
 # modules/aws/s3. The app reaches it keyless via the app workload identity
 # (Storage Blob Data Contributor, granted in modules/azure/workload-identity), so
 # no account key is stored anywhere.
@@ -21,6 +21,20 @@ resource "azurerm_storage_account" "this" {
   account_kind             = "StorageV2"
   min_tls_version          = "TLS1_2"
   tags                     = module.this.tags
+
+  # The Git Registry keeps one container per tenant (autoheal-<tenant-id>) in this
+  # account and needs a flat namespace: Copy Blob + delete is its rename, and
+  # hierarchical namespace changes those semantics. Set it explicitly; it cannot
+  # change after create.
+  is_hns_enabled = false
+
+  # Versioning is the Azure equivalent of the per-bucket S3 versioning the app sets
+  # on AWS. On Azure it is an account setting that the app's data-plane identity
+  # cannot change, so this module owns it. No lifecycle rule moves blobs to a cool
+  # or archive tier: the Git Registry must read any object immediately.
+  blob_properties {
+    versioning_enabled = var.versioning_enabled
+  }
 
   # Firewall: default-deny. The app reaches the account over a private endpoint, so
   # the public network path stays closed. bypass=AzureServices lets trusted Azure

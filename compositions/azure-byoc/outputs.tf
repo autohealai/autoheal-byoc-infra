@@ -21,6 +21,11 @@ output "object_store" {
   value       = "${module.blob.account_name}/${module.blob.container_name}"
 }
 
+output "blob_endpoint" {
+  description = "Primary blob endpoint of the storage account (https://<account>.blob.core.windows.net/). The installer passes it to api-server-go as GIT_REGISTRY_AZURE_STORAGE_ACCOUNT_URL."
+  value       = module.blob.blob_endpoint
+}
+
 output "secret_store_uri" {
   description = "Key Vault URI the ESO ClusterSecretStore points at."
   value       = module.keyvault.vault_uri

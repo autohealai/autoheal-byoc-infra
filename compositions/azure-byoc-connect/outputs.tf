@@ -22,6 +22,11 @@ output "object_store" {
   value       = "${data.azurerm_storage_account.existing.name}/${var.storage_container_name}"
 }
 
+output "blob_endpoint" {
+  description = "Primary blob endpoint of the existing storage account. The installer passes it to api-server-go as GIT_REGISTRY_AZURE_STORAGE_ACCOUNT_URL."
+  value       = data.azurerm_storage_account.existing.primary_blob_endpoint
+}
+
 output "secret_store_uri" {
   description = "Existing Key Vault URI the ESO ClusterSecretStore points at."
   value       = data.azurerm_key_vault.existing.vault_uri

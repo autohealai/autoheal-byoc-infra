@@ -23,6 +23,12 @@ variable "container_name" {
   description = "Blob container name."
 }
 
+variable "versioning_enabled" {
+  type        = bool
+  default     = true
+  description = "Enable blob versioning on the account. The Git Registry expects it on (it is the Azure equivalent of the S3 bucket versioning the app sets on AWS)."
+}
+
 variable "account_tier" {
   type        = string
   default     = "Standard"

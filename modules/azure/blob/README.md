@@ -61,6 +61,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_network_default_action"></a> [network\_default\_action](#input\_network\_default\_action) | Storage firewall default action. Deny (recommended) = only the private endpoint, bypassed Azure services, and allowed\_ip\_ranges may reach the account. Use Allow only for playground accounts without a private endpoint. | `string` | `"Deny"` | no |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Resource group the account lands in (created by the composition). | `string` | n/a | yes |
 | <a name="input_tags"></a> [tags](#input\_tags) | Additional tags, merged into the generated tag set. | `map(string)` | `{}` | no |
+| <a name="input_versioning_enabled"></a> [versioning\_enabled](#input\_versioning\_enabled) | Enable blob versioning on the account. The Git Registry expects it on (it is the Azure equivalent of the S3 bucket versioning the app sets on AWS). | `bool` | `true` | no |
 
 ## Outputs
 

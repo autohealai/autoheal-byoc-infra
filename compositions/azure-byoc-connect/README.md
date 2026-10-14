@@ -20,7 +20,10 @@ You need all of the following already in place:
 
 1. **The six existing resources, in one resource group and region:** an AKS cluster,
    a PostgreSQL Flexible Server, a Key Vault, an Azure Cache for Redis, a Container
-   Registry, and a Storage Account. Have their exact names ready.
+   Registry, and a Storage Account. Have their exact names ready. The Storage
+   Account must have blob versioning on and hierarchical namespace off. The Git
+   Registry keeps one container per tenant in this account and needs both settings.
+   This composition reads the account but does not change its settings.
 2. **AKS OIDC + workload identity enabled** on the cluster (`oidc-issuer` and
    `workload-identity` features). The identities this composition creates federate
    against that issuer; without it the install cannot bind pods to Azure.

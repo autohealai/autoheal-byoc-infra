@@ -63,8 +63,10 @@ mock_provider "azurerm" {
 
   mock_data "azurerm_storage_account" {
     defaults = {
-      name = "stcustomerautoheal"
-      id   = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-customer-autoheal/providers/Microsoft.Storage/storageAccounts/stcustomerautoheal"
+      name                  = "stcustomerautoheal"
+      id                    = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-customer-autoheal/providers/Microsoft.Storage/storageAccounts/stcustomerautoheal"
+      primary_blob_endpoint = "https://stcustomerautoheal.blob.core.windows.net/"
+      is_hns_enabled        = false
     }
   }
 }
@@ -102,6 +104,11 @@ run "plans_and_emits_contract" {
   assert {
     condition     = output.object_store == "stcustomerautoheal/attachments"
     error_message = "object_store must be <existing storage account>/<container>."
+  }
+
+  assert {
+    condition     = output.blob_endpoint == "https://stcustomerautoheal.blob.core.windows.net/"
+    error_message = "blob_endpoint must be the existing account's primary blob endpoint (the installer's GIT_REGISTRY_AZURE_STORAGE_ACCOUNT_URL)."
   }
 
   assert {
@@ -230,5 +237,26 @@ run "refuses_access_policy_vault" {
 
   expect_failures = [
     terraform_data.kv_rbac_guard,
+  ]
+}
+
+# The HNS guard must REJECT an ADLS Gen2 account. Override just the storage account data
+# source to is_hns_enabled = true; the plan must stop at the storage_hns_guard
+# precondition rather than ship an install whose Git Registry renames misbehave.
+run "refuses_hns_storage_account" {
+  command = plan
+
+  override_data {
+    target = data.azurerm_storage_account.existing
+    values = {
+      name                  = "stcustomerautoheal"
+      id                    = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-customer-autoheal/providers/Microsoft.Storage/storageAccounts/stcustomerautoheal"
+      primary_blob_endpoint = "https://stcustomerautoheal.blob.core.windows.net/"
+      is_hns_enabled        = true
+    }
+  }
+
+  expect_failures = [
+    terraform_data.storage_hns_guard,
   ]
 }

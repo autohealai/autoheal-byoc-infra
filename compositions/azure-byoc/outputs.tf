@@ -38,6 +38,11 @@ output "runner_identity" {
 
 # -- Extras the app install / later steps need (not part of the shared contract) --
 
+output "blob_endpoint" {
+  description = "Primary blob endpoint of the storage account (https://<account>.blob.core.windows.net/). Azure-only. The installer passes it to api-server-go as GIT_REGISTRY_AZURE_STORAGE_ACCOUNT_URL."
+  value       = module.blob.blob_endpoint
+}
+
 output "resource_group_name" {
   description = "Resource group the stack lives in."
   value       = azurerm_resource_group.this.name

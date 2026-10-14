@@ -6,6 +6,32 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- `azure/blob`: blob versioning on the storage account (`versioning_enabled`, default
+  `true`). It is the Azure equivalent of the S3 bucket versioning the app sets on AWS.
+  The Git Registry expects it. The app identity has data-plane access only, so the
+  module owns this account setting.
+- `azure/blob`: a management policy `expire-noncurrent-versions` deletes old blob
+  versions after `noncurrent_version_expiration_days` (default 90, the same as
+  `aws/s3`). The rule has no prefix, so it covers every tenant container.
+- `azure/blob`: blob and container soft delete, set explicitly
+  (`blob_soft_delete_retention_days`, `container_soft_delete_retention_days`, default 7;
+  0 = off). The `blob_properties` block makes Terraform own all blob-service
+  properties, so an omitted retention policy would be turned off.
+- `azure-byoc` and `azure-byoc-connect` output `blob_endpoint` (the primary blob
+  endpoint of the storage account). The installer passes it to api-server-go as
+  `GIT_REGISTRY_AZURE_STORAGE_ACCOUNT_URL`. It is Azure-only, so it is in the extras
+  section, not in the shared contract.
+- `azure-byoc-connect`: a plan-time check stops the plan if the existing Storage
+  Account has hierarchical namespace on. `connect.tftest.hcl` proves it.
+
+### Changed
+- `azure/blob`: set `is_hns_enabled = false` explicitly. The Git Registry needs a flat
+  namespace. This is the provider default, so existing accounts do not change.
+- `azure-byoc-connect` README: the existing Storage Account must have blob versioning
+  on and hierarchical namespace off. The README gives the `az` commands to check and
+  set versioning, because the data source cannot read it.
+
 ## [1.2.0] - 2026-10-13
 
 ### Added

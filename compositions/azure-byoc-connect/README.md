@@ -20,7 +20,23 @@ You need all of the following already in place:
 
 1. **The six existing resources, in one resource group and region:** an AKS cluster,
    a PostgreSQL Flexible Server, a Key Vault, an Azure Cache for Redis, a Container
-   Registry, and a Storage Account. Have their exact names ready.
+   Registry, and a Storage Account. Have their exact names ready. The Storage
+   Account must have blob versioning on and hierarchical namespace off. The Git
+   Registry keeps one container per tenant in this account and needs both settings.
+   This composition reads the account but does not change its settings. The plan
+   stops if hierarchical namespace is on. It cannot read versioning, so check it:
+
+   ```bash
+   az storage account show -g <rg> -n <account> --query isHnsEnabled          # false
+   az storage account blob-service-properties show -g <rg> --account-name <account> \
+     --query isVersioningEnabled                                               # true
+   # If versioning is off:
+   az storage account blob-service-properties update -g <rg> --account-name <account> \
+     --enable-versioning true
+   ```
+
+   Also add a rule that deletes old versions (the create composition uses 90 days),
+   or old versions stay forever.
 2. **AKS OIDC + workload identity enabled** on the cluster (`oidc-issuer` and
    `workload-identity` features). The identities this composition creates federate
    against that issuer; without it the install cannot bind pods to Azure.

@@ -58,6 +58,11 @@ output "eso_service_account" {
 
 # -- Extras the app install / later steps need (not part of the shared contract) --
 
+output "blob_endpoint" {
+  description = "Primary blob endpoint of the existing storage account. Azure-only. The installer passes it to api-server-go as GIT_REGISTRY_AZURE_STORAGE_ACCOUNT_URL."
+  value       = data.azurerm_storage_account.existing.primary_blob_endpoint
+}
+
 output "resource_group_name" {
   description = "Resource group the connected stack lives in."
   value       = var.resource_group_name

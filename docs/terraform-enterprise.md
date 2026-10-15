@@ -126,7 +126,7 @@ self-hosted Terraform Enterprise, use your own address. An example is
 ISSUER="https://app.terraform.io"      # or your self-hosted Terraform Enterprise URL
 ORG="<ORG>"
 PROJECT="<PROJECT>"
-WS="autoheal-avid-play"
+WS="autoheal-infra-play"
 
 # link for the Plan phase
 az ad app federated-credential create --id "$APP_ID" --parameters "{
@@ -167,7 +167,7 @@ The Azure side is complete.
 - Set the **Terraform Working Directory**:
   - connect mode: `compositions/azure-byoc-connect`
   - create mode: `compositions/azure-byoc`
-- Name the workspace `autoheal-avid-play`. The name must be the same as
+- Name the workspace `autoheal-infra-play`. The name must be the same as
   `<WORKSPACE>` in Step 4.
 
 ### Step 7 — Add the Terraform inputs (what to build)
@@ -261,7 +261,7 @@ NEW:
 terraform {
   cloud {
     organization = "<ORG>"
-    workspaces { name = "autoheal-avid-play" }
+    workspaces { name = "autoheal-infra-play" }
   }
 }
 ```
@@ -298,7 +298,7 @@ Redis service.
 
 ## Add another environment (for example prod)
 
-Do Part B again with a new workspace name. An example is `autoheal-avid-prod`.
+Do Part B again with a new workspace name. An example is `autoheal-infra-prod`.
 Use the prod values. Do Step 4 again with the new workspace name. This makes OIDC
 work for the new workspace. The code is the same. The state is separate. The
 blast radius is separate.

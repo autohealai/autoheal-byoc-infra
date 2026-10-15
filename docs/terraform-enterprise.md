@@ -191,7 +191,7 @@ variables are necessary. Each variable must name a resource that already exists.
 | `key_vault_name` | the existing Key Vault name |
 | `acr_name` | the existing Azure Container Registry name |
 | `storage_account_name` | the existing Storage Account name |
-| `namespace` | `avid` |
+| `namespace` | `acme` |
 | `environment` | `play` |
 
 These variables are optional. They are common in connect mode.
@@ -207,7 +207,7 @@ These variables are optional. They are common in connect mode.
 
 | Key | Example value | Necessary |
 | --- | --- | --- |
-| `namespace` | `avid` | yes |
+| `namespace` | `acme` | yes |
 | `environment` | `play` | yes |
 | `subscription_id` | your subscription GUID | yes |
 | `location` | `centralus` | yes |

@@ -67,7 +67,7 @@ variable "storage_container_name" {
 
 variable "namespace" {
   type        = string
-  description = "Customer / tenant label for the app identity this composition creates, e.g. 'nomura'."
+  description = "Customer / tenant label for the app identity this composition creates, e.g. 'acme'."
 }
 
 variable "environment" {

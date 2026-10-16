@@ -81,7 +81,7 @@ variables {
   redis_cache_name     = "redis-customer-autoheal"
   acr_name             = "crcustomerautoheal"
   storage_account_name = "stcustomerautoheal"
-  namespace            = "nomura"
+  namespace            = "acme"
   environment          = "prod"
 }
 

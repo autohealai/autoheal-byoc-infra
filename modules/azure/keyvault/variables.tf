@@ -37,7 +37,18 @@ variable "secrets" {
 variable "purge_protection_enabled" {
   type        = bool
   default     = false
-  description = "Enable purge protection (irreversible; leave false for play/throwaway vaults)."
+  description = "Enable purge protection (irreversible; leave false for play/throwaway vaults). Required when the vault holds a customer-managed encryption key."
+}
+
+variable "soft_delete_retention_days" {
+  type        = number
+  default     = 7
+  description = "How many days a deleted vault or secret can be recovered (7-90). CREATE-TIME ONLY; cannot change on an existing vault. Recommended for production: 90."
+
+  validation {
+    condition     = var.soft_delete_retention_days >= 7 && var.soft_delete_retention_days <= 90
+    error_message = "soft_delete_retention_days must be between 7 and 90."
+  }
 }
 
 variable "network_default_action" {

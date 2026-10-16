@@ -62,6 +62,35 @@ variable "container_soft_delete_retention_days" {
   }
 }
 
+variable "pitr_enabled" {
+  type        = bool
+  default     = false
+  description = "Enable point-in-time restore for block blobs (turns on the change feed and last-access tracking). Lets you rewind the account to an earlier moment. Recommended for production: true."
+}
+
+variable "blob_restore_days" {
+  type        = number
+  default     = 6
+  description = "How far back point-in-time restore can rewind, in days. Must be LESS than blob_soft_delete_retention_days. Ignored when pitr_enabled = false."
+
+  validation {
+    condition     = var.blob_restore_days >= 1 && var.blob_restore_days <= 364
+    error_message = "blob_restore_days must be between 1 and 364 (and strictly less than blob_soft_delete_retention_days)."
+  }
+}
+
+variable "cmk_key_vault_key_id" {
+  type        = string
+  default     = ""
+  description = "Key Vault key id for customer-managed encryption at rest. Empty = Microsoft-managed key (still encrypted). The vault must have purge protection on."
+}
+
+variable "cmk_identity_id" {
+  type        = string
+  default     = ""
+  description = "User-assigned identity id used to reach the CMK key. Required when cmk_key_vault_key_id is set."
+}
+
 variable "account_tier" {
   type        = string
   default     = "Standard"

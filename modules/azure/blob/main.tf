@@ -40,6 +40,30 @@ resource "azurerm_storage_account" "this" {
   blob_properties {
     versioning_enabled = var.versioning_enabled
 
+    # Point-in-time restore: rewind the whole account's block blobs to an earlier
+    # moment (recovers from a bad bulk overwrite or delete). It needs versioning,
+    # the change feed and soft delete on, and the restore window must be shorter
+    # than the soft-delete window. Off by default.
+    change_feed_enabled = var.pitr_enabled
+
+    # The change feed logs every blob change and Azure keeps it forever unless a
+    # retention is set. On a busy per-tenant account that log grows without bound, so
+    # cap it just past the restore window (the only thing PITR needs it for). Only
+    # valid while the change feed is on.
+    change_feed_retention_in_days = var.pitr_enabled ? var.blob_restore_days + 1 : null
+
+    # Last-access tracking is NOT a PITR requirement (PITR needs versioning + change
+    # feed + soft delete) and adds per-operation overhead. There is no access-based
+    # lifecycle rule here, so keep it off.
+    last_access_time_enabled = false
+
+    dynamic "restore_policy" {
+      for_each = var.pitr_enabled ? [1] : []
+      content {
+        days = var.blob_restore_days
+      }
+    }
+
     dynamic "delete_retention_policy" {
       for_each = var.blob_soft_delete_retention_days > 0 ? [1] : []
       content {
@@ -55,6 +79,26 @@ resource "azurerm_storage_account" "this" {
     }
   }
 
+  # Customer-managed key (CMK): encrypt the account at rest with a key the customer
+  # owns in Key Vault, instead of the Microsoft-managed key. Off by default (empty
+  # key id); the Microsoft-managed key is always in effect when this is unset. The
+  # vault holding the key must have purge protection on.
+  dynamic "identity" {
+    for_each = var.cmk_identity_id != "" ? [1] : []
+    content {
+      type         = "UserAssigned"
+      identity_ids = [var.cmk_identity_id]
+    }
+  }
+
+  dynamic "customer_managed_key" {
+    for_each = var.cmk_key_vault_key_id != "" ? [1] : []
+    content {
+      key_vault_key_id          = var.cmk_key_vault_key_id
+      user_assigned_identity_id = var.cmk_identity_id
+    }
+  }
+
   # Firewall: default-deny. The app reaches the account over a private endpoint, so
   # the public network path stays closed. bypass=AzureServices lets trusted Azure
   # platform services through; allowed_ip_ranges opens the apply host's public IP
@@ -65,6 +109,30 @@ resource "azurerm_storage_account" "this" {
     default_action = var.network_default_action
     bypass         = ["AzureServices"]
     ip_rules       = var.allowed_ip_ranges
+  }
+
+  lifecycle {
+    # Azure rejects a restore window that is not shorter than the soft-delete window;
+    # fail at plan time with a clear message instead of a mid-apply 400.
+    precondition {
+      condition     = !var.pitr_enabled || var.blob_restore_days < var.blob_soft_delete_retention_days
+      error_message = "blob_restore_days must be strictly less than blob_soft_delete_retention_days when pitr_enabled = true."
+    }
+
+    # PITR also requires versioning and blob soft delete to be on; without them Azure
+    # rejects the restore policy mid-apply. Catch it at plan time.
+    precondition {
+      condition     = !var.pitr_enabled || (var.versioning_enabled && var.blob_soft_delete_retention_days > 0)
+      error_message = "pitr_enabled = true requires versioning_enabled = true and blob_soft_delete_retention_days > 0."
+    }
+
+    # A customer-managed key needs its encryption identity: the key id and identity id
+    # must be set together (both or neither), or the storage account gets a CMK block
+    # with no identity and Azure rejects it.
+    precondition {
+      condition     = (var.cmk_key_vault_key_id != "") == (var.cmk_identity_id != "")
+      error_message = "cmk_key_vault_key_id and cmk_identity_id must be set together (both or neither)."
+    }
   }
 }
 

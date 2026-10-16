@@ -61,3 +61,56 @@ variable "extensions" {
   default     = ["VECTOR", "BTREE_GIN", "PG_TRGM", "HSTORE", "UUID-OSSP"]
   description = "Extensions added to azure.extensions. Every extension must be allow-listed here BEFORE any CREATE EXTENSION runs; Azure Flexible enforces this where RDS did not. VECTOR=pgvector, BTREE_GIN=Temporal advanced-visibility."
 }
+
+# ---------------------------------------------------------------------------
+# Backup, high availability and encryption.
+# Defaults preserve the current behaviour (Azure's 7-day local backup, no HA,
+# Microsoft-managed key). Set the production values in the install profile.
+# ---------------------------------------------------------------------------
+
+variable "backup_retention_days" {
+  type        = number
+  default     = 7
+  description = "How many days of automatic backups to keep (1-35). Any point in this window can be restored. Recommended for production: 35."
+
+  validation {
+    condition     = var.backup_retention_days >= 1 && var.backup_retention_days <= 35
+    error_message = "backup_retention_days must be between 1 and 35."
+  }
+}
+
+variable "geo_redundant_backup_enabled" {
+  type        = bool
+  default     = false
+  description = "Copy backups to the Azure paired region so they survive a whole-region outage. CREATE-TIME ONLY (cannot change on an existing server). Recommended for production: true. Cannot be combined with a customer-managed key (cmk_key_vault_key_id) yet: that needs a paired-region geo-backup key which is not wired, so enable one or the other."
+}
+
+variable "auto_grow_enabled" {
+  type        = bool
+  default     = false
+  description = "Let the server expand its storage automatically before it fills up. Applied in place, no downtime. Default off to preserve existing behaviour; strongly recommended on for a real install (a full disk takes the database read-only)."
+}
+
+variable "high_availability_enabled" {
+  type        = bool
+  default     = false
+  description = "Run a hot standby in a second availability zone with automatic failover. Requires a zonal region and a GP_/MO_ SKU (not Burstable). Recommended for production: true."
+}
+
+variable "delete_protection_enabled" {
+  type        = bool
+  default     = false
+  description = "Place a resource lock that blocks deletion of the database (the Azure equivalent of AWS deletion protection; deleting a server also deletes its backups). Recommended for production: true."
+}
+
+variable "cmk_key_vault_key_id" {
+  type        = string
+  default     = ""
+  description = "Key Vault key id for customer-managed encryption at rest. Empty = Microsoft-managed key (still encrypted). CREATE-TIME ONLY; the vault must have purge protection on."
+}
+
+variable "cmk_identity_id" {
+  type        = string
+  default     = ""
+  description = "User-assigned identity id used to reach the CMK key. Required when cmk_key_vault_key_id is set."
+}

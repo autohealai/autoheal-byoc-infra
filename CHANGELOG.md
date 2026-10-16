@@ -6,6 +6,48 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- `azure/postgres-flexible`: backup, high-availability and encryption controls, each
+  defaulting to the current behaviour. `backup_retention_days` (1-35, default 7),
+  `geo_redundant_backup_enabled` (copy backups to the paired region; **create-time
+  only**), `auto_grow_enabled` (default `false`; recommended on for a real install),
+  `high_availability_enabled`
+  (zone-redundant hot standby), `delete_protection_enabled` (a `CanNotDelete`
+  management lock, the Azure twin of `aws/rds-cluster` deletion protection), and
+  `cmk_key_vault_key_id` / `cmk_identity_id` for a customer-managed key (**create-time
+  only**; the vault must have purge protection on).
+- `azure/blob`: point-in-time restore (`pitr_enabled`, `blob_restore_days`; turns on
+  the change feed with a bounded retention, guarded so the restore window stays shorter
+  than the soft-delete window and versioning/soft-delete are on) and
+  `cmk_key_vault_key_id` / `cmk_identity_id` for a customer-managed key.
+- `azure/keyvault`: `soft_delete_retention_days` is now configurable (7-90, default 7;
+  **create-time only**). It was previously hardcoded to 7.
+- `azure-byoc`: pass-through variables for all of the above, plus a `cmk_enabled`
+  switch that creates a customer-managed key in the stack's own Key Vault with a
+  dedicated encryption identity and the required crypto role assignments, and wires it
+  into Postgres and Blob. Gated on `key_vault_purge_protection_enabled = true`.
+- `examples/azure-byoc`: a documented, ready-to-uncomment production block for the
+  backup/HA/encryption values, with the create-time/irreversible settings flagged.
+- `docs/getting-started.md`: a production-hardening note under Step 4 pointing at the
+  backup/HA/encryption settings and the decisions that must be made before the first
+  apply.
+- `azure/postgres-flexible`: a plan-time precondition rejects enabling a
+  customer-managed key and geo-redundant backup together. That combination requires a
+  paired-region geo-backup key which is not yet supported, so the guard fails during
+  `plan` with a readable message instead of a cryptic Azure 400 part way through apply.
+  Enable one or the other.
+- `azure/blob`, `azure/postgres-flexible`: plan-time preconditions require the CMK key
+  id and encryption identity id to be set together (both or neither), and the blob
+  module additionally requires versioning and soft delete to be on when PITR is
+  enabled.
+- `azure/blob`: the change feed now has a bounded retention
+  (`change_feed_retention_in_days`, tied to the restore window) so the log cannot grow
+  without limit, and last-access tracking is no longer coupled to PITR (it is not a PITR
+  requirement).
+- `azure-byoc`: the storage account's customer-managed key uses the versionless key id
+  so it auto-rotates to new key versions; Postgres keeps the versioned id, which the
+  provider requires.
+
 ## [1.3.0] - 2026-10-14
 
 ### Added

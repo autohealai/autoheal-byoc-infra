@@ -1,4 +1,4 @@
-# Azure BYOC CONNECT: the Nomura-style install where the customer provisions all
+# Azure BYOC CONNECT: the install where the customer provisions all
 # base infrastructure and Autoheal only connects the app to it. This composition
 # reads the existing VNet/AKS/PG/Key Vault/Redis/ACR/Storage via data sources,
 # creates the app and ESO workload identities that bind Autoheal pods to those

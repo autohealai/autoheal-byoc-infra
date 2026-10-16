@@ -41,7 +41,7 @@ inputs = {
   # storage_container_name = "attachments"
 
   # App identity this composition creates (Autoheal's own labels)
-  namespace   = "nomura"   # EDIT
+  namespace   = "acme"     # EDIT
   environment = "prod"     # EDIT: stage | prod | play
   name        = "autoheal"
 

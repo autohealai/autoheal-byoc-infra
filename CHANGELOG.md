@@ -238,7 +238,7 @@ All notable changes to this repo are documented here. Format follows
   not provisioned here. Runner VMSS is a separate post-Temporal apply.
 - `examples/azure-byoc/terragrunt.hcl` — copyable Terragrunt wrapper (inputs +
   remote state) that consumers run.
-- `compositions/azure-byoc-connect` — connect-mode (Nomura-style) Azure install:
+- `compositions/azure-byoc-connect` — connect-mode (customer-provisioned infra) Azure install:
   reads existing VNet/AKS/PG/Key Vault/Redis/ACR/Storage via data sources, creates
   only the app workload identity (+ federated credentials, role grants) and optional
   seed secrets, and emits the identical output contract.

@@ -58,9 +58,10 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_name_override"></a> [name\_override](#input\_name\_override) | Force an exact vault name (<=24 chars). Empty = derive from the label id (truncated to 24). | `string` | `""` | no |
 | <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'acme'. | `string` | `null` | no |
 | <a name="input_network_default_action"></a> [network\_default\_action](#input\_network\_default\_action) | Key Vault firewall default action. Deny (recommended) = only the private endpoint, bypassed Azure services, and allowed\_ip\_ranges may reach the vault. Use Allow only for playground vaults without a private endpoint. | `string` | `"Deny"` | no |
-| <a name="input_purge_protection_enabled"></a> [purge\_protection\_enabled](#input\_purge\_protection\_enabled) | Enable purge protection (irreversible; leave false for play/throwaway vaults). | `bool` | `false` | no |
+| <a name="input_purge_protection_enabled"></a> [purge\_protection\_enabled](#input\_purge\_protection\_enabled) | Enable purge protection (irreversible; leave false for play/throwaway vaults). Required when the vault holds a customer-managed encryption key. | `bool` | `false` | no |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Resource group the vault lands in (created by the composition). | `string` | n/a | yes |
 | <a name="input_secrets"></a> [secrets](#input\_secrets) | Secret name -> value to seed (e.g. the generated PG password). ESO syncs these into the cluster. | `map(string)` | `{}` | no |
+| <a name="input_soft_delete_retention_days"></a> [soft\_delete\_retention\_days](#input\_soft\_delete\_retention\_days) | How many days a deleted vault or secret can be recovered (7-90). CREATE-TIME ONLY; cannot change on an existing vault. Recommended for production: 90. | `number` | `7` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Additional tags, merged into the generated tag set. | `map(string)` | `{}` | no |
 | <a name="input_tenant_id"></a> [tenant\_id](#input\_tenant\_id) | Entra tenant id the vault belongs to. | `string` | n/a | yes |
 

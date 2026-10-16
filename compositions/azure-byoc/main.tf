@@ -13,6 +13,18 @@ locals {
   # PG Flexible private DNS zone: the label prefix must be a valid DNS label and the
   # suffix is fixed by Azure.
   pg_dns_zone_name = "${var.namespace}-${var.environment}.private.postgres.database.azure.com"
+
+  # Customer-managed key wiring. These are the key id + encryption identity id that
+  # Postgres and Blob consume; both are empty strings when cmk_enabled = false, which
+  # selects the Microsoft-managed key in each module. Created below from the stack's
+  # own Key Vault.
+  cmk_key_vault_key_id = var.cmk_enabled ? azurerm_key_vault_key.cmk[0].id : ""
+  cmk_identity_id      = var.cmk_enabled ? azurerm_user_assigned_identity.cmk[0].id : ""
+
+  # The storage account takes the VERSIONLESS key id so it auto-rotates to new key
+  # versions; Postgres Flexible requires a versioned id (the provider rejects a
+  # versionless one), so it keeps cmk_key_vault_key_id above.
+  cmk_key_vault_key_versionless_id = var.cmk_enabled ? azurerm_key_vault_key.cmk[0].versionless_id : ""
 }
 
 data "azurerm_client_config" "current" {}
@@ -96,6 +108,21 @@ module "postgres" {
   administrator_password = random_password.postgres.result
   sku_name               = var.postgres_sku_name
   storage_mb             = var.postgres_storage_mb
+
+  # Backup, HA and encryption at rest. Defaults preserve current behaviour; the
+  # install profile sets production values. geo-redundant backup and CMK are
+  # create-time only (see variables.tf).
+  backup_retention_days        = var.postgres_backup_retention_days
+  geo_redundant_backup_enabled = var.postgres_geo_redundant_backup_enabled
+  auto_grow_enabled            = var.postgres_auto_grow_enabled
+  high_availability_enabled    = var.postgres_high_availability_enabled
+  delete_protection_enabled    = var.postgres_delete_protection_enabled
+  cmk_key_vault_key_id         = local.cmk_key_vault_key_id
+  cmk_identity_id              = local.cmk_identity_id
+
+  # The encryption identity must already hold the crypto role on the vault before the
+  # server wraps its data key with the CMK (no-op when cmk_enabled = false).
+  depends_on = [azurerm_role_assignment.cmk_encryptor]
 }
 
 module "blob" {
@@ -114,6 +141,18 @@ module "blob" {
   # (workload_egress_ip_ranges, for app pods when private endpoints are off).
   network_default_action = var.storage_network_default_action
   allowed_ip_ranges      = distinct(concat(var.deployer_ip_ranges, var.workload_egress_ip_ranges))
+
+  # Redundancy, soft delete, point-in-time restore and encryption at rest. Defaults
+  # preserve current behaviour; the install profile sets production values.
+  account_replication_type             = var.blob_replication_type
+  blob_soft_delete_retention_days      = var.blob_soft_delete_retention_days
+  container_soft_delete_retention_days = var.blob_container_soft_delete_retention_days
+  pitr_enabled                         = var.blob_pitr_enabled
+  blob_restore_days                    = var.blob_restore_days
+  cmk_key_vault_key_id                 = local.cmk_key_vault_key_versionless_id
+  cmk_identity_id                      = local.cmk_identity_id
+
+  depends_on = [azurerm_role_assignment.cmk_encryptor]
 }
 
 module "acr" {
@@ -137,11 +176,12 @@ module "keyvault" {
   name        = var.name
   tags        = var.tags
 
-  resource_group_name      = azurerm_resource_group.this.name
-  location                 = var.location
-  tenant_id                = data.azurerm_client_config.current.tenant_id
-  deployer_object_id       = data.azurerm_client_config.current.object_id
-  purge_protection_enabled = var.key_vault_purge_protection_enabled
+  resource_group_name        = azurerm_resource_group.this.name
+  location                   = var.location
+  tenant_id                  = data.azurerm_client_config.current.tenant_id
+  deployer_object_id         = data.azurerm_client_config.current.object_id
+  purge_protection_enabled   = var.key_vault_purge_protection_enabled
+  soft_delete_retention_days = var.key_vault_soft_delete_retention_days
 
   # Firewall posture. Default-deny; the allow-list covers both the apply host
   # (deployer_ip_ranges, for seeding the secrets below) and the cluster's outbound IP
@@ -153,6 +193,56 @@ module "keyvault" {
     "postgres-password" = random_password.postgres.result
     "postgres-host"     = module.postgres.host
     "postgres-user"     = module.postgres.administrator_login
+  }
+}
+
+# Customer-managed key (CMK) for encryption at rest of Postgres and Blob. Off by
+# default; when cmk_enabled = true a dedicated user-assigned identity holds the
+# encryption role and an RSA key is created in the stack's own Key Vault. Both the
+# database and the storage account encrypt with this one key. CMK is CREATE-TIME
+# ONLY on Postgres, and the vault MUST have purge protection on (enforced below).
+#
+# RBAC note: creating the key needs a data-plane role for the deployer (Crypto
+# Officer), and the encryption identity needs Crypto Service Encryption User. As
+# with the secret seeding, Azure RBAC propagation can lag a few seconds, so a first
+# apply may need one retry if it races.
+resource "azurerm_user_assigned_identity" "cmk" {
+  count               = var.cmk_enabled ? 1 : 0
+  name                = "id-${var.namespace}-${var.environment}-${var.name}-cmk"
+  resource_group_name = azurerm_resource_group.this.name
+  location            = var.location
+  tags                = var.tags
+}
+
+resource "azurerm_role_assignment" "cmk_deployer" {
+  count                = var.cmk_enabled ? 1 : 0
+  scope                = module.keyvault.key_vault_id
+  role_definition_name = "Key Vault Crypto Officer"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
+resource "azurerm_role_assignment" "cmk_encryptor" {
+  count                = var.cmk_enabled ? 1 : 0
+  scope                = module.keyvault.key_vault_id
+  role_definition_name = "Key Vault Crypto Service Encryption User"
+  principal_id         = azurerm_user_assigned_identity.cmk[0].principal_id
+}
+
+resource "azurerm_key_vault_key" "cmk" {
+  count        = var.cmk_enabled ? 1 : 0
+  name         = "${var.namespace}-${var.environment}-${var.name}-cmk"
+  key_vault_id = module.keyvault.key_vault_id
+  key_type     = "RSA"
+  key_size     = 3072
+  key_opts     = ["decrypt", "encrypt", "sign", "unwrapKey", "verify", "wrapKey"]
+
+  depends_on = [azurerm_role_assignment.cmk_deployer]
+
+  lifecycle {
+    precondition {
+      condition     = var.key_vault_purge_protection_enabled
+      error_message = "cmk_enabled = true requires key_vault_purge_protection_enabled = true: a Key Vault that holds a customer-managed encryption key must have purge protection on, or Azure refuses to use the key."
+    }
   }
 }
 

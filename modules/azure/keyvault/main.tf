@@ -24,7 +24,7 @@ resource "azurerm_key_vault" "this" {
   sku_name                   = "standard"
   rbac_authorization_enabled = true
   purge_protection_enabled   = var.purge_protection_enabled
-  soft_delete_retention_days = 7
+  soft_delete_retention_days = var.soft_delete_retention_days
   tags                       = module.this.tags
 
   # Firewall: default-deny. ESO reads secrets over a private endpoint, so the public

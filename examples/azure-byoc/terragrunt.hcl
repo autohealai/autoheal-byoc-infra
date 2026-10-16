@@ -58,6 +58,35 @@ inputs = {
   # node_max_count            = 4
   # acr_sku                   = "Standard"
 
+  # ---------------------------------------------------------------------------
+  # Backup, high availability and encryption at rest.
+  #
+  # The defaults preserve a minimal playground posture (7-day local backup, no HA,
+  # Microsoft-managed key). For a REAL (stage/prod) install, uncomment the block
+  # below. A few of these cannot be changed after the first apply, so decide them up
+  # front:
+  #   - postgres_geo_redundant_backup_enabled : CREATE-TIME ONLY
+  #   - key_vault_soft_delete_retention_days  : CREATE-TIME ONLY
+  #   - key_vault_purge_protection_enabled    : IRREVERSIBLE once on
+  #   - cmk_enabled                           : CREATE-TIME ONLY on Postgres
+  # ---------------------------------------------------------------------------
+  # postgres_backup_retention_days        = 35     # keep 35 days of restorable backups
+  # postgres_geo_redundant_backup_enabled = true   # copy backups to the paired region
+  # postgres_auto_grow_enabled            = true   # grow storage before it fills (on by default)
+  # postgres_high_availability_enabled    = true   # hot standby in a second zone, auto failover
+  # postgres_delete_protection_enabled    = true   # block accidental server deletion
+  #
+  # blob_replication_type                     = "GRS" # ZRS (in-region zones) or GRS (paired region)
+  # blob_soft_delete_retention_days           = 30
+  # blob_container_soft_delete_retention_days = 30
+  # blob_pitr_enabled                         = true  # point-in-time restore
+  # blob_restore_days                         = 29    # must be < blob_soft_delete_retention_days
+  #
+  # key_vault_soft_delete_retention_days = 90
+  # key_vault_purge_protection_enabled   = true
+  #
+  # cmk_enabled = true   # customer-managed key for Postgres + Blob (requires purge protection on)
+
   # App-identity federation. The default already matches the autoheal-byoc chart
   # (api-server-go, agents-py-http, agents-py-worker in namespace "autoheal").
   # Only override if you install the app into a different namespace or SA names.

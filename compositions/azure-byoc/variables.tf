@@ -208,5 +208,89 @@ variable "federated_service_accounts" {
 variable "key_vault_purge_protection_enabled" {
   type        = bool
   default     = false
-  description = "Enable Key Vault purge protection (irreversible; leave false for play)."
+  description = "Enable Key Vault purge protection (irreversible; leave false for play). Required when cmk_enabled = true."
+}
+
+# ---------------------------------------------------------------------------
+# Backup, high availability and encryption at rest (Postgres + Blob + Key Vault)
+#
+# Every value below defaults to the stack's CURRENT behaviour, so an existing
+# install is undisturbed until the install profile opts in. Set production values
+# in examples/<install>/terragrunt.hcl. Three settings are IRREVERSIBLE or
+# CREATE-TIME and are called out in their descriptions: Postgres geo-redundant
+# backup and the customer-managed key are fixed at server-create time; the Key
+# Vault soft-delete window and purge protection cannot change on an existing vault.
+# Decide those before the first apply.
+# ---------------------------------------------------------------------------
+
+variable "postgres_backup_retention_days" {
+  type        = number
+  default     = 7
+  description = "Days of automatic Postgres backups to keep (1-35); any point in the window can be restored. Recommended for production: 35."
+}
+
+variable "postgres_geo_redundant_backup_enabled" {
+  type        = bool
+  default     = false
+  description = "Copy Postgres backups to the Azure paired region so they survive a whole-region outage. CREATE-TIME ONLY. Recommended for production: true. Cannot be combined with cmk_enabled yet: together they require a paired-region geo-backup key that is not yet supported, so enable one or the other."
+}
+
+variable "postgres_auto_grow_enabled" {
+  type        = bool
+  default     = false
+  description = "Let Postgres storage expand automatically before it fills up (a full disk takes the database read-only). Default off to preserve existing behaviour; strongly recommended on for a real install."
+}
+
+variable "postgres_high_availability_enabled" {
+  type        = bool
+  default     = false
+  description = "Run a hot Postgres standby in a second availability zone with automatic failover. Needs a zonal region and a GP_/MO_ SKU. Recommended for production: true."
+}
+
+variable "postgres_delete_protection_enabled" {
+  type        = bool
+  default     = false
+  description = "Lock the Postgres server against deletion (deleting a server also deletes its backups). Recommended for production: true."
+}
+
+variable "blob_replication_type" {
+  type        = string
+  default     = "LRS"
+  description = "Blob redundancy: LRS (copies within one datacentre), ZRS (across zones in the region), GRS/GZRS (also the paired region). Recommended for production: ZRS, or GRS to survive the loss of a whole region."
+}
+
+variable "blob_soft_delete_retention_days" {
+  type        = number
+  default     = 7
+  description = "Days a deleted blob can be recovered (0 = off). Recommended for production: 30."
+}
+
+variable "blob_container_soft_delete_retention_days" {
+  type        = number
+  default     = 7
+  description = "Days a deleted container can be recovered (0 = off). Protects the per-tenant Git Registry containers. Recommended for production: 30."
+}
+
+variable "blob_pitr_enabled" {
+  type        = bool
+  default     = false
+  description = "Enable blob point-in-time restore (rewind the account's blobs to an earlier moment, e.g. after a bad bulk overwrite). Recommended for production: true."
+}
+
+variable "blob_restore_days" {
+  type        = number
+  default     = 6
+  description = "How far back blob point-in-time restore can rewind, in days. Must be LESS than blob_soft_delete_retention_days. Ignored when blob_pitr_enabled = false."
+}
+
+variable "key_vault_soft_delete_retention_days" {
+  type        = number
+  default     = 7
+  description = "Days a deleted vault or secret can be recovered (7-90). CREATE-TIME ONLY. Recommended for production: 90."
+}
+
+variable "cmk_enabled" {
+  type        = bool
+  default     = false
+  description = "Encrypt Postgres and Blob at rest with a customer-managed key created in this stack's Key Vault, instead of the Microsoft-managed key. Requires key_vault_purge_protection_enabled = true. CMK is CREATE-TIME ONLY on Postgres, so decide before the first apply. Off by default (data is still encrypted with the Microsoft-managed key). Cannot be combined with postgres_geo_redundant_backup_enabled yet: together they require a paired-region geo-backup key that is not yet supported, so enable one or the other. Because CMK is create-time only, changing it later forces a server rebuild; set postgres_delete_protection_enabled = false first, or the delete lock blocks the rebuild."
 }

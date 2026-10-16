@@ -152,6 +152,25 @@ firewalls (`*_network_default_action = "Allow"`) so the copy-paste flow just
 works. For a `stage`/`prod` install, follow the comment in the file to switch to
 private endpoints instead.
 
+**Production backup, high availability and encryption.** The defaults keep the
+data tier at a minimal playground posture (7-day local database backup, no standby,
+Microsoft-managed encryption keys). For a real install, uncomment the backup/HA/
+encryption block in the example `terragrunt.hcl` and set your values. A few settings
+cannot be changed after the first apply, so decide them now:
+
+- `postgres_geo_redundant_backup_enabled` — copy database backups to the paired
+  region. **Create-time only.**
+- `cmk_enabled` — encrypt the database and file storage with a key you own in Key
+  Vault instead of the Microsoft-managed key (needs
+  `key_vault_purge_protection_enabled = true`). **Create-time only on the database.**
+- `key_vault_soft_delete_retention_days` and `key_vault_purge_protection_enabled` —
+  how long a deleted secret/vault stays recoverable, and whether the vault can ever
+  be purged. **Create-time / irreversible.**
+
+Everything else (backup retention length, high availability, soft-delete windows,
+point-in-time restore) can be turned on or changed later. See each setting's
+description in the module READMEs under `modules/azure/`.
+
 ### Step 5 — Create the remote-state backend (one time)
 
 Terraform stores its state in an Azure Storage container, but it cannot create the
@@ -337,8 +356,9 @@ terragrunt destroy      # from the same examples/<your-copy> dir
 >   `az keyvault purge --name <vault-name>`.)
 > - **Purge protection on** (`key_vault_purge_protection_enabled = true`): the
 >   vault **cannot** be purged on destroy or manually — it is soft-deleted and the
->   name stays reserved for the full `soft_delete_retention_days` (7) window. Leave
->   purge protection off for throwaway/`play` installs for this reason.
+>   name stays reserved for the full `key_vault_soft_delete_retention_days` window
+>   (default 7, up to 90). Leave purge protection off for throwaway/`play` installs
+>   for this reason.
 
 ---
 

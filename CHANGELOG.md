@@ -6,6 +6,8 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-16
+
 ### Added
 - `azure/postgres-flexible`: backup, high-availability and encryption controls, each
   defaulting to the current behaviour. `backup_retention_days` (1-35, default 7),

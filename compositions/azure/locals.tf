@@ -165,8 +165,6 @@ locals {
 
   storage_account_id   = local.create_storage ? module.blob[0].account_id : var.existing_storage_account_id
   storage_account_name = local.create_storage ? module.blob[0].account_name : local.existing.storage.name
-  # Container-scoped role grants use the container's resource manager ID.
-  storage_container_id = "${local.storage_account_id}/blobServices/default/containers/${var.storage_container_name}"
 
   key_vault_id        = local.create_key_vault ? module.keyvault[0].key_vault_id : var.existing_key_vault_id
   key_vault_name      = local.create_key_vault ? module.keyvault[0].key_vault_name : local.existing.key_vault.name

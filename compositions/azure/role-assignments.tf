@@ -55,9 +55,9 @@ locals {
         check        = true
       }
       api-server-blob = {
-        text         = "Storage Blob Data Contributor on ${local.storage_account_name}/${var.storage_container_name} for ${module.api_server_identity.name}"
+        text         = "Storage Blob Data Contributor on ${local.storage_account_name} for ${module.api_server_identity.name}"
         role_guid    = local.role_guids.storage_blob_data_contributor
-        scope        = local.storage_container_id
+        scope        = local.storage_account_id
         principal_id = module.api_server_identity.principal_id
         check        = true
       }
@@ -69,9 +69,9 @@ locals {
         check        = true
       }
       agents-worker-blob = {
-        text         = "Storage Blob Data Contributor on ${local.storage_account_name}/${var.storage_container_name} for ${module.agents_worker_identity.name}"
+        text         = "Storage Blob Data Contributor on ${local.storage_account_name} for ${module.agents_worker_identity.name}"
         role_guid    = local.role_guids.storage_blob_data_contributor
-        scope        = local.storage_container_id
+        scope        = local.storage_account_id
         principal_id = module.agents_worker_identity.principal_id
         check        = true
       }

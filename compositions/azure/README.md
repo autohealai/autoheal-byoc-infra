@@ -86,7 +86,7 @@ grants and run it again.
 | Grant | When |
 |-------|------|
 | Key Vault Secrets User on the install vault, for the secrets identity | Always |
-| Storage Blob Data Contributor on the container, for the api-server and agents-worker identities | Always |
+| Storage Blob Data Contributor on the storage account, for the api-server and agents-worker identities. A grant on one container is not enough: the Git Registry creates an `autoheal-<tenant-id>` container per tenant | Always |
 | Key Vault Secrets Officer on the runtime vault, for the api-server identity | Always |
 | Key Vault Secrets Officer on the install vault, for the deployer | Vault we create. On a brought vault it is made when `create_role_assignments = true`, and not listed otherwise: the vault owner gives you write access. |
 | Network Contributor on the VNet or AKS subnet, for the cluster identity, which creates the internal load balancers on the reserved addresses | Cluster we create |

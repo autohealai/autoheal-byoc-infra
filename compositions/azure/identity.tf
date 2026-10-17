@@ -6,8 +6,11 @@
 #                  autoheal-hooks service account: the secrets-sync hook Job and
 #                  CronJob mount the SecretProviderClass and copy the entries
 #                  into Kubernetes Secrets. No service pod mounts the vault.
-#   api-server     read and write the blob container (Storage Blob Data
-#                  Contributor, scoped to the container).
+#   api-server     read and write blob storage (Storage Blob Data
+#                  Contributor on the storage account). The account scope is
+#                  needed: the Git Registry creates one autoheal-<tenant-id>
+#                  container per tenant at runtime, which a grant scoped to
+#                  one container does not allow.
 #   agents-worker  the same blob grant, for the agents services.
 #
 # Their client IDs go into global.infra.identities. With
@@ -52,7 +55,7 @@ module "api_server_identity" {
   ]
 
   kv_role_enabled    = false
-  storage_account_id = local.storage_container_id
+  storage_account_id = local.storage_account_id
   blob_role_enabled  = var.create_role_assignments
   acr_pull_enabled   = false
 }
@@ -75,7 +78,7 @@ module "agents_worker_identity" {
   ]
 
   kv_role_enabled    = false
-  storage_account_id = local.storage_container_id
+  storage_account_id = local.storage_account_id
   blob_role_enabled  = var.create_role_assignments
   acr_pull_enabled   = false
 }

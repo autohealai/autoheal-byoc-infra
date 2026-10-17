@@ -250,11 +250,11 @@ run "everything_brought" {
   assert {
     condition = output.required_role_assignments == tolist([
       "Key Vault Secrets User on kv-platform-weu for acme-eu-prod-autoheal-secrets",
-      "Storage Blob Data Contributor on stplatformweu/autoheal for acme-eu-prod-autoheal-api-server",
+      "Storage Blob Data Contributor on stplatformweu for acme-eu-prod-autoheal-api-server",
       "Key Vault Secrets Officer on kv-platform-weu-rt for acme-eu-prod-autoheal-api-server",
-      "Storage Blob Data Contributor on stplatformweu/autoheal for acme-eu-prod-autoheal-agents-worker",
+      "Storage Blob Data Contributor on stplatformweu for acme-eu-prod-autoheal-agents-worker",
     ])
-    error_message = "required_role_assignments must list exactly the vault grant, the two container grants and the runtime vault grant."
+    error_message = "required_role_assignments must list exactly the vault grant, the two storage account grants and the runtime vault grant."
   }
 
   assert {

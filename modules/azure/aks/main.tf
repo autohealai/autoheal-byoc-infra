@@ -90,6 +90,12 @@ resource "azurerm_kubernetes_cluster" "this" {
     min_count                   = var.node_min_count
     max_count                   = var.node_max_count
     temporary_name_for_rotation = "systemtmp"
+
+    # AKS sets a 10% max surge on a new node pool. Declare it, or every plan
+    # tries to remove the block.
+    upgrade_settings {
+      max_surge = "10%"
+    }
   }
 
   identity {

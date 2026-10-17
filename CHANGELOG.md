@@ -127,6 +127,13 @@ All notable changes to this repo are documented here. Format follows
   storage firewall as the bare address. Azure Storage rejects `/31` and `/32`,
   so `deployer_ip_ranges = ["203.0.113.10/32"]` failed the plan before. A `/31`
   entry now fails the module's input check with a plain message.
+- `modules/azure/aks`: the system node pool declares `upgrade_settings` with a
+  10% max surge, which AKS sets on a new pool. Without it, every plan after the
+  first apply tried to remove the block. A cluster that has another max surge
+  moves to 10% on its next apply.
+- `modules/azure/vnet`: the Postgres subnet ignores `service_endpoints`. Azure
+  Database for PostgreSQL adds a `Microsoft.Storage` endpoint to its delegated
+  subnet when the server is created, and every later plan tried to remove it.
 
 ### Upgrading from 1.x
 `compositions/azure/moved.tf` moves the state of both v1 compositions. Point the

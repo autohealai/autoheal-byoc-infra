@@ -40,6 +40,13 @@ resource "azurerm_subnet" "db" {
       actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"]
     }
   }
+
+  # When the server is created, Azure Database for PostgreSQL adds a
+  # Microsoft.Storage service endpoint (its region and the paired region) to the
+  # delegated subnet. Ignore it so later plans do not try to remove it.
+  lifecycle {
+    ignore_changes = [service_endpoints]
+  }
 }
 
 resource "azurerm_subnet" "pe" {

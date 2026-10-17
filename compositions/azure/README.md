@@ -225,6 +225,7 @@ terraform test
 ```
 
 `tests/` plans each case against mocked providers: `create.tftest.hcl` (case 1
-and each edge mode), `bring.tftest.hcl` (case 2a), `hybrid.tftest.hcl` (case 3)
-and `reachability.tftest.hcl` (network paths to storage and the vaults). They pass
-on Terraform 1.9 and OpenTofu 1.11.
+and each edge mode), `bring.tftest.hcl` (case 2a), `hybrid.tftest.hcl` (case 3),
+`reachability.tftest.hcl` (network paths to storage and the vaults) and
+`aks.tftest.hcl` (case 1 with the real cluster module, which the others
+override). They pass on Terraform 1.9 and OpenTofu 1.11.

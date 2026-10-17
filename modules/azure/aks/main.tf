@@ -142,9 +142,40 @@ data "azurerm_kubernetes_cluster" "existing" {
 }
 
 locals {
-  # one() rather than [0], so the local stays null instead of failing when the
-  # module's resources are skipped (OpenTofu evaluates locals under override_module).
-  cluster = var.create_cluster ? one(azurerm_kubernetes_cluster.this) : one(data.azurerm_kubernetes_cluster.existing)
+  # Each attribute is taken from the created or the read cluster on its own.
+  # one() over the whole cluster object would mark every attribute sensitive,
+  # because kube_config is, and a root output built from the name would then
+  # fail the plan. Only one of the two lists has an element. A value is null,
+  # not an error, when both are empty (the module's resources are skipped under
+  # override_module) or when a nested block such as kube_config is still empty.
+  cluster_name = one(concat(
+    azurerm_kubernetes_cluster.this[*].name,
+    data.azurerm_kubernetes_cluster.existing[*].name,
+  ))
+  cluster_id = one(concat(
+    azurerm_kubernetes_cluster.this[*].id,
+    data.azurerm_kubernetes_cluster.existing[*].id,
+  ))
+  oidc_issuer_url = one(concat(
+    azurerm_kubernetes_cluster.this[*].oidc_issuer_url,
+    data.azurerm_kubernetes_cluster.existing[*].oidc_issuer_url,
+  ))
+  kubelet_identity_object_id = one(flatten(concat(
+    azurerm_kubernetes_cluster.this[*].kubelet_identity[*].object_id,
+    data.azurerm_kubernetes_cluster.existing[*].kubelet_identity[*].object_id,
+  )))
+  node_resource_group = one(concat(
+    azurerm_kubernetes_cluster.this[*].node_resource_group,
+    data.azurerm_kubernetes_cluster.existing[*].node_resource_group,
+  ))
+  kube_host = one(flatten(concat(
+    azurerm_kubernetes_cluster.this[*].kube_config[*].host,
+    data.azurerm_kubernetes_cluster.existing[*].kube_config[*].host,
+  )))
+  kube_ca_certificate = one(flatten(concat(
+    azurerm_kubernetes_cluster.this[*].kube_config[*].cluster_ca_certificate,
+    data.azurerm_kubernetes_cluster.existing[*].kube_config[*].cluster_ca_certificate,
+  )))
 }
 
 # Grant the kubelet identity AcrPull so nodes can pull from the customer ACR.
@@ -154,5 +185,5 @@ resource "azurerm_role_assignment" "acr_pull" {
   count                = var.acr_pull_enabled ? 1 : 0
   scope                = var.acr_id
   role_definition_name = "AcrPull"
-  principal_id         = local.cluster.kubelet_identity[0].object_id
+  principal_id         = local.kubelet_identity_object_id
 }

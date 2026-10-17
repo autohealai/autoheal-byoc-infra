@@ -134,6 +134,13 @@ All notable changes to this repo are documented here. Format follows
 - `modules/azure/vnet`: the Postgres subnet ignores `service_endpoints`. Azure
   Database for PostgreSQL adds a `Microsoft.Storage` endpoint to its delegated
   subnet when the server is created, and every later plan tried to remove it.
+- `compositions/azure`: the runner scale set uses `upgrade_mode = "Manual"`.
+  With `Automatic` and the `latest` image, any runner change (a new image tag,
+  a new setting) made the provider start a rolling OS upgrade. That needs a
+  health probe the scale set does not have, so the apply failed with
+  `MaxUnhealthyInstancePercentExceededBeforeRollingUpgrade`. With `Manual` the
+  provider updates and reimages each instance in the same apply. Changing the
+  mode replaces the scale set once; the runners are stateless.
 
 ### Upgrading from 1.x
 `compositions/azure/moved.tf` moves the state of both v1 compositions. Point the

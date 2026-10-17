@@ -65,7 +65,7 @@ variable "sandbox_image" {
 variable "upgrade_mode" {
   type        = string
   default     = "Manual"
-  description = "VMSS upgrade mode. Manual keeps running instances on the old model until they are upgraded by hand; Automatic reimages instances when the model changes, such as a new runner image tag."
+  description = "VMSS upgrade mode. With Manual, an apply that changes the model (such as a new runner image tag) updates and reimages each instance, through the azurerm features roll_instances_when_required and reimage_on_manual_upgrade (both on by default). Automatic makes the provider start a rolling OS upgrade, which needs a health probe this module does not set, so such an apply fails."
 
   validation {
     condition     = contains(["Manual", "Automatic"], var.upgrade_mode)

@@ -33,8 +33,11 @@ module "runner" {
   vm_sku                     = var.runner_vm_size
   instance_count             = var.runner_node_count
 
-  # Apply a new image or settings to every instance in the same apply.
-  upgrade_mode = "Automatic"
+  # Manual, so an apply that changes the image or settings updates and reimages
+  # each instance (azurerm features roll_instances_when_required and
+  # reimage_on_manual_upgrade, both on by default). Automatic starts a rolling
+  # OS upgrade, which fails without a health probe.
+  upgrade_mode = "Manual"
 
   admin_ssh_public_key = var.runner_admin_ssh_public_key != "" ? var.runner_admin_ssh_public_key : tls_private_key.runner[0].public_key_openssh
 

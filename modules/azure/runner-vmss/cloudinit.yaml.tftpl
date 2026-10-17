@@ -35,19 +35,29 @@ write_files:
     content: |
       #!/usr/bin/env bash
       # Log the host docker CLI in to ACR with the VM's managed identity, and
-      # give runner-go a copy of the login. The token expires after about 3
+      # write a login file for runner-go. The token expires after about 3
       # hours, so a timer runs this every hour.
       #
       # runner-go pulls the sandbox image through the Docker API, which does not
-      # use the host's docker login. It sends the credentials it reads from
-      # LOCAL_DOCKER_CONFIG_PATH, and reads that file on every pull. The runner
-      # runs as uid 1000, so the copy is owned by it. The copy is written to a
-      # temporary name and renamed, so a pull never reads a partial file.
-      set -e
+      # use the host's docker login. It reads the file at
+      # LOCAL_DOCKER_CONFIG_PATH on every pull and sends the user name and
+      # password from its "auth" field. A copy of the host's file does not work:
+      # docker login keeps the ACR token in "identitytoken" and leaves the
+      # password in "auth" empty, and runner-go does not read identitytoken. So
+      # the file holds the token as the password of the user
+      # 00000000-0000-0000-0000-000000000000, which ACR accepts. The runner runs
+      # as uid 1000, so the file is owned by it. It is written to a temporary
+      # name and renamed, so a pull never reads a partial file.
+      set -euo pipefail
       export DOCKER_CONFIG=/root/.docker
       az login --identity --client-id ${uami_client_id} >/dev/null 2>&1
       az acr login -n ${acr_name} >/dev/null 2>&1
-      install -D -m 0600 -o 1000 -g 1000 /root/.docker/config.json /opt/runner-go/docker/config.json.new
+      { read -r server; read -r token; } < <(az acr login -n ${acr_name} --expose-token --query '[loginServer, accessToken]' -o tsv 2>/dev/null)
+      test -n "$token"
+      auth=$(printf '00000000-0000-0000-0000-000000000000:%s' "$token" | base64 -w0)
+      install -d -m 0755 /opt/runner-go/docker
+      (umask 077; printf '{"auths":{"%s":{"auth":"%s"}}}\n' "$server" "$auth" > /opt/runner-go/docker/config.json.new)
+      chown 1000:1000 /opt/runner-go/docker/config.json.new
       mv -f /opt/runner-go/docker/config.json.new /opt/runner-go/docker/config.json
   - path: /etc/systemd/system/acr-login.service
     permissions: '0644'

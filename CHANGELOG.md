@@ -141,6 +141,12 @@ All notable changes to this repo are documented here. Format follows
   `MaxUnhealthyInstancePercentExceededBeforeRollingUpgrade`. With `Manual` the
   provider updates and reimages each instance in the same apply. Changing the
   mode replaces the scale set once; the runners are stateless.
+- `modules/azure/runner-vmss`: runner-go can pull the sandbox image from the
+  ACR. The login file it reads was a copy of the host's docker login, which
+  keeps the ACR token in `identitytoken` and leaves the password in `auth`
+  empty. runner-go reads only `auth`, so ACR answered `authentication required`
+  and no sandbox started on a new VM. `acr-login.sh` now writes the token as
+  the password of the user `00000000-0000-0000-0000-000000000000`.
 
 ### Upgrading from 1.x
 `compositions/azure/moved.tf` moves the state of both v1 compositions. Point the

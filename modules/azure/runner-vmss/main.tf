@@ -13,7 +13,8 @@
 # customer's network).
 #
 # Identity: a user-assigned MI (some policies forbid system-assigned on VMs/VMSS).
-# When images come from an ACR it is granted AcrPull and the host logs in with it;
+# When images come from an ACR it is granted AcrPull and the host logs in with it,
+# and runner-go gets a copy of the login for the sandbox images it pulls itself;
 # when images are public (the default public ECR) no registry login runs. It does
 # NOT read Key Vault; the runner's only config is the Temporal endpoint and the
 # api-server-go internal listener it posts tool results to (both on the reserved

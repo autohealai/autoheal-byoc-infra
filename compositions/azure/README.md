@@ -165,7 +165,9 @@ The runner VMs pull `runner_image_repository:runner_image_tag`. The repository
 defaults to `<login server>/app/runner-go` with a registry and to
 `public.ecr.aws/e4h3h0d9/app/runner-go` without one; the tag defaults to
 `chart-<autoheal_version>`. They log in to the registry with their own identity
-when the image is in it. They boot during
+when the image is in it. runner-go uses the same login to pull the sandbox image
+the first time a chat needs it; set `runner_sandbox_image` to pull it at boot
+instead. They boot during
 the apply and retry the pull with a backoff until it succeeds, so with a
 registry created in the same apply you can push the image afterwards; the
 runner starts within about five minutes of the push, with no reimage.

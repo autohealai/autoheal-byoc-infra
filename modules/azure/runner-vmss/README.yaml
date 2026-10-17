@@ -6,7 +6,9 @@ description: |-
   analogue is the EKS EC2/ASG runner. No public IP: egress is via the runner
   subnet's NAT gateway (modules/azure/vnet). The user-assigned identity can be
   granted AcrPull; when acr_name is set, cloud-init also installs the Azure CLI
-  and refreshes the ACR login hourly. With public images neither runs.
+  and refreshes the ACR login hourly. runner-go pulls the sandbox image through
+  the Docker API, which does not use the host's login, so each refresh also
+  writes a copy that runner-go reads. With public images none of this runs.
 
   The composition creates it in the same apply as the cluster: temporal_host is
   the reserved internal address the chart later pins the Temporal load balancer

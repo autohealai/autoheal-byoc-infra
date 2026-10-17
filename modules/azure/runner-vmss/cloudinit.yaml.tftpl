@@ -16,6 +16,9 @@ write_files:
       WORKER_SHUTDOWN_GRACE_SECONDS=30
       DEBUG_MODE=false
       DOCKER_SOCKET_PATH=/var/run/docker.sock
+%{ if acr_name != "" ~}
+      LOCAL_DOCKER_CONFIG_PATH=/opt/runner-go/docker/config.json
+%{ endif ~}
       LAMBDA_DOWNLOAD_PATH=/var/lib/runner-go/lambdas
       DATA_SOURCES_PATH=/var/lib/runner-go/datasources
       SANDBOX_BASE_DIR=/var/lib/runner-go/sandboxes
@@ -31,12 +34,21 @@ write_files:
     permissions: '0755'
     content: |
       #!/usr/bin/env bash
-      # Refresh host Docker creds for ACR via the VM's managed identity, so the
-      # host dockerd (which runner-go drives over the socket) can keep pulling
-      # the runner + sandbox images after the initial ~3h token expiry.
+      # Log the host docker CLI in to ACR with the VM's managed identity, and
+      # give runner-go a copy of the login. The token expires after about 3
+      # hours, so a timer runs this every hour.
+      #
+      # runner-go pulls the sandbox image through the Docker API, which does not
+      # use the host's docker login. It sends the credentials it reads from
+      # LOCAL_DOCKER_CONFIG_PATH, and reads that file on every pull. The runner
+      # runs as uid 1000, so the copy is owned by it. The copy is written to a
+      # temporary name and renamed, so a pull never reads a partial file.
       set -e
+      export DOCKER_CONFIG=/root/.docker
       az login --identity --client-id ${uami_client_id} >/dev/null 2>&1
       az acr login -n ${acr_name} >/dev/null 2>&1
+      install -D -m 0600 -o 1000 -g 1000 /root/.docker/config.json /opt/runner-go/docker/config.json.new
+      mv -f /opt/runner-go/docker/config.json.new /opt/runner-go/docker/config.json
   - path: /etc/systemd/system/acr-login.service
     permissions: '0644'
     content: |
@@ -102,12 +114,20 @@ write_files:
       # Destination == SANDBOX_BASE_DIR / DATA_SOURCES_PATH (a single parent
       # mount of /var/lib/runner-go does NOT satisfy the subpath check), and
       # sandbox bind-mounts resolve on the HOST so the paths must match.
+%{ if acr_name != "" ~}
+      # /opt/runner-go/docker holds the ACR login acr-login.sh writes for the
+      # runner, mounted read-only. It is a directory mount because the login
+      # file is replaced on each refresh, and a file mount would keep the old one.
+%{ endif ~}
       ExecStart=/usr/bin/docker run --rm --name runner-go --group-add __DOCKER_GID__ \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v /var/lib/runner-go/lambdas:/var/lib/runner-go/lambdas \
         -v /var/lib/runner-go/datasources:/var/lib/runner-go/datasources \
         -v /var/lib/runner-go/sandboxes:/var/lib/runner-go/sandboxes \
         -v /var/lib/runner-go/agent-sessions:/var/lib/runner-go/agent-sessions \
+%{ if acr_name != "" ~}
+        -v /opt/runner-go/docker:/opt/runner-go/docker:ro \
+%{ endif ~}
         --env-file /opt/runner-go/config.env \
         ${runner_image}
       ExecStop=/usr/bin/docker stop runner-go
@@ -115,7 +135,8 @@ write_files:
       WantedBy=multi-user.target
 runcmd:
 %{ if acr_name != "" ~}
-  # Install az CLI (managed-identity ACR auth for the host dockerd)
+  # Install the Azure CLI, which acr-login.sh uses to log in to ACR with the
+  # VM's managed identity.
   - curl -sL https://aka.ms/InstallAzureCLIDeb | bash
 %{ endif ~}
   # runner-go container runs as uid/gid 1000 (alpine adduser); the bind-mounted

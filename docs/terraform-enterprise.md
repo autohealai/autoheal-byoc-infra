@@ -19,7 +19,7 @@ input to the resource ID, and the composition only reads it:
 | Nothing | `network_cidr` (the composition creates the network, AKS, Postgres, Redis, storage, Key Vault and the registry) |
 | Your network | `existing_network` (subnet IDs and two free addresses in the AKS subnet). Allow ports 7233 and 8083 on the Temporal address from the runner subnet only. |
 | Your resource group | `existing_resource_group_id` |
-| Your cluster, database, cache, storage, vault or registry | `existing_aks_cluster_id`, `existing_postgres_id`, `existing_redis_id`, `existing_storage_account_id`, `existing_key_vault_id`, `existing_acr_id` |
+| Your cluster, database, cache, storage, vaults or registry | `existing_aks_cluster_id`, `existing_postgres_id`, `existing_redis_id`, `existing_storage_account_id`, `existing_key_vault_id`, `existing_runtime_key_vault_id`, `existing_acr_id` |
 | Role grants made by your administrators | `create_role_assignments = false` |
 | DNS records made by a person | `create_dns_records = false` |
 

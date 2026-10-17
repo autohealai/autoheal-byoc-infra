@@ -141,7 +141,7 @@ variable "dns_record_ttl" {
 
 variable "autoheal_version" {
   type        = string
-  description = "Autoheal release (the chart version). The runner VMs pull runner-go:chart-<autoheal_version> unless runner_image_tag is set."
+  description = "Autoheal release (the chart version). The runner VMs pull app/runner-go:chart-<autoheal_version> unless runner_image_tag is set."
 
   validation {
     condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$", var.autoheal_version))
@@ -151,8 +151,8 @@ variable "autoheal_version" {
 
 variable "runner_image_repository" {
   type        = string
-  default     = "public.ecr.aws/e4h3h0d9/runner-go"
-  description = "Repository the runner VMs pull runner-go from. Override to use a mirror or a test registry. The VMs retry the pull until the image exists, so it may be pushed after the apply."
+  default     = ""
+  description = "Repository the runner VMs pull runner-go from. Empty means <registry>/app/runner-go: the composition's ACR when there is one, else public.ecr.aws/e4h3h0d9. Override to use another mirror or a test registry. The VMs retry the pull until the image exists, so it may be pushed after the apply."
 }
 
 variable "runner_image_tag" {
@@ -316,7 +316,7 @@ variable "existing_storage_account_id" {
 variable "existing_acr_id" {
   type        = string
   default     = ""
-  description = "Resource ID of an Azure Container Registry you already have, for installs that mirror images. Empty and create_registry = false means images come from the public registry."
+  description = "Resource ID of an Azure Container Registry you already have, for installs that mirror images. It must hold the images under app/ and external/, the chart's layout. Empty and create_registry = false means images come from the public registry."
 
   validation {
     condition     = var.existing_acr_id == "" || can(regex("(?i)^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.ContainerRegistry/registries/[^/]+$", var.existing_acr_id))
@@ -335,10 +335,21 @@ variable "existing_key_vault_id" {
   }
 }
 
+variable "existing_runtime_key_vault_id" {
+  type        = string
+  default     = ""
+  description = "Resource ID of a Key Vault you already have for the runtime vault, where api-server-go stores the integration credentials users enter. It must use Azure RBAC authorization and must be a different vault from the install vault."
+
+  validation {
+    condition     = var.existing_runtime_key_vault_id == "" || can(regex("(?i)^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.KeyVault/vaults/[^/]+$", var.existing_runtime_key_vault_id))
+    error_message = "existing_runtime_key_vault_id must be the resource ID of a Microsoft.KeyVault/vaults resource."
+  }
+}
+
 variable "create_registry" {
   type        = bool
   default     = false
-  description = "Create an Azure Container Registry. Off by default because images come from the public registry. v1 installs set true to keep their registry. Ignored when existing_acr_id is set."
+  description = "Create an Azure Container Registry. Off by default because images come from the public registry. With a registry, autoheal_values points the chart's images at it and the runner pulls from it, so copy the images into it (app/ and external/) before installing the chart. v1 installs set true to keep their registry. Ignored when existing_acr_id is set."
 }
 
 variable "redis_enabled" {
@@ -514,6 +525,24 @@ variable "key_vault_soft_delete_retention_days" {
   type        = number
   default     = 7
   description = "Days a deleted vault or secret can be recovered (7-90). Fixed at create time. Recommended for production: 90."
+}
+
+variable "runtime_key_vault_purge_protection_enabled" {
+  type        = bool
+  default     = null
+  nullable    = true
+  description = "Enable purge protection on the runtime Key Vault we create (irreversible). null means the same as key_vault_purge_protection_enabled."
+}
+
+variable "runtime_key_vault_soft_delete_retention_days" {
+  type        = number
+  default     = 90
+  description = "Days a deleted runtime vault or secret can be recovered (7-90). api-server-go recovers a deleted credential when the same one is saved again within this window. Fixed at create time."
+
+  validation {
+    condition     = var.runtime_key_vault_soft_delete_retention_days >= 7 && var.runtime_key_vault_soft_delete_retention_days <= 90
+    error_message = "runtime_key_vault_soft_delete_retention_days must be between 7 and 90."
+  }
 }
 
 variable "postgres_backup_retention_days" {

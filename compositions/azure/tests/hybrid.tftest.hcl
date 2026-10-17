@@ -194,7 +194,8 @@ run "brought_network_and_zone" {
   assert {
     condition = (
       length(module.vnet) == 0 && length(module.aks) == 1 && length(module.postgres) == 1 &&
-      length(module.redis) == 1 && length(module.blob) == 1 && length(module.keyvault) == 1
+      length(module.redis) == 1 && length(module.blob) == 1 && length(module.keyvault) == 1 &&
+      length(module.runtime_keyvault) == 1 && length(module.pe_runtime_vault) == 1
     )
     error_message = "Only the network is brought; everything else is created."
   }
@@ -270,8 +271,8 @@ run "grants_listed_for_the_network_team" {
   }
 
   assert {
-    condition     = length(output.required_role_assignments) == 6
-    error_message = "Three workload grants, the deployer's vault and cluster grants, and the cluster network grant."
+    condition     = length(output.required_role_assignments) == 7
+    error_message = "Four workload grants (with the api-server grant on the runtime vault), the deployer's vault and cluster grants, and the cluster network grant."
   }
 }
 

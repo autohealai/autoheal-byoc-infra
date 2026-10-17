@@ -10,14 +10,15 @@ locals {
 
   # --- Create or bring ------------------------------------------------------
 
-  create_resource_group = var.existing_resource_group_id == ""
-  create_network        = var.existing_network == null
-  create_cluster        = var.existing_aks_cluster_id == ""
-  create_postgres       = var.existing_postgres_id == ""
-  create_storage        = var.existing_storage_account_id == ""
-  create_key_vault      = var.existing_key_vault_id == ""
-  create_registry       = var.existing_acr_id == "" && var.create_registry
-  create_redis          = var.redis_enabled && var.existing_redis_id == ""
+  create_resource_group    = var.existing_resource_group_id == ""
+  create_network           = var.existing_network == null
+  create_cluster           = var.existing_aks_cluster_id == ""
+  create_postgres          = var.existing_postgres_id == ""
+  create_storage           = var.existing_storage_account_id == ""
+  create_key_vault         = var.existing_key_vault_id == ""
+  create_runtime_key_vault = var.existing_runtime_key_vault_id == ""
+  create_registry          = var.existing_acr_id == "" && var.create_registry
+  create_redis             = var.redis_enabled && var.existing_redis_id == ""
 
   redis_enabled = var.redis_enabled || var.existing_redis_id != ""
   acr_enabled   = local.create_registry || var.existing_acr_id != ""
@@ -56,6 +57,10 @@ locals {
     key_vault = local.create_key_vault ? null : {
       rg   = split("/", var.existing_key_vault_id)[4]
       name = split("/", var.existing_key_vault_id)[8]
+    }
+    runtime_key_vault = local.create_runtime_key_vault ? null : {
+      rg   = split("/", var.existing_runtime_key_vault_id)[4]
+      name = split("/", var.existing_runtime_key_vault_id)[8]
     }
   }
 
@@ -106,6 +111,8 @@ locals {
 
   pe_blob_enabled  = var.private_endpoints_enabled && local.create_storage
   pe_vault_enabled = var.private_endpoints_enabled && local.create_key_vault
+  # The runtime vault uses the same privatelink zone as the install vault.
+  pe_runtime_vault_enabled = var.private_endpoints_enabled && local.create_runtime_key_vault
 
   # privatelink zones a brought network needs from us: one per private endpoint we
   # create whose zone the customer did not pass in existing_network.
@@ -116,7 +123,7 @@ locals {
   }
   pe_zones_needed = toset(compact([
     local.pe_blob_enabled ? "blob" : "",
-    local.pe_vault_enabled ? "vault" : "",
+    local.pe_vault_enabled || local.pe_runtime_vault_enabled ? "vault" : "",
     local.create_redis ? "redis" : "",
   ]))
   brought_network_zones = local.create_network ? toset([]) : toset([
@@ -165,8 +172,22 @@ locals {
   key_vault_name      = local.create_key_vault ? module.keyvault[0].key_vault_name : local.existing.key_vault.name
   key_vault_tenant_id = local.create_key_vault ? data.azurerm_client_config.current.tenant_id : data.azurerm_key_vault.existing[0].tenant_id
 
+  # The runtime vault we create is named like the install vault with -rt at the
+  # end, cut so the name stays within Key Vault's 24 characters.
+  runtime_key_vault_create_name = "${trimsuffix(substr(local.id, 0, 21), "-")}-rt"
+  runtime_key_vault_id          = local.create_runtime_key_vault ? module.runtime_keyvault[0].key_vault_id : var.existing_runtime_key_vault_id
+  runtime_key_vault_name        = local.create_runtime_key_vault ? module.runtime_keyvault[0].key_vault_name : local.existing.runtime_key_vault.name
+  # api-server-go takes the vault URL with a trailing slash.
+  runtime_key_vault_url = "${trimsuffix(local.create_runtime_key_vault ? module.runtime_keyvault[0].vault_uri : data.azurerm_key_vault.runtime_existing[0].vault_uri, "/")}/"
+  runtime_key_vault_purge_protection_enabled = (
+    var.runtime_key_vault_purge_protection_enabled != null ? var.runtime_key_vault_purge_protection_enabled : var.key_vault_purge_protection_enabled
+  )
+
   acr_id   = local.create_registry ? module.acr[0].acr_id : var.existing_acr_id
   acr_name = local.create_registry ? module.acr[0].acr_name : (var.existing_acr_id == "" ? "" : local.existing.acr.name)
+  # An ACR login server is always the lowercase registry name under azurecr.io,
+  # so it is known at plan time for a created or a brought registry.
+  acr_login_server = local.acr_enabled ? "${lower(local.acr_name)}.azurecr.io" : ""
 
   redis_host = !local.redis_enabled ? "" : (
     local.create_redis ? module.redis[0].hostname :

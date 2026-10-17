@@ -23,8 +23,10 @@ All notable changes to this repo are documented here. Format follows
   `loadbalancer` mode, the proxy. Computed in a network we create, taken from
   `existing_network.temporal_ip` and `proxy_ip` in a brought one.
 - `compositions/azure`: the runner VMs (`modules/azure/runner-vmss`) in the same
-  apply, pulling `runner-go:chart-<autoheal_version>` from
-  `runner_image_repository`. `runner_image_tag` overrides the tag. The runners
+  apply, pulling `<registry>/app/runner-go:chart-<autoheal_version>`. The
+  registry is the composition's ACR when there is one, else
+  `public.ecr.aws/e4h3h0d9`. `runner_image_repository` and `runner_image_tag`
+  override the repository and the tag. The runners
   post sandbox tool results to
   `http://<temporal_ip>:8083/api/v1/internal/sandbox-tool-responses`, the
   api-server-go internal listener the chart puts on the Temporal address.
@@ -53,12 +55,26 @@ All notable changes to this repo are documented here. Format follows
   `tls_certificate`, `github_app_private_key`, `github_app_webhook_secret`; and
   `edge_ca_certificate`. A generated runner SSH key stays in the state and is
   not written to the vault.
+- `compositions/azure`: a runtime Key Vault for the integration credentials
+  api-server-go stores (`SECRET_MANAGER_PROVIDER=azurekeyvault`), separate from
+  the install vault so the api-server identity cannot read install secrets.
+  Azure RBAC, same firewall and private endpoint as the install vault. The
+  api-server identity gets Key Vault Secrets Officer on it. New inputs:
+  `existing_runtime_key_vault_id`, `runtime_key_vault_soft_delete_retention_days`
+  (default 90) and `runtime_key_vault_purge_protection_enabled` (default: the
+  install vault's setting). `autoheal_values` gains
+  `global.infra.runtimeSecrets = { kind = "azurekeyvault", vaultURL }`.
+- `compositions/azure`: with a registry, `autoheal_values` suggests
+  `global.imageRegistry` (the login server) and the matching Temporal and Zitadel
+  image repositories under `<login server>/external/`, which the chart's
+  validation requires.
 - `compositions/azure`: `create_role_assignments`. With `false` no grant is
   made; the `required_role_assignments` output lists them for an administrator
   and the apply stops, naming the missing workload grants, until they exist.
 - `compositions/azure` outputs: `autoheal_values` and `autoheal_values_yaml` (the
   chart's infra values: `global.infra`, the suggested `global.addons`,
-  `global.secrets` and `global.edge`, and the Temporal and Zitadel copies),
+  `global.secrets`, `global.edge` and `global.imageRegistry`, and the Temporal
+  and Zitadel copies),
   `cluster`, `required_role_assignments`, `required_dns_records`, `network`
   (VNet and subnet IDs and the address space).
 - `compositions/app`: installs the chart with one `helm_release` from the infra
@@ -87,6 +103,8 @@ All notable changes to this repo are documented here. Format follows
   `acr_pull_enabled` gates the grant. The runner unit retries the image pull
   with a backoff (15 seconds, doubling up to 5 minutes) until it succeeds, with
   no systemd start limit, so the image can be pushed after the VMs boot.
+- The runner image moves from `<registry>/runner-go` to
+  `<registry>/app/runner-go`, the chart's image layout.
 - Compositions ship without `backend.tf`. The caller generates it (Terragrunt
   `remote_state` with `generate`), so one `compositions/app` serves both clouds.
 - `required_version` of the compositions is `>= 1.7`; `azurerm` is `~> 4.50`.
@@ -136,6 +154,12 @@ storage account or the vault.
     upgrade; the composition now runs the runner.
   - The plan adds an NSG on the AKS subnet. Ports 7233 and 8083 on the Temporal
     address then answer only the runner subnet.
+  - The plan adds the runtime vault, its private endpoint and the api-server
+    grant on it. To use a vault you already have, set
+    `existing_runtime_key_vault_id`.
+  - With `create_registry = true` the runner image path becomes
+    `<login server>/app/runner-go`. Copy the images to `app/` and `external/` in
+    the registry before the upgrade, or set `runner_image_repository`.
 - From `azure-byoc-connect`: the name inputs become IDs. `aks_cluster_name`,
   `postgres_server_name`, `redis_cache_name`, `storage_account_name`,
   `key_vault_name` and `acr_name` become `existing_aks_cluster_id`,

@@ -3,8 +3,9 @@
 # the vnet module for a network we create, and from
 # existing_network.private_dns_zone_ids or network.tf for a brought one.
 #
-#   - Blob and Key Vault: when private_endpoints_enabled. This is the recommended
-#     runtime path for in-cluster pods.
+#   - Blob and both Key Vaults (install and runtime): when
+#     private_endpoints_enabled. This is the recommended runtime path for
+#     in-cluster pods. The two vaults share the privatelink.vaultcore zone.
 #   - Azure Managed Redis: always. It has no public access.
 #
 # A brought storage account, vault or Redis keeps whatever private access its
@@ -49,6 +50,24 @@ module "pe_vault" {
   location             = var.location
   subnet_id            = local.endpoint_subnet_id
   target_resource_id   = module.keyvault[0].key_vault_id
+  subresource_names    = ["vault"]
+  private_dns_zone_ids = [local.pe_zone_ids["vault"]]
+}
+
+module "pe_runtime_vault" {
+  source = "../../modules/azure/private-endpoint"
+  count  = local.pe_runtime_vault_enabled && local.endpoint_subnet_given ? 1 : 0
+
+  namespace   = var.namespace
+  environment = var.environment
+  name        = var.name
+  attributes  = ["vault", "rt"]
+  tags        = var.tags
+
+  resource_group_name  = local.rg
+  location             = var.location
+  subnet_id            = local.endpoint_subnet_id
+  target_resource_id   = module.runtime_keyvault[0].key_vault_id
   subresource_names    = ["vault"]
   private_dns_zone_ids = [local.pe_zone_ids["vault"]]
 }

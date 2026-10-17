@@ -122,7 +122,7 @@ and the chart do not care which cloud built the cluster:
 
 | Output | Meaning |
 |--------|---------|
-| `autoheal_values`           | The chart's infra values as an object: `global.infra` facts, suggested `global.addons`, `global.secrets`, `global.edge`, and the Temporal and Zitadel copies. Shape versioned by `global.infra.version`. |
+| `autoheal_values`           | The chart's infra values as an object: `global.infra` facts, suggested `global.addons`, `global.secrets`, `global.edge` and `global.imageRegistry`, and the Temporal and Zitadel copies. Shape versioned by `global.infra.version`. |
 | `autoheal_values_yaml`      | The same values as YAML, for a Helm or Flux install. |
 | `cluster`                   | `cloud`, `name`, `endpoint`, base64 `ca_certificate`, and `resource_group` (Azure) or `region` (AWS). No credential. |
 | `required_role_assignments` | Grants an administrator must make when the composition makes none. |

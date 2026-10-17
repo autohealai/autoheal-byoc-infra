@@ -7,10 +7,16 @@
 #   global.addons, global.secrets, global.edge
 #                  suggestions that follow from what was built. The customer's
 #                  values file may override them.
+#   global.imageRegistry
+#                  suggestion, only when there is a registry (create_registry or
+#                  existing_acr_id): its login server. The chart then pulls
+#                  <registry>/app/<name> and <registry>/external/<name>.
 #   temporal, zitadel
 #                  copies of the database host and the login hostname at the
-#                  paths those upstream charts read. The chart checks that each
-#                  copy equals its fact.
+#                  paths those upstream charts read, and with a registry the
+#                  Temporal and Zitadel image repositories under
+#                  <registry>/external. The chart checks that each copy matches
+#                  its fact or global.imageRegistry.
 #
 # Bump infra_contract_version when the shape of global.infra changes; the chart
 # refuses a version older than its autoheal.io/min-infra-version.
@@ -18,8 +24,12 @@
 locals {
   infra_contract_version = "2.0.0"
 
+  # Registry login server, or "" without a registry. Every key built from it is
+  # left out when it is "", so the chart's default public registry applies.
+  image_registry = local.acr_login_server
+
   autoheal_values = {
-    global = {
+    global = merge({
       infra = merge(
         {
           version = local.infra_contract_version
@@ -28,6 +38,12 @@ locals {
           keyVault = {
             name     = local.key_vault_name
             tenantId = local.key_vault_tenant_id
+          }
+          # Where api-server-go keeps the integration credentials users enter.
+          # A separate vault from keyVault; see keyvault.tf.
+          runtimeSecrets = {
+            kind     = "azurekeyvault"
+            vaultURL = local.runtime_key_vault_url
           }
           identities = {
             secrets      = module.secrets_identity.client_id
@@ -68,34 +84,50 @@ locals {
         { mode = var.edge_mode },
         { for k, v in { tls = { caVaultEntry = "edge-ca-certificate" } } : k => v if var.edge_ca_certificate != "" },
       )
-    }
+      },
+      { for k, v in { imageRegistry = local.image_registry } : k => v if local.image_registry != "" },
+    )
 
-    temporal = {
-      server = {
-        config = {
-          persistence = {
-            default = {
-              sql = { host = local.postgres_host }
+    temporal = merge(
+      {
+        server = merge(
+          {
+            config = {
+              persistence = {
+                default = {
+                  sql = { host = local.postgres_host }
+                }
+                visibility = {
+                  sql = { host = local.postgres_host }
+                }
+              }
             }
-            visibility = {
-              sql = { host = local.postgres_host }
+          },
+          { for k, v in { image = { repository = "${local.image_registry}/external/temporal-server" } } : k => v if local.image_registry != "" },
+        )
+      },
+      { for k, v in {
+        web        = { image = { repository = "${local.image_registry}/external/temporal-ui" } }
+        admintools = { image = { repository = "${local.image_registry}/external/temporal-admin-tools" } }
+      } : k => v if local.image_registry != "" },
+    )
+
+    zitadel = merge(
+      {
+        zitadel = {
+          configmapConfig = {
+            ExternalDomain = local.hosts.auth
+            Database = {
+              Postgres = {
+                Host = local.postgres_host
+              }
             }
           }
         }
-      }
-    }
-
-    zitadel = {
-      zitadel = {
-        configmapConfig = {
-          ExternalDomain = local.hosts.auth
-          Database = {
-            Postgres = {
-              Host = local.postgres_host
-            }
-          }
-        }
-      }
-    }
+      },
+      { for k, v in { image = { repository = "${local.image_registry}/external/zitadel" } } : k => v if local.image_registry != "" },
+      { for k, v in { login = { image = { repository = "${local.image_registry}/external/zitadel-login" } } } : k => v if local.image_registry != "" },
+      { for k, v in { imageRegistry = local.image_registry } : k => v if local.image_registry != "" },
+    )
   }
 }

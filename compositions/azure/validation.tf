@@ -31,12 +31,16 @@ resource "terraform_data" "validate_inputs" {
       error_message = "We create Azure Managed Redis in a brought network, so existing_network.endpoint_subnet_id is required: Redis is reached only through a private endpoint. Set it, set existing_redis_id, or set redis_enabled = false."
     }
     precondition {
-      condition     = local.create_network || !(local.pe_blob_enabled || local.pe_vault_enabled) || try(var.existing_network.endpoint_subnet_id, "") != ""
+      condition     = local.create_network || !(local.pe_blob_enabled || local.pe_vault_enabled || local.pe_runtime_vault_enabled) || try(var.existing_network.endpoint_subnet_id, "") != ""
       error_message = "private_endpoints_enabled is true in a brought network, so existing_network.endpoint_subnet_id is required."
     }
     precondition {
       condition     = local.create_postgres || nonsensitive(var.postgres_admin_password != "")
       error_message = "existing_postgres_id is set, so postgres_admin_password is required. Azure cannot return a server's admin password; pass it as TF_VAR_postgres_admin_password from the pipeline's secret store."
+    }
+    precondition {
+      condition     = lower(local.runtime_key_vault_name) != lower(local.key_vault_name)
+      error_message = "The runtime Key Vault is the install vault (${local.key_vault_name}). It must be a separate vault: the api-server identity gets Key Vault Secrets Officer on it, which on the install vault would let it read every install secret. Set existing_runtime_key_vault_id to another vault, or leave it empty to create one."
     }
     precondition {
       condition     = !var.cmk_enabled || (local.create_key_vault && var.create_role_assignments)
@@ -96,9 +100,11 @@ resource "terraform_data" "validate_dns" {
 # --- Network paths to a Blob account and vault we create ----------------------
 
 # Both are checked at plan time so a missing path surfaces here, not as a 403 mid
-# apply or as pods that cannot read the vault.
+# apply or as pods that cannot read the vault. The runtime vault takes the same
+# firewall settings as the install vault. Terraform writes nothing into it, so
+# only the runtime path applies to it.
 resource "terraform_data" "validate_reachability" {
-  count = local.create_storage || local.create_key_vault ? 1 : 0
+  count = local.create_storage || local.create_key_vault || local.create_runtime_key_vault ? 1 : 0
 
   lifecycle {
     precondition {
@@ -114,9 +120,9 @@ resource "terraform_data" "validate_reachability" {
         var.private_endpoints_enabled ||
         length(var.workload_egress_ip_ranges) > 0 ||
         ((!local.create_storage || var.storage_network_default_action == "Allow") &&
-        (!local.create_key_vault || var.key_vault_network_default_action == "Allow"))
+        (!(local.create_key_vault || local.create_runtime_key_vault) || var.key_vault_network_default_action == "Allow"))
       )
-      error_message = "No runtime path to the Blob account or Key Vault. Pods reach them from the cluster's outbound address, not the apply host, so deployer_ip_ranges does not help them. Set private_endpoints_enabled = true, set workload_egress_ip_ranges to the cluster's outbound CIDRs, or set storage_network_default_action and key_vault_network_default_action to \"Allow\" for a throwaway install."
+      error_message = "No runtime path to the Blob account or the Key Vaults. Pods reach them from the cluster's outbound address, not the apply host, so deployer_ip_ranges does not help them. Set private_endpoints_enabled = true, set workload_egress_ip_ranges to the cluster's outbound CIDRs, or set storage_network_default_action and key_vault_network_default_action to \"Allow\" for a throwaway install."
     }
   }
 }
@@ -132,6 +138,17 @@ resource "terraform_data" "kv_rbac_guard" {
     precondition {
       condition     = try(data.azurerm_key_vault.existing[0].rbac_authorization_enabled, true) != false
       error_message = "Key Vault ${local.existing.key_vault.name} uses access policies. Autoheal grants vault access with Azure RBAC, which has no effect on an access-policy vault. Switch the vault to the Azure RBAC permission model."
+    }
+  }
+}
+
+resource "terraform_data" "runtime_kv_rbac_guard" {
+  count = local.create_runtime_key_vault ? 0 : 1
+
+  lifecycle {
+    precondition {
+      condition     = try(data.azurerm_key_vault.runtime_existing[0].rbac_authorization_enabled, true) != false
+      error_message = "Key Vault ${local.existing.runtime_key_vault.name} (existing_runtime_key_vault_id) uses access policies. Autoheal grants the api-server identity access with Azure RBAC, which has no effect on an access-policy vault. Switch the vault to the Azure RBAC permission model."
     }
   }
 }

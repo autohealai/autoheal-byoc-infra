@@ -302,8 +302,45 @@ run "loadbalancer_defaults" {
   }
 
   assert {
-    condition     = local.runner_image == "public.ecr.aws/e4h3h0d9/runner-go:chart-1.0.0"
-    error_message = "The runner pulls runner-go:chart-<autoheal_version> from the public registry by default."
+    condition     = local.runner_image == "public.ecr.aws/e4h3h0d9/app/runner-go:chart-1.0.0" && !local.runner_uses_acr
+    error_message = "Without a registry the runner pulls app/runner-go:chart-<autoheal_version> from the public registry, with no ACR login."
+  }
+
+  # Without a registry no image key is suggested, so the chart's default public
+  # registry applies.
+  assert {
+    condition = (
+      !contains(keys(output.autoheal_values.global), "imageRegistry") &&
+      !contains(keys(output.autoheal_values.temporal.server), "image") &&
+      !contains(keys(output.autoheal_values.temporal), "web") &&
+      !contains(keys(output.autoheal_values.temporal), "admintools") &&
+      !contains(keys(output.autoheal_values.zitadel), "image") &&
+      !contains(keys(output.autoheal_values.zitadel), "login") &&
+      !contains(keys(output.autoheal_values.zitadel), "imageRegistry")
+    )
+    error_message = "No imageRegistry or image copies without a registry."
+  }
+
+  # The runtime vault: a second vault, named after the install vault with -rt,
+  # with its own private endpoint and the api-server grant.
+  assert {
+    condition = (
+      length(module.runtime_keyvault) == 1 &&
+      module.runtime_keyvault[0].key_vault_name == "acme-prod-autoheal-rt" &&
+      length(module.pe_runtime_vault) == 1 &&
+      length(azurerm_role_assignment.api_server_runtime_kv) == 1
+    )
+    error_message = "The runtime vault, its private endpoint and the api-server Key Vault Secrets Officer grant are created."
+  }
+
+  assert {
+    condition     = output.autoheal_values.global.infra.runtimeSecrets.kind == "azurekeyvault"
+    error_message = "global.infra.runtimeSecrets.kind must be azurekeyvault."
+  }
+
+  assert {
+    condition     = local.runtime_key_vault_purge_protection_enabled == false
+    error_message = "The runtime vault follows the install vault's purge protection, off by default."
   }
 
   assert {
@@ -489,13 +526,35 @@ run "custom_hostnames_and_registry" {
     auth_app_hostname       = "login-app.acme.example"
     create_registry         = true
     create_role_assignments = false
-    runner_image_repository = "cracmeprodautoheal.azurecr.io/runner-go"
     runner_image_tag        = "test-1"
   }
 
+  # The registry we create is acmeprodautoheal.azurecr.io.
   assert {
-    condition     = local.runner_image == "cracmeprodautoheal.azurecr.io/runner-go:test-1"
-    error_message = "runner_image_repository and runner_image_tag override the runner image."
+    condition     = local.runner_image == "acmeprodautoheal.azurecr.io/app/runner-go:test-1" && local.runner_uses_acr
+    error_message = "With a registry the runner pulls app/runner-go from it and logs in to it; runner_image_tag overrides the tag."
+  }
+
+  assert {
+    condition = (
+      output.autoheal_values.global.imageRegistry == "acmeprodautoheal.azurecr.io" &&
+      output.autoheal_values.temporal.server.image.repository == "acmeprodautoheal.azurecr.io/external/temporal-server" &&
+      output.autoheal_values.temporal.web.image.repository == "acmeprodautoheal.azurecr.io/external/temporal-ui" &&
+      output.autoheal_values.temporal.admintools.image.repository == "acmeprodautoheal.azurecr.io/external/temporal-admin-tools" &&
+      output.autoheal_values.zitadel.image.repository == "acmeprodautoheal.azurecr.io/external/zitadel" &&
+      output.autoheal_values.zitadel.login.image.repository == "acmeprodautoheal.azurecr.io/external/zitadel-login" &&
+      output.autoheal_values.zitadel.imageRegistry == "acmeprodautoheal.azurecr.io"
+    )
+    error_message = "With a registry, global.imageRegistry and the Temporal and Zitadel image copies point at it."
+  }
+
+  # The image copies sit next to the database and hostname copies.
+  assert {
+    condition = (
+      contains(keys(output.autoheal_values.temporal.server.config.persistence), "default") &&
+      output.autoheal_values.zitadel.zitadel.configmapConfig.ExternalDomain == "login.acme.example"
+    )
+    error_message = "The persistence and configmapConfig copies are kept alongside the image copies."
   }
 
   assert {
@@ -504,8 +563,16 @@ run "custom_hostnames_and_registry" {
   }
 
   assert {
-    condition     = length(output.required_role_assignments) == 8
-    error_message = "A created cluster, vault and registry with create_role_assignments = false lists all eight grants."
+    condition     = length(output.required_role_assignments) == 9
+    error_message = "A created cluster, vault and registry with create_role_assignments = false lists all nine grants."
+  }
+
+  assert {
+    condition = (
+      contains(output.required_role_assignments, "Key Vault Secrets Officer on acme-prod-autoheal-rt for acme-prod-autoheal-api-server") &&
+      contains(output.required_role_assignments, "AcrPull on acmeprodautoheal for the kubelet identity of acme-prod-autoheal")
+    )
+    error_message = "The api-server grant on the runtime vault and the kubelet's AcrPull are listed."
   }
 
   # The cluster identity creates the internal load balancers on the pinned
@@ -519,7 +586,98 @@ run "custom_hostnames_and_registry" {
   }
 }
 
+# A brought registry is used the same way as one we create.
+run "existing_registry" {
+  command = plan
+
+  variables {
+    existing_acr_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-shared/providers/Microsoft.ContainerRegistry/registries/crMirror"
+  }
+
+  assert {
+    condition = (
+      length(module.acr) == 0 &&
+      output.autoheal_values.global.imageRegistry == "crmirror.azurecr.io" &&
+      output.autoheal_values.zitadel.imageRegistry == "crmirror.azurecr.io" &&
+      local.runner_image == "crmirror.azurecr.io/app/runner-go:chart-1.0.0" &&
+      local.runner_uses_acr
+    )
+    error_message = "A brought registry sets global.imageRegistry, the copies and the runner image from its login server."
+  }
+}
+
+# runner_image_repository wins over the computed default. A repository outside
+# the registry needs no ACR login.
+run "runner_image_override" {
+  command = plan
+
+  variables {
+    create_registry         = true
+    runner_image_repository = "mirror.acme.example/autoheal/runner-go"
+  }
+
+  assert {
+    condition     = local.runner_image == "mirror.acme.example/autoheal/runner-go:chart-1.0.0" && !local.runner_uses_acr
+    error_message = "runner_image_repository overrides the runner image; no ACR login for another registry."
+  }
+}
+
+# A long label id: both vault names stay within 24 characters and differ.
+run "long_name_runtime_vault" {
+  command = plan
+
+  variables {
+    namespace   = "acmecorporation"
+    environment = "production"
+  }
+
+  assert {
+    condition = (
+      module.runtime_keyvault[0].key_vault_name == "acmecorporation-produ-rt" &&
+      module.keyvault[0].key_vault_name == "acmecorporation-producti"
+    )
+    error_message = "The runtime vault name is the label id cut to 21 characters plus -rt."
+  }
+}
+
+run "runtime_vault_purge_protection" {
+  command = plan
+
+  variables {
+    key_vault_purge_protection_enabled = true
+  }
+
+  assert {
+    condition     = local.runtime_key_vault_purge_protection_enabled == true
+    error_message = "The runtime vault takes the install vault's purge protection when its own input is null."
+  }
+}
+
+run "runtime_vault_purge_protection_override" {
+  command = plan
+
+  variables {
+    key_vault_purge_protection_enabled         = true
+    runtime_key_vault_purge_protection_enabled = false
+  }
+
+  assert {
+    condition     = local.runtime_key_vault_purge_protection_enabled == false
+    error_message = "runtime_key_vault_purge_protection_enabled overrides the install vault's setting."
+  }
+}
+
 # --- Input checks --------------------------------------------------------------
+
+run "bad_runtime_retention" {
+  command = plan
+
+  variables {
+    runtime_key_vault_soft_delete_retention_days = 120
+  }
+
+  expect_failures = [var.runtime_key_vault_soft_delete_retention_days]
+}
 
 run "records_need_a_zone" {
   command = plan

@@ -17,7 +17,7 @@ inputs = {
   environment      = "prod"
   subscription_id  = "11111111-2222-3333-4444-555555555555"
   location         = "eastus2"
-  autoheal_version = local.v.chart_version # the runner VMs pull runner-go:chart-1.0.0
+  autoheal_version = local.v.chart_version # the runner VMs pull app/runner-go:chart-1.0.0
 
   # We never create a DNS zone, only the records in it. If the zone is not in
   # Azure DNS (Cloudflare, Infoblox), remove this line and set
@@ -44,11 +44,12 @@ inputs = {
   #   proxy_ip    = "10.20.4.10" # loadbalancer mode only; DNS points here
   # }
   #
-  # existing_aks_cluster_id     = "/subscriptions/.../resourceGroups/rg-platform/providers/Microsoft.ContainerService/managedClusters/aks-platform"
-  # existing_postgres_id        = "/subscriptions/.../resourceGroups/rg-platform/providers/Microsoft.DBforPostgreSQL/flexibleServers/psql-platform"
-  # existing_redis_id           = "/subscriptions/.../resourceGroups/rg-platform/providers/Microsoft.Cache/redisEnterprise/redis-platform"
-  # existing_storage_account_id = "/subscriptions/.../resourceGroups/rg-platform/providers/Microsoft.Storage/storageAccounts/stplatform"
-  # existing_key_vault_id       = "/subscriptions/.../resourceGroups/rg-platform/providers/Microsoft.KeyVault/vaults/kv-platform"
+  # existing_aks_cluster_id       = "/subscriptions/.../resourceGroups/rg-platform/providers/Microsoft.ContainerService/managedClusters/aks-platform"
+  # existing_postgres_id          = "/subscriptions/.../resourceGroups/rg-platform/providers/Microsoft.DBforPostgreSQL/flexibleServers/psql-platform"
+  # existing_redis_id             = "/subscriptions/.../resourceGroups/rg-platform/providers/Microsoft.Cache/redisEnterprise/redis-platform"
+  # existing_storage_account_id   = "/subscriptions/.../resourceGroups/rg-platform/providers/Microsoft.Storage/storageAccounts/stplatform"
+  # existing_key_vault_id         = "/subscriptions/.../resourceGroups/rg-platform/providers/Microsoft.KeyVault/vaults/kv-platform"
+  # existing_runtime_key_vault_id = "/subscriptions/.../resourceGroups/rg-platform/providers/Microsoft.KeyVault/vaults/kv-platform-rt" # not the vault above
   #
   # With existing_postgres_id, pass the server's admin password as
   # TF_VAR_postgres_admin_password from the pipeline's secret store.

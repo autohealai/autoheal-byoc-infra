@@ -4,8 +4,10 @@
 # api-server-go internal listener on port 8083 of the same address. Until the
 # chart is installed the runner keeps retrying.
 #
-# The image is runner-go:chart-<autoheal_version>, so bumping autoheal_version
-# changes the runner in the infra plan and the chart in the app plan.
+# The image is <registry>/app/runner-go:chart-<autoheal_version>, the layout the
+# chart uses for its own images. The registry is the composition's ACR when
+# there is one, else the public registry. Bumping autoheal_version changes the
+# runner in the infra plan and the chart in the app plan.
 # runner_image_repository and runner_image_tag override it. The VMs retry the
 # pull until it succeeds, so the image may be pushed to a new registry after the
 # first apply.
@@ -49,6 +51,9 @@ locals {
   # port 8083 (api-server-go-internal-lb). The runners post tool results there.
   tool_response_callback_url = "http://${local.temporal_ip}:8083/api/v1/internal/sandbox-tool-responses"
 
-  runner_image    = "${var.runner_image_repository}:${var.runner_image_tag != "" ? var.runner_image_tag : "chart-${var.autoheal_version}"}"
-  runner_uses_acr = local.acr_enabled && startswith(lower(var.runner_image_repository), "${lower(local.acr_name)}.azurecr.io/")
+  runner_image_repository = var.runner_image_repository != "" ? var.runner_image_repository : (
+    local.acr_enabled ? "${local.acr_login_server}/app/runner-go" : "public.ecr.aws/e4h3h0d9/app/runner-go"
+  )
+  runner_image    = "${local.runner_image_repository}:${var.runner_image_tag != "" ? var.runner_image_tag : "chart-${var.autoheal_version}"}"
+  runner_uses_acr = local.acr_enabled && startswith(lower(local.runner_image_repository), "${local.acr_login_server}/")
 }

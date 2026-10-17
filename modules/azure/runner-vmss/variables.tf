@@ -53,7 +53,7 @@ variable "tool_response_callback_url" {
 
 variable "runner_image" {
   type        = string
-  description = "Fully qualified runner-go image, e.g. public.ecr.aws/e4h3h0d9/runner-go:chart-1.0.0."
+  description = "Fully qualified runner-go image, e.g. public.ecr.aws/e4h3h0d9/app/runner-go:chart-1.0.0."
 }
 
 variable "sandbox_image" {

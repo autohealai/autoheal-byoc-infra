@@ -25,6 +25,11 @@ mock_provider "azurerm" {
       oidc_issuer_enabled        = true
       oidc_issuer_url            = "https://westeurope.oic.prod-aks.azure.com/66666666-7777-8888-9999-000000000000/aks-platform-weu/"
       key_vault_secrets_provider = [{ secret_rotation_enabled = false, secret_rotation_interval = "2m", secret_identity = [] }]
+      kubelet_identity = [{
+        client_id                 = "77777777-0000-0000-0000-000000000001"
+        object_id                 = "77777777-0000-0000-0000-000000000002"
+        user_assigned_identity_id = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/MC_rg-platform/providers/Microsoft.ManagedIdentity/userAssignedIdentities/aks-platform-weu-agentpool"
+      }]
       kube_config = [{
         host                   = "https://aks-platform-weu.hcp.westeurope.azmk8s.io:443"
         cluster_ca_certificate = "Y2EtY2VydA=="
@@ -195,6 +200,17 @@ override_data {
   }
 }
 
+# The platform team's runtime vault. Its URI has no trailing slash here, to show
+# that the composition adds one.
+override_data {
+  target = data.azurerm_key_vault.runtime_existing
+  values = {
+    rbac_authorization_enabled = true
+    tenant_id                  = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    vault_uri                  = "https://kv-platform-weu-rt.vault.azure.net"
+  }
+}
+
 variables {
   namespace        = "acme"
   environment      = "eu-prod"
@@ -208,12 +224,13 @@ variables {
     runner_subnet_id   = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform-net/providers/Microsoft.Network/virtualNetworks/vnet-platform-weu/subnets/snet-runner"
     temporal_ip        = "10.50.4.11"
   }
-  existing_aks_cluster_id     = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform/providers/Microsoft.ContainerService/managedClusters/aks-platform-weu"
-  existing_postgres_id        = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform/providers/Microsoft.DBforPostgreSQL/flexibleServers/psql-platform-weu"
-  existing_redis_id           = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform/providers/Microsoft.Cache/redisEnterprise/redis-platform-weu"
-  existing_storage_account_id = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform/providers/Microsoft.Storage/storageAccounts/stplatformweu"
-  existing_key_vault_id       = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform/providers/Microsoft.KeyVault/vaults/kv-platform-weu"
-  existing_dns_zone_id        = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform-dns/providers/Microsoft.Network/dnszones/eu.acme.example"
+  existing_aks_cluster_id       = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform/providers/Microsoft.ContainerService/managedClusters/aks-platform-weu"
+  existing_postgres_id          = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform/providers/Microsoft.DBforPostgreSQL/flexibleServers/psql-platform-weu"
+  existing_redis_id             = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform/providers/Microsoft.Cache/redisEnterprise/redis-platform-weu"
+  existing_storage_account_id   = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform/providers/Microsoft.Storage/storageAccounts/stplatformweu"
+  existing_key_vault_id         = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform/providers/Microsoft.KeyVault/vaults/kv-platform-weu"
+  existing_runtime_key_vault_id = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform/providers/Microsoft.KeyVault/vaults/kv-platform-weu-rt"
+  existing_dns_zone_id          = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform-dns/providers/Microsoft.Network/dnszones/eu.acme.example"
 
   create_role_assignments = false
 
@@ -228,28 +245,46 @@ variables {
 run "everything_brought" {
   command = plan
 
-  # The three grants the spec's example lists, in that order.
+  # The three grants the spec's example lists, in that order, and the
+  # api-server grant on the runtime vault.
   assert {
     condition = output.required_role_assignments == tolist([
       "Key Vault Secrets User on kv-platform-weu for acme-eu-prod-autoheal-secrets",
       "Storage Blob Data Contributor on stplatformweu/autoheal for acme-eu-prod-autoheal-api-server",
+      "Key Vault Secrets Officer on kv-platform-weu-rt for acme-eu-prod-autoheal-api-server",
       "Storage Blob Data Contributor on stplatformweu/autoheal for acme-eu-prod-autoheal-agents-worker",
     ])
-    error_message = "required_role_assignments must list exactly the vault grant and the two container grants."
+    error_message = "required_role_assignments must list exactly the vault grant, the two container grants and the runtime vault grant."
   }
 
   assert {
     condition = (
       length(module.vnet) == 0 && length(module.aks) == 0 && length(module.postgres) == 0 &&
       length(module.redis) == 0 && length(module.blob) == 0 && length(module.keyvault) == 0 &&
-      length(module.acr) == 0
+      length(module.runtime_keyvault) == 0 && length(module.acr) == 0
     )
     error_message = "No brought building block may be created."
   }
 
   assert {
-    condition     = length(azurerm_role_assignment.deployer_aks) == 0 && length(azurerm_role_assignment.deployer_kv) == 0
+    condition = (
+      length(azurerm_role_assignment.deployer_aks) == 0 && length(azurerm_role_assignment.deployer_kv) == 0 &&
+      length(azurerm_role_assignment.api_server_runtime_kv) == 0
+    )
     error_message = "create_role_assignments = false makes no grant."
+  }
+
+  assert {
+    condition = output.autoheal_values.global.infra.runtimeSecrets == {
+      kind     = "azurekeyvault"
+      vaultURL = "https://kv-platform-weu-rt.vault.azure.net/"
+    }
+    error_message = "runtimeSecrets points at the brought runtime vault, with a trailing slash."
+  }
+
+  assert {
+    condition     = !contains(keys(output.autoheal_values.global), "imageRegistry") && local.runner_image == "public.ecr.aws/e4h3h0d9/app/runner-go:chart-1.0.0"
+    error_message = "Without a registry the chart and the runner use the public registry."
   }
 
   assert {
@@ -358,7 +393,7 @@ run "everything_brought" {
   }
 
   assert {
-    condition     = length(module.pe_blob) == 0 && length(module.pe_vault) == 0 && length(module.pe_redis) == 0 && length(azurerm_private_dns_zone.brought) == 0
+    condition     = length(module.pe_blob) == 0 && length(module.pe_vault) == 0 && length(module.pe_runtime_vault) == 0 && length(module.pe_redis) == 0 && length(azurerm_private_dns_zone.brought) == 0
     error_message = "No private endpoint or zone for brought resources."
   }
 }
@@ -391,6 +426,33 @@ run "missing_grants_stop_the_apply" {
   expect_failures = [terraform_data.role_assignment_check]
 }
 
+# A brought cluster with a brought registry. The kubelet grant belongs to the
+# cluster owner: it is listed and checked, never made by us.
+run "brought_cluster_with_registry" {
+  command = plan
+
+  variables {
+    existing_acr_id = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform/providers/Microsoft.ContainerRegistry/registries/crplatformweu"
+  }
+
+  assert {
+    condition = (
+      contains(output.required_role_assignments, "AcrPull on crplatformweu for the kubelet identity of aks-platform-weu") &&
+      local.kubelet_object_id == "77777777-0000-0000-0000-000000000002" &&
+      length(output.required_role_assignments) == 6
+    )
+    error_message = "The brought cluster's kubelet AcrPull and the runner's are listed."
+  }
+
+  assert {
+    condition = (
+      output.autoheal_values.global.imageRegistry == "crplatformweu.azurecr.io" &&
+      local.runner_image == "crplatformweu.azurecr.io/app/runner-go:chart-1.0.0"
+    )
+    error_message = "The chart and the runner pull from the brought registry."
+  }
+}
+
 run "classic_redis" {
   command = plan
 
@@ -415,6 +477,29 @@ run "access_policy_vault_is_rejected" {
   }
 
   expect_failures = [terraform_data.kv_rbac_guard]
+}
+
+run "access_policy_runtime_vault_is_rejected" {
+  command = plan
+
+  override_data {
+    target = data.azurerm_key_vault.runtime_existing
+    values = { rbac_authorization_enabled = false, tenant_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", vault_uri = "https://kv-platform-weu-rt.vault.azure.net/" }
+  }
+
+  expect_failures = [terraform_data.runtime_kv_rbac_guard]
+}
+
+# The runtime vault must not be the install vault: the api-server identity
+# would then be able to read every install secret.
+run "runtime_vault_must_differ_from_install_vault" {
+  command = plan
+
+  variables {
+    existing_runtime_key_vault_id = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform/providers/Microsoft.KeyVault/vaults/kv-platform-weu"
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
 }
 
 run "hns_storage_is_rejected" {

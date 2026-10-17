@@ -3,6 +3,9 @@
 # needs Key Vault Secrets Officer to write them; we grant it unless
 # create_role_assignments = false.
 #
+# Also the runtime vault, created or brought, where api-server-go keeps the
+# integration credentials users enter.
+#
 # Also the optional customer-managed key (CMK) that encrypts the Postgres server
 # and storage account we create. It lives in the vault we create, so CMK needs a
 # created vault (validation.tf).
@@ -42,6 +45,56 @@ resource "azurerm_role_assignment" "deployer_kv" {
   scope                = var.existing_key_vault_id
   role_definition_name = "Key Vault Secrets Officer"
   principal_id         = data.azurerm_client_config.current.object_id
+}
+
+# --- Runtime vault -----------------------------------------------------------
+
+# A second vault for the integration credentials users enter in Autoheal.
+# api-server-go stores them there itself (SECRET_MANAGER_PROVIDER =
+# azurekeyvault, global.infra.runtimeSecrets) as autoheal-rt-<sha256 hex>
+# secrets: it reads, writes and deletes them, recovers a soft-deleted one when
+# the same name is written again, and never lists or purges. Keeping them apart
+# from the install vault means the api-server identity cannot read the install
+# secrets and the secrets identity cannot read the credentials.
+#
+# Same firewall, allow list and private endpoint pattern as the install vault.
+# Terraform writes nothing into it, so the deployer gets no role on it. The
+# api-server identity gets Key Vault Secrets Officer on this vault only.
+
+module "runtime_keyvault" {
+  source = "../../modules/azure/keyvault"
+  count  = local.create_runtime_key_vault ? 1 : 0
+
+  namespace     = var.namespace
+  environment   = var.environment
+  name          = var.name
+  attributes    = ["rt"]
+  name_override = local.runtime_key_vault_create_name
+  tags          = var.tags
+
+  resource_group_name        = local.rg
+  location                   = var.location
+  tenant_id                  = data.azurerm_client_config.current.tenant_id
+  deployer_object_id         = data.azurerm_client_config.current.object_id
+  deployer_role_enabled      = false
+  purge_protection_enabled   = local.runtime_key_vault_purge_protection_enabled
+  soft_delete_retention_days = var.runtime_key_vault_soft_delete_retention_days
+
+  network_default_action = var.key_vault_network_default_action
+  allowed_ip_ranges      = distinct(concat(var.deployer_ip_ranges, var.workload_egress_ip_ranges))
+}
+
+data "azurerm_key_vault" "runtime_existing" {
+  count               = local.create_runtime_key_vault ? 0 : 1
+  name                = local.existing.runtime_key_vault.name
+  resource_group_name = local.existing.runtime_key_vault.rg
+}
+
+resource "azurerm_role_assignment" "api_server_runtime_kv" {
+  count                = var.create_role_assignments ? 1 : 0
+  scope                = local.runtime_key_vault_id
+  role_definition_name = "Key Vault Secrets Officer"
+  principal_id         = module.api_server_identity.principal_id
 }
 
 # --- Customer-managed key ---------------------------------------------------

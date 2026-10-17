@@ -21,12 +21,12 @@ One file per building block.
 | `postgres.tf` | PostgreSQL Flexible Server and its admin password. Brought: `existing_postgres_id`. |
 | `redis.tf` | Azure Managed Redis. Brought: `existing_redis_id` (Managed Redis or Azure Cache for Redis). |
 | `storage.tf` | Storage account and the blob container. Brought: `existing_storage_account_id`. |
-| `keyvault.tf` | Key Vault (Azure RBAC). Brought: `existing_key_vault_id`. |
+| `keyvault.tf` | The install vault and the runtime vault, both Azure RBAC. Brought: `existing_key_vault_id`, `existing_runtime_key_vault_id`. |
 | `registry.tf` | Container registry, only with `create_registry = true`. Brought: `existing_acr_id`. |
 | `identity.tf` | Workload identities, one per chart role, federated to the chart's service accounts. The secrets identity is federated to `autoheal-hooks` only. |
 | `role-assignments.tf` | Grants, or the `required_role_assignments` list and the check that the grants exist. |
 | `secrets.tf` | Every secret the chart reads, generated or passed in, written to the vault. |
-| `private-endpoints.tf` | Private endpoints for the vault, storage and Redis, and the privatelink zones. |
+| `private-endpoints.tf` | Private endpoints for both vaults, storage and Redis, and the privatelink zones. |
 | `dns.tf` | A records for the three hostnames in your existing zone. |
 | `runner.tf` | runner-go on a VM scale set, connected to the reserved Temporal address. |
 | `validation.tf` | Plan-time checks with plain messages. |
@@ -85,13 +85,14 @@ grants and run it again.
 
 | Grant | When |
 |-------|------|
-| Key Vault Secrets User on the vault, for the secrets identity | Always |
+| Key Vault Secrets User on the install vault, for the secrets identity | Always |
 | Storage Blob Data Contributor on the container, for the api-server and agents-worker identities | Always |
-| Key Vault Secrets Officer on the vault, for the deployer | Vault we create. On a brought vault it is made when `create_role_assignments = true`, and not listed otherwise: the vault owner gives you write access. |
+| Key Vault Secrets Officer on the runtime vault, for the api-server identity | Always |
+| Key Vault Secrets Officer on the install vault, for the deployer | Vault we create. On a brought vault it is made when `create_role_assignments = true`, and not listed otherwise: the vault owner gives you write access. |
 | Network Contributor on the VNet or AKS subnet, for the cluster identity, which creates the internal load balancers on the reserved addresses | Cluster we create |
 | Azure Kubernetes Service RBAC Cluster Admin on the cluster, for the deployer | Cluster we create |
 | AcrPull on the registry, for the runner | With a registry |
-| AcrPull on the registry, for the kubelet | With a registry and a cluster we create |
+| AcrPull on the registry, for the kubelet | With a registry. Made for a cluster we create. For a brought cluster it is listed and checked when `create_role_assignments = false`, and never made: the cluster owner usually has it already, and a duplicate grant fails the apply. |
 
 ## Vault entries
 
@@ -129,10 +130,42 @@ private half is not written to the vault, which the secrets identity can read;
 it stays in the Terraform state (`tls_private_key.runner`). Pass your own public
 key to keep the private key out of the state.
 
+## Runtime vault
+
+api-server-go stores the integration credentials users enter in the product in
+a second Key Vault, the runtime vault (`SECRET_MANAGER_PROVIDER=azurekeyvault`).
+It is separate from the install vault so that the api-server identity, which
+holds Key Vault Secrets Officer on the runtime vault, cannot read the install
+secrets. api-server-go names its secrets `autoheal-rt-<sha256 hex>`, reads,
+writes and deletes them, and recovers a soft-deleted one when a name is reused.
+It never lists or purges.
+
+The runtime vault we create is named `<namespace>-<environment>-autoheal-rt`
+(cut to 24 characters), uses Azure RBAC, and has the same firewall, public
+access setting and private endpoint as the install vault. Soft delete is on;
+`runtime_key_vault_soft_delete_retention_days` defaults to 90 and
+`runtime_key_vault_purge_protection_enabled` defaults to the install vault's
+setting. To bring one, set `existing_runtime_key_vault_id`. It must use Azure
+RBAC and must not be the install vault; the plan stops otherwise. The chart
+reads it from `global.infra.runtimeSecrets`.
+
+## Registry and images
+
+With a registry (`create_registry = true` or `existing_acr_id`), `autoheal_values`
+suggests `global.imageRegistry = <login server>` and the matching Temporal and
+Zitadel image repositories, so the chart pulls every image from
+`<login server>/app/<name>` and `<login server>/external/<name>`. Copy the
+images there before you install the chart. The login server is
+`<registry name>.azurecr.io`, so this assumes the Azure public cloud. With no
+registry the chart pulls from `public.ecr.aws/e4h3h0d9`.
+
 ## Runner image
 
-The runner VMs pull `runner_image_repository:runner_image_tag`, by default
-`public.ecr.aws/e4h3h0d9/runner-go:chart-<autoheal_version>`. They boot during
+The runner VMs pull `runner_image_repository:runner_image_tag`. The repository
+defaults to `<login server>/app/runner-go` with a registry and to
+`public.ecr.aws/e4h3h0d9/app/runner-go` without one; the tag defaults to
+`chart-<autoheal_version>`. They log in to the registry with their own identity
+when the image is in it. They boot during
 the apply and retry the pull with a backoff until it succeeds, so with a
 registry created in the same apply you can push the image afterwards; the
 runner starts within about five minutes of the push, with no reimage.
@@ -155,12 +188,14 @@ global.infra.version                          infra contract version, 2.0.0
 global.infra.cloud                            azure
 global.infra.hosts.{app,auth,authApp}
 global.infra.keyVault.{name,tenantId}
+global.infra.runtimeSecrets.{kind,vaultURL}   azurekeyvault, the runtime vault URI with a trailing slash
 global.infra.identities.{secrets,apiServer,agentsWorker}   client IDs
 global.infra.database.{host,port,adminUser,adminPasswordVaultEntry}
 global.infra.redis.{host,port}                when there is Redis
 global.infra.objectStore.{kind,account,container}
 global.infra.edge.internalIP                  loadbalancer mode only
 global.infra.temporal.internalIP
+global.imageRegistry                          suggestion: the registry login server, with a registry
 global.addons.install                         suggestion: true when we created the cluster
 global.secrets.mode                           suggestion: keyvault-csi
 global.edge.mode                              suggestion: edge_mode
@@ -168,6 +203,9 @@ global.edge.tls.caVaultEntry                  suggestion: edge-ca-certificate, w
 temporal.server.config.persistence.{default,visibility}.sql.host   copy of the database host
 zitadel.zitadel.configmapConfig.ExternalDomain                     copy of hosts.auth
 zitadel.zitadel.configmapConfig.Database.Postgres.Host             copy of the database host
+temporal.{server,web,admintools}.image.repository   copies of <login server>/external/<name>, with a registry
+zitadel.image.repository, zitadel.login.image.repository   the same
+zitadel.imageRegistry                                      copy of the login server, with a registry
 ```
 
 None of the outputs holds a secret.
@@ -188,5 +226,5 @@ terraform test
 
 `tests/` plans each case against mocked providers: `create.tftest.hcl` (case 1
 and each edge mode), `bring.tftest.hcl` (case 2a), `hybrid.tftest.hcl` (case 3)
-and `reachability.tftest.hcl` (network paths to storage and the vault). They pass
+and `reachability.tftest.hcl` (network paths to storage and the vaults). They pass
 on Terraform 1.9 and OpenTofu 1.11.

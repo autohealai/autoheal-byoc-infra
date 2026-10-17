@@ -1,8 +1,9 @@
 # Role grants. With create_role_assignments = true (the default) each module makes
 # its own grants: the identities in identity.tf, the cluster identity and kubelet
 # in modules/azure/aks, the runner in modules/azure/runner-vmss, the deployer on
-# the vault in keyvault.tf. The one grant made here is the deployer's access to a
-# cluster we create, so the app folder can install the chart with kubelogin.
+# the vault and the api-server identity on the runtime vault in keyvault.tf. The
+# one grant made here is the deployer's access to a cluster we create, so the app
+# folder can install the chart with kubelogin.
 #
 # With create_role_assignments = false no grant is made. required_grants below
 # lists every grant Autoheal needs, the required_role_assignments output prints
@@ -30,6 +31,8 @@ locals {
 
   deployer_object_id = data.azurerm_client_config.current.object_id
 
+  kubelet_object_id = local.create_cluster ? module.aks[0].kubelet_identity_object_id : try(data.azurerm_kubernetes_cluster.existing[0].kubelet_identity[0].object_id, "")
+
   # Scope and display name of the cluster identity's network grant: the VNet we
   # create, or the AKS subnet of a brought network.
   cluster_network_scope = local.create_network ? try(module.vnet[0].vnet_id, "") : try(var.existing_network.aks_subnet_id, "")
@@ -55,6 +58,13 @@ locals {
         text         = "Storage Blob Data Contributor on ${local.storage_account_name}/${var.storage_container_name} for ${module.api_server_identity.name}"
         role_guid    = local.role_guids.storage_blob_data_contributor
         scope        = local.storage_container_id
+        principal_id = module.api_server_identity.principal_id
+        check        = true
+      }
+      api-server-runtime-kv = {
+        text         = "Key Vault Secrets Officer on ${local.runtime_key_vault_name} for ${module.api_server_identity.name}"
+        role_guid    = local.role_guids.key_vault_secrets_officer
+        scope        = local.runtime_key_vault_id
         principal_id = module.api_server_identity.principal_id
         check        = true
       }
@@ -91,12 +101,17 @@ locals {
         check        = false
       }
     } : {},
-    local.create_cluster && local.acr_enabled ? {
+    # The nodes pull the chart's images from the registry. modules/azure/aks
+    # makes this grant for a cluster we create. For a brought cluster we never
+    # make it, since the owner has usually made it already and a second
+    # identical assignment fails the apply; it is listed and checked like the
+    # others when create_role_assignments = false.
+    local.acr_enabled ? {
       kubelet-acr = {
         text         = "AcrPull on ${local.acr_name} for the kubelet identity of ${local.cluster_name}"
         role_guid    = local.role_guids.acr_pull
         scope        = local.acr_id
-        principal_id = module.aks[0].kubelet_identity_object_id
+        principal_id = local.kubelet_object_id
         check        = true
       }
     } : {},
@@ -112,7 +127,7 @@ locals {
   )
 
   # Display order of required_role_assignments.
-  required_grant_order = ["secrets-kv", "api-server-blob", "agents-worker-blob", "deployer-kv", "cluster-network", "deployer-aks", "kubelet-acr", "runner-acr"]
+  required_grant_order = ["secrets-kv", "api-server-blob", "api-server-runtime-kv", "agents-worker-blob", "deployer-kv", "cluster-network", "deployer-aks", "kubelet-acr", "runner-acr"]
 
   checked_grants = var.create_role_assignments ? {} : {
     for k, g in local.required_grants : k => g if g.check

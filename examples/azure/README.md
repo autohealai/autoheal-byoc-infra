@@ -24,7 +24,7 @@ building block takes an `existing_*` ID; uncomment the ones you already have.
 |-----------|-----|
 | Nothing (we create the network, AKS, Postgres, Redis, storage, Key Vault) | `network_cidr` |
 | Your network | `existing_network` (subnet IDs and two free addresses in the AKS subnet). Allow ports 7233 and 8083 on the Temporal address from the runner subnet only. |
-| Your cluster, database, cache, storage or vault | `existing_aks_cluster_id`, `existing_postgres_id`, `existing_redis_id`, `existing_storage_account_id`, `existing_key_vault_id` |
+| Your cluster, database, cache, storage or vaults | `existing_aks_cluster_id`, `existing_postgres_id`, `existing_redis_id`, `existing_storage_account_id`, `existing_key_vault_id`, `existing_runtime_key_vault_id` |
 | Role grants made by your administrators | `create_role_assignments = false`, then make the grants in the `required_role_assignments` output |
 | DNS outside Azure DNS | `create_dns_records = false`, then create the records in the `required_dns_records` output |
 

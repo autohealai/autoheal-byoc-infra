@@ -82,7 +82,7 @@ you already have, set its `existing_*` ID in `prod/infra/terragrunt.hcl`:
 |-----------|-----|
 | Nothing | `network_cidr` (the range for the new network) |
 | Your network | `existing_network`: the AKS, runner, Postgres and private endpoint subnet IDs, and two free addresses in the AKS subnet (`temporal_ip`, and `proxy_ip` in `loadbalancer` mode) |
-| Your cluster, database, cache, storage or vault | `existing_aks_cluster_id`, `existing_postgres_id`, `existing_redis_id`, `existing_storage_account_id`, `existing_key_vault_id` |
+| Your cluster, database, cache, storage or vaults | `existing_aks_cluster_id`, `existing_postgres_id`, `existing_redis_id`, `existing_storage_account_id`, `existing_key_vault_id`, `existing_runtime_key_vault_id` |
 
 We never create a DNS zone. Set `existing_dns_zone_id` to the Azure DNS zone that
 holds your hostname, or set `create_dns_records = false` and create the records
@@ -155,6 +155,10 @@ cannot be changed later:
   database.
 - `key_vault_soft_delete_retention_days` and `key_vault_purge_protection_enabled`:
   how long a deleted vault stays recoverable, and whether it can ever be purged.
+  `runtime_key_vault_soft_delete_retention_days` and
+  `runtime_key_vault_purge_protection_enabled` do the same for the runtime vault,
+  where api-server-go keeps the integration credentials users enter; purge
+  protection follows the install vault unless you set it.
 
 ### Step 5: Plan and apply the infra folder
 

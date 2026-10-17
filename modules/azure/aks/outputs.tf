@@ -18,6 +18,16 @@ output "kubelet_identity_object_id" {
   value       = local.cluster.kubelet_identity[0].object_id
 }
 
+output "identity_principal_id" {
+  description = "Principal id of the control-plane user-assigned identity (create mode), or empty in connect mode."
+  value       = var.create_cluster ? azurerm_user_assigned_identity.cluster[0].principal_id : ""
+}
+
+output "identity_name" {
+  description = "Name of the control-plane user-assigned identity (create mode), or empty in connect mode."
+  value       = var.create_cluster ? azurerm_user_assigned_identity.cluster[0].name : ""
+}
+
 output "node_resource_group" {
   description = "Auto-managed node resource group (MC_*)."
   value       = local.cluster.node_resource_group

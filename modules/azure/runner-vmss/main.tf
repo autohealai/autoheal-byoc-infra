@@ -3,17 +3,17 @@
 # drives the host Docker daemon via the mounted socket to launch sandbox
 # containers), polling Temporal on the `runners` namespace via the internal LB.
 #
-# This is a SEPARATE unit from the main composition on purpose: it needs
-# temporal_host, which only exists after the cluster + Temporal are deployed and the
-# internal LB is assigned an IP (discover-and-feed-forward) — mirroring how the AWS
-# runner unit runs after temporal-nlb. The runner subnet + its NAT egress live in
-# modules/azure/vnet.
+# The composition creates the runner in the same apply as the cluster. temporal_host
+# is the reserved internal address the chart later pins the Temporal load balancer
+# to, so it is known before Temporal exists. runner-go runs under systemd with
+# Restart=always and retries until Temporal answers. The runner subnet and its NAT
+# egress live in modules/azure/vnet (or the customer's network).
 #
-# Identity: a user-assigned MI (some policies forbid system-assigned on VMs/VMSS),
-# granted only AcrPull — the runner pulls images via managed identity and holds no
-# static registry creds. It does NOT read Key Vault (in-cluster apps do, via
-# workload identity); the runner's only secret-bearing config is the Temporal
-# endpoint. Naming and tags come from the null-label base (module.this); see label.tf.
+# Identity: a user-assigned MI (some policies forbid system-assigned on VMs/VMSS).
+# When images come from an ACR it is granted AcrPull and the host logs in with it;
+# when images are public (the default public ECR) no registry login runs. It does
+# NOT read Key Vault; the runner's only config is the Temporal endpoint. Naming and
+# tags come from the null-label base (module.this); see label.tf.
 
 resource "azurerm_user_assigned_identity" "runner" {
   name                = "${module.this.id}-uai"
@@ -23,6 +23,7 @@ resource "azurerm_user_assigned_identity" "runner" {
 }
 
 resource "azurerm_role_assignment" "acr_pull" {
+  count                = var.acr_pull_enabled ? 1 : 0
   scope                = var.acr_id
   role_definition_name = "AcrPull"
   principal_id         = azurerm_user_assigned_identity.runner.principal_id
@@ -35,7 +36,7 @@ resource "azurerm_linux_virtual_machine_scale_set" "runner" {
   sku                 = var.vm_sku
   instances           = var.instance_count
   admin_username      = var.admin_username
-  upgrade_mode        = "Manual"
+  upgrade_mode        = var.upgrade_mode
   overprovision       = false
 
   # Managed-identity ACR auth; host az login --identity uses this client id.

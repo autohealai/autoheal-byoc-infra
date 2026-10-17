@@ -9,6 +9,6 @@ output "key_vault_name" {
 }
 
 output "vault_uri" {
-  description = "Vault URI the ESO ClusterSecretStore points at. Maps to the cross-cloud output contract 'secret_store_uri'."
+  description = "Vault URI (https://<name>.vault.azure.net/)."
   value       = azurerm_key_vault.this.vault_uri
 }

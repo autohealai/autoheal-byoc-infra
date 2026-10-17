@@ -48,6 +48,11 @@ output "vault_private_dns_zone_id" {
   value       = var.private_endpoints_enabled ? azurerm_private_dns_zone.pe["vault"].id : ""
 }
 
+output "redis_private_dns_zone_id" {
+  description = "Privatelink DNS zone id for Azure Managed Redis, or empty when the Redis endpoint is off."
+  value       = var.redis_private_endpoint_enabled ? azurerm_private_dns_zone.pe["redis"].id : ""
+}
+
 output "foundry_private_dns_zone_ids" {
   description = "Privatelink DNS zone ids for AI Foundry / Azure OpenAI, or [] when the Foundry endpoint is off."
   value       = var.foundry_private_endpoint_enabled ? [for k in ["openai", "cognitive", "aiservices"] : azurerm_private_dns_zone.pe[k].id] : []

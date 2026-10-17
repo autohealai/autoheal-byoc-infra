@@ -12,3 +12,8 @@ output "identity_id" {
   description = "Resource ID of the user-assigned identity."
   value       = azurerm_user_assigned_identity.app.id
 }
+
+output "name" {
+  description = "Name of the user-assigned identity."
+  value       = azurerm_user_assigned_identity.app.name
+}

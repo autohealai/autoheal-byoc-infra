@@ -23,6 +23,7 @@ write_files:
       LOG_LEVEL=info
       LOG_FORMAT=json
       SANDBOX_WORKER_DEPLOYMENT_NAME=sandbox
+%{ if acr_name != "" ~}
   - path: /usr/local/bin/acr-login.sh
     permissions: '0755'
     content: |
@@ -51,12 +52,13 @@ write_files:
       OnUnitActiveSec=1h
       [Install]
       WantedBy=timers.target
+%{ endif ~}
   - path: /etc/systemd/system/runner-go.service
     permissions: '0644'
     content: |
       [Unit]
       Description=Autoheal runner-go (Docker-out-of-Docker sandbox worker)
-      After=docker.service acr-login.service
+      After=docker.service%{ if acr_name != "" } acr-login.service%{ endif }
       Requires=docker.service
       [Service]
       Restart=always
@@ -84,20 +86,26 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 runcmd:
+%{ if acr_name != "" ~}
   # Install az CLI (managed-identity ACR auth for the host dockerd)
   - curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+%{ endif ~}
   # runner-go container runs as uid/gid 1000 (alpine adduser); the bind-mounted
   # state dir must be writable by it, and sandbox bind-mounts resolve on the HOST
   # at the same path (DooD), so keep paths identical container<->host.
   - mkdir -p /var/lib/runner-go/{lambdas,datasources,sandboxes,agent-sessions}
   - chown -R 1000:1000 /var/lib/runner-go
   - systemctl enable --now docker
+%{ if acr_name != "" ~}
   - systemctl enable --now acr-login.timer
   - /usr/local/bin/acr-login.sh
+%{ endif ~}
   # Substitute the host's real docker gid into the runner unit (only known now
   # that docker.io is installed), so the container can access the host socket.
   - sed -i "s/__DOCKER_GID__/$(getent group docker | cut -d: -f3)/" /etc/systemd/system/runner-go.service
+%{ if sandbox_image != "" ~}
   # Pre-pull the sandbox image so the first investigation doesn't wait on a cold pull
   - docker pull ${sandbox_image} || true
+%{ endif ~}
   - systemctl daemon-reload
   - systemctl enable --now runner-go.service

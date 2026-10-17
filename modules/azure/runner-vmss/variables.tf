@@ -19,27 +19,47 @@ variable "subnet_id" {
 
 variable "acr_id" {
   type        = string
-  description = "ACR resource id to grant the runner identity AcrPull."
+  default     = ""
+  description = "ACR resource ID to grant the runner identity AcrPull on. Used only when acr_pull_enabled is true."
+}
+
+variable "acr_pull_enabled" {
+  type        = bool
+  default     = false
+  description = "Grant the runner identity AcrPull on acr_id. Plan-time bool: acr_id is computed when the ACR is created in the same apply, so it cannot gate count. Leave false when images come from a public registry."
 }
 
 variable "acr_name" {
   type        = string
-  description = "ACR registry name (for `az acr login -n` in the credential-refresh timer)."
+  default     = ""
+  description = "ACR name for `az acr login -n` in the credential-refresh timer. Empty means the images are public: no Azure CLI is installed and no login runs."
 }
 
 variable "temporal_host" {
   type        = string
-  description = "Temporal frontend as host:port, the internal LB (e.g. 10.60.0.7:7233). The runner polls the `runners` namespace here."
+  description = "Temporal frontend host:port the runner polls, e.g. 10.60.15.253:7233 (the reserved internal address of the Temporal load balancer)."
 }
 
 variable "runner_image" {
   type        = string
-  description = "Fully-qualified runner-go image, e.g. <acr>.azurecr.io/release/runner-go:<ver>."
+  description = "Fully qualified runner-go image, e.g. public.ecr.aws/e4h3h0d9/runner-go:chart-1.0.0."
 }
 
 variable "sandbox_image" {
   type        = string
-  description = "Fully-qualified sandbox image pre-pulled on boot, e.g. <acr>.azurecr.io/dev/sandbox:latest."
+  default     = ""
+  description = "Fully qualified sandbox image to pre-pull on boot. Empty skips the pre-pull."
+}
+
+variable "upgrade_mode" {
+  type        = string
+  default     = "Manual"
+  description = "VMSS upgrade mode. Manual keeps running instances on the old model until they are upgraded by hand; Automatic reimages instances when the model changes, such as a new runner image tag."
+
+  validation {
+    condition     = contains(["Manual", "Automatic"], var.upgrade_mode)
+    error_message = "upgrade_mode must be Manual or Automatic."
+  }
 }
 
 variable "admin_ssh_public_key" {

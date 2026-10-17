@@ -64,6 +64,12 @@ variable "private_endpoints_enabled" {
   description = "Create privatelink DNS zones + VNet links for Blob and Key Vault private endpoints."
 }
 
+variable "redis_private_endpoint_enabled" {
+  type        = bool
+  default     = false
+  description = "Create the privatelink DNS zone + VNet link for an Azure Managed Redis private endpoint (privatelink.redis.azure.net)."
+}
+
 variable "foundry_private_endpoint_enabled" {
   type        = bool
   default     = false

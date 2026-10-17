@@ -1,0 +1,15 @@
+name: azure/dns
+title: Autoheal BYOC - DNS records
+description: |-
+  A records for the Autoheal hostnames in a DNS zone the customer already has.
+  The module never creates the zone. Record names are relative to the zone, with
+  "@" for the apex. The AWS analogue is the Route 53 records module. Naming and
+  tags follow the repo's null-label convention (see label.tf and
+  docs/MODULE_STANDARD.md).
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md

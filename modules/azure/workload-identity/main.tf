@@ -2,7 +2,7 @@
 # A user-assigned identity is federated to one or more Kubernetes service accounts
 # (via the AKS OIDC issuer from modules/azure/aks), so pods get Entra tokens with
 # no stored credentials. Role assignments give that identity exactly what the app
-# needs: read secrets from Key Vault (for ESO), read/write Blob, optionally pull ACR.
+# needs: read secrets from Key Vault, read/write Blob, optionally pull ACR.
 #
 # Naming and tags come from the null-label base (module.this); see label.tf.
 
@@ -40,8 +40,10 @@ resource "azurerm_role_assignment" "blob_contributor" {
   principal_id         = azurerm_user_assigned_identity.app.principal_id
 }
 
+# Gated on a plan-time bool, not on acr_id, which is computed when the ACR is
+# created in the same apply.
 resource "azurerm_role_assignment" "acr_pull" {
-  count                = var.acr_id == "" ? 0 : 1
+  count                = var.acr_pull_enabled ? 1 : 0
   scope                = var.acr_id
   role_definition_name = "AcrPull"
   principal_id         = azurerm_user_assigned_identity.app.principal_id

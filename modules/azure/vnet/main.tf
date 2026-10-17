@@ -119,14 +119,17 @@ resource "azurerm_private_dns_zone_virtual_network_link" "pg" {
 # Privatelink DNS zones + VNet links for the private endpoints the composition
 # creates. One zone per PaaS service type, linked to this VNet so in-VNet clients
 # (AKS pods) resolve <resource>.<public-suffix> to the PE's private IP. Zones are
-# created only when the matching endpoint class is enabled; connect installs bring
-# their own. Blob/Vault are our own resources; the Foundry zones cover AI Foundry /
+# created only when the matching endpoint class is enabled; installs on a brought
+# network bring their own. Blob/Vault/Redis are our own resources; the Foundry zones cover AI Foundry /
 # Azure OpenAI (a Cognitive account exposes records across all three suffixes).
 locals {
   pe_zones = merge(
     var.private_endpoints_enabled ? {
       blob  = "privatelink.blob.core.windows.net"
       vault = "privatelink.vaultcore.azure.net"
+    } : {},
+    var.redis_private_endpoint_enabled ? {
+      redis = "privatelink.redis.azure.net"
     } : {},
     var.foundry_private_endpoint_enabled ? {
       openai     = "privatelink.openai.azure.com"

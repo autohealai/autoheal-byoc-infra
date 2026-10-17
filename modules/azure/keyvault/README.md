@@ -1,13 +1,14 @@
-# Autoheal BYOC — Azure Key Vault
+# Autoheal BYOC - Azure Key Vault
 
-RBAC-mode Key Vault that holds the app secrets (generated PG password, etc.)
-for a BYOC-on-AKS Autoheal install. ESO reads them via the app workload
-identity (`modules/azure/workload-identity` grants Key Vault Secrets User).
+RBAC-mode Key Vault that holds the app secrets for a BYOC-on-AKS Autoheal
+install. The composition writes the entries; in-cluster workloads read them
+through the Key Vault CSI driver with a dedicated workload identity
+(`modules/azure/secrets-identity` grants Key Vault Secrets User).
 
-The AWS analogue is `modules/aws/secrets-manager`. The deployer is granted Key
-Vault Secrets Officer so the apply can seed secrets; RBAC propagation can lag a
-few seconds on the very first apply. Naming and tags follow the repo's null-label
-convention (see `label.tf` and
+The AWS analogue is `modules/aws/secrets-manager`. By default the deployer is
+granted Key Vault Secrets Officer so the apply can write secrets; RBAC
+propagation can lag a few seconds on the very first apply. Naming and tags
+follow the repo's null-label convention (see `label.tf` and
 [docs/MODULE_STANDARD.md](../../../docs/MODULE_STANDARD.md)).
 
 ## Usage

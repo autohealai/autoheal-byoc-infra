@@ -31,7 +31,9 @@ resource "azurerm_user_assigned_identity" "cluster" {
 }
 
 # The control-plane identity manages LBs/subnets during create -> Network
-# Contributor on the VNet. Scoped to the VNet, not the whole RG.
+# Contributor on the VNet (or only the node subnet when the network is brought).
+# This is also what lets the cluster place an internal load balancer on a pinned
+# address in the node subnet.
 resource "azurerm_role_assignment" "cluster_network" {
   count                = var.create_cluster && var.network_role_enabled ? 1 : 0
   scope                = var.vnet_id
@@ -59,10 +61,10 @@ resource "azurerm_kubernetes_cluster" "this" {
   # kubectl or Terraform must then have in-VNet (or peered) connectivity.
   private_cluster_enabled = var.private_cluster_enabled
 
-  # Kubernetes RBAC authorization is always on. Managed-AAD integration with Azure RBAC
-  # is operator-gated: supply admin_group_object_ids and cluster access is governed by
-  # Entra identities + Azure role assignments. The group IDs and tenant are
-  # deployment-specific, so that block is only emitted when set.
+  # Kubernetes RBAC authorization is always on. Entra integration with Azure RBAC is on
+  # by default (entra_integration_enabled), so callers log in with kubelogin and
+  # cluster access is governed by Entra identities and Azure role assignments. It is
+  # also turned on whenever admin_group_object_ids is set.
   role_based_access_control_enabled = true
 
   # Disable the local (static-certificate) admin accounts once Entra is wired up;
@@ -72,7 +74,7 @@ resource "azurerm_kubernetes_cluster" "this" {
   local_account_disabled = length(var.admin_group_object_ids) > 0
 
   dynamic "azure_active_directory_role_based_access_control" {
-    for_each = length(var.admin_group_object_ids) > 0 ? [1] : []
+    for_each = var.entra_integration_enabled || length(var.admin_group_object_ids) > 0 ? [1] : []
     content {
       azure_rbac_enabled     = true
       tenant_id              = var.tenant_id != "" ? var.tenant_id : data.azurerm_client_config.current.tenant_id
@@ -93,6 +95,17 @@ resource "azurerm_kubernetes_cluster" "this" {
   identity {
     type         = "UserAssigned"
     identity_ids = [azurerm_user_assigned_identity.cluster[0].id]
+  }
+
+  # Key Vault secrets provider (CSI driver) add-on. The chart mounts the vault with a
+  # SecretProviderClass that authenticates through workload identity, so the add-on's
+  # own identity needs no grants.
+  dynamic "key_vault_secrets_provider" {
+    for_each = var.key_vault_secrets_provider_enabled ? [1] : []
+    content {
+      secret_rotation_enabled  = true
+      secret_rotation_interval = var.secret_rotation_interval
+    }
   }
 
   network_profile {
@@ -129,7 +142,9 @@ data "azurerm_kubernetes_cluster" "existing" {
 }
 
 locals {
-  cluster = var.create_cluster ? azurerm_kubernetes_cluster.this[0] : data.azurerm_kubernetes_cluster.existing[0]
+  # one() rather than [0], so the local stays null instead of failing when the
+  # module's resources are skipped (OpenTofu evaluates locals under override_module).
+  cluster = var.create_cluster ? one(azurerm_kubernetes_cluster.this) : one(data.azurerm_kubernetes_cluster.existing)
 }
 
 # Grant the kubelet identity AcrPull so nodes can pull from the customer ACR.

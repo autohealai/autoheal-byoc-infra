@@ -1,0 +1,20 @@
+name: azure/managed-redis
+title: Autoheal BYOC - Azure Managed Redis
+description: |-
+  Azure Managed Redis (Microsoft.Cache/redisEnterprise) with public network
+  access off. The composition reaches it through a private endpoint. Clients use
+  TLS on port 10000.
+
+  The defaults fit test subscriptions: SKU Balanced_B0, no high availability,
+  EnterpriseCluster clustering, Encrypted client protocol and access-key
+  authentication on. The AWS analogue is ElastiCache. Naming and tags follow the
+  repo's null-label convention (see label.tf and docs/MODULE_STANDARD.md).
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: Private endpoint
+    url: ../private-endpoint

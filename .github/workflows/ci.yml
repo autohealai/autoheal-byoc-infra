@@ -32,11 +32,12 @@ jobs:
           done
 
       # validate does not evaluate lifecycle preconditions, so the plan-time logic in
-      # each composition (azure-byoc data-plane reachability; azure-byoc-connect RBAC
-      # guard + output contract) is covered by a mocked-provider `terraform test` that
-      # runs a real plan. Every composition shipping a tests/ dir is exercised here; the
-      # guard below fails the step if discovery turns up none (a moved/renamed dir would
-      # otherwise pass silently). See each composition's tests/ directory for the cases.
+      # each composition (azure: create/bring cases, guards and the autoheal_values
+      # contract; app: cluster login and chart source) is covered by a mocked-provider
+      # `terraform test` that runs a real plan. Every composition shipping a tests/ dir
+      # is exercised here; the guard below fails the step if discovery turns up none (a
+      # moved/renamed dir would otherwise pass silently). See each composition's tests/
+      # directory for the cases.
       - name: composition tests
         run: |
           set -euo pipefail

@@ -1,268 +1,244 @@
-# Installing the Autoheal infrastructure — step by step
+# Installing Autoheal on your own cloud, step by step
 
-A beginner-friendly guide to provisioning the cloud infrastructure Autoheal runs
-on, inside your own AWS or Azure account (BYOC — "bring your own cloud"). Follow
-it start to finish; no prior Terraform experience is assumed.
+A guide to installing Autoheal inside your own Azure subscription (BYOC, "bring
+your own cloud"): the cloud resources first, then the application. No prior
+Terraform experience is assumed. AWS still uses the 1.x flow, at the end.
 
 ## What you end up with
 
-One command set provisions a complete stack:
+Two folders in a repository you own, each with its own state:
 
-- a Kubernetes cluster (AKS on Azure, EKS on AWS),
-- a managed PostgreSQL database,
-- object storage (Azure Blob / AWS S3),
-- a container registry (ACR / ECR),
-- a secrets store (Key Vault / Secrets Manager),
-- the cloud identities that wire them together,
+- `prod/infra` creates the cloud resources, or reads the ones you already have:
+  network, AKS cluster, PostgreSQL, Redis, storage, Key Vault, workload
+  identities, the runner VMs, DNS records, and every secret the application
+  reads, written to Key Vault.
+- `prod/app` installs the Autoheal chart into the cluster with the values the
+  infra folder outputs and your own `values-customer.yaml`.
 
-plus a single file — `autoheal-infra-outputs.json` — that the application install
-reads afterward.
-
-**This does not install the Autoheal application itself.** That is a separate step
-(a Helm chart) that consumes the outputs file — see
-[Next: install the application](#next-install-the-application).
-
-How it fits together: you run one **composition** for your cloud (`azure-byoc` or
-`aws-byoc`). A composition wires all the individual pieces into one install, so
-you never assemble modules by hand. You drive it with **Terragrunt**, a thin
-wrapper around Terraform.
+You drive both with **Terragrunt**, a thin wrapper around Terraform, from your
+laptop for a first try or from a pipeline for a real install.
 
 ---
 
 ## Before you start
 
-### 1. Pick your cloud
+### 1. Install the command-line tools
 
-This guide has two tracks — [Azure / AKS](#azure--aks) and [AWS / EKS](#aws--eks).
-They are the same shape; only the sign-in, the remote-state setup, and a couple of
-inputs differ. Follow the one you need.
+| Tool | What it is for | Install |
+|------|----------------|---------|
+| Terraform (1.7 or later) | creates the infrastructure | https://developer.hashicorp.com/terraform/install |
+| Terragrunt | runs each folder with its backend and inputs | https://terragrunt.gruntwork.io/docs/getting-started/install/ |
+| `az` CLI | signs in to Azure | https://learn.microsoft.com/cli/azure/install-azure-cli |
+| `kubelogin` | logs in to AKS with Entra ID for the chart install | https://azure.github.io/kubelogin/install.html |
 
-### 2. Install the command-line tools
-
-| Tool | What it's for | Install |
-|------|---------------|---------|
-| Terraform (>= 1.6) | provisions the infrastructure | https://developer.hashicorp.com/terraform/install |
-| Terragrunt | the wrapper this repo drives | https://terragrunt.gruntwork.io/docs/getting-started/install/ |
-| `az` CLI (Azure track) | sign in to Azure | https://learn.microsoft.com/cli/azure/install-azure-cli |
-| `aws` CLI (AWS track) | sign in to AWS | https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html |
-
-Terraform is the tested, canonical CLI here. OpenTofu also works, but it resolves
-providers from the OpenTofu registry and will regenerate `.terraform.lock.hcl` in
-your copy on `init`.
-
-Confirm they are on your PATH:
+Terraform is the tested CLI. OpenTofu also works; it resolves providers from the
+OpenTofu registry and regenerates `.terraform.lock.hcl` on `init`.
 
 ```bash
-terraform version     # must be >= 1.6
+terraform version     # 1.7 or later
 terragrunt --version
-az version            # Azure track   (AWS track: aws --version)
+az version
+kubelogin --version
 ```
 
-### 3. Make sure you have enough permission
+### 2. Check your permissions
 
-You cannot provision infrastructure you are not allowed to create. Check this
-*before* you start — a missing role fails the apply partway through and leaves a
-half-built stack.
+A missing role fails the apply part way through, so check first.
 
-- **Azure.** The composition **creates the install resource group** and then
-  **role assignments** inside it (the app and ESO identities get Key Vault / Blob
-  roles; AKS gets AcrPull on the registry). Creating role assignments needs the
-  permission `Microsoft.Authorization/roleAssignments/write`, which **Contributor
-  alone does not have**. Because the resource group does not exist yet at apply
-  time, the role must be held at **subscription scope**: your identity must be
-  **Owner**, or **Contributor + User Access Administrator**, on the subscription.
-  With plain Contributor, `plan` succeeds but `apply` fails midway with
-  `AuthorizationFailed`.
-  <br>(Advanced alternative: pre-create the resource group, grant the role there,
-  set `resource_group_name` to it, and `terraform import` it before the first
-  apply. This guide does not cover that path.)
-- **AWS.** You need permission to create the VPC, EKS, Aurora, and IAM resources —
-  an administrator or an equivalently scoped role.
+- With `create_role_assignments = true` (the default) Terraform makes every
+  role grant itself, which needs `Microsoft.Authorization/roleAssignments/write`.
+  Contributor alone does not have it. Your identity must be **Owner**, or
+  **Contributor + User Access Administrator**, on the subscription.
+- If your administrators make role grants, set `create_role_assignments = false`.
+  Contributor is then enough. The `required_role_assignments` output lists the
+  grants to make, and the apply stops until they exist.
 
-### 4. Azure only — one-time subscription setup
+### 3. One-time subscription setup
 
-Skip this on AWS.
-
-**Register the resource providers** (once per subscription; harmless to re-run):
+Register the resource providers (harmless to re-run):
 
 ```bash
-for ns in Microsoft.ContainerService Microsoft.DBforPostgreSQL \
+for ns in Microsoft.ContainerService Microsoft.DBforPostgreSQL Microsoft.Cache \
           Microsoft.Storage Microsoft.KeyVault Microsoft.ContainerRegistry \
-          Microsoft.Network Microsoft.ManagedIdentity; do
+          Microsoft.Network Microsoft.ManagedIdentity Microsoft.Compute; do
   az provider register --namespace "$ns"
 done
 ```
 
-**Pick a tested region and check quota.** The regions this repo tests are
-`centralus`, `westus3`, and `northcentralus`; PostgreSQL Flexible and AKS zone
-availability differ elsewhere, so prefer one of these (others may work but are
-unverified). Make sure the subscription has enough **regional vCPU quota** for the
-node pool (the default `Standard_D4s_v6` pool scales 2–4 nodes).
+Pick a region where PostgreSQL Flexible Server, Azure Managed Redis and AKS are
+all offered, and check the regional vCPU quota for the node pool (default two to
+four `Standard_D4s_v6` nodes) and the runner VMs (one `Standard_D4s_v6`).
 
-> **Heads-up on cost and time.** `apply` creates real, billable resources. A full
-> first apply takes roughly **15–25 minutes** — the Kubernetes cluster is the slow
-> part. Nothing is billed until you run `apply`; `plan` is free and creates
-> nothing.
+> **Cost and time.** `apply` creates billable resources. A first apply takes
+> roughly 20 to 30 minutes; the cluster and Redis are the slow parts. `plan` is
+> free and creates nothing.
+
+### 4. Decide what you bring
+
+The infra folder creates everything you do not name. For each building block
+you already have, set its `existing_*` ID in `prod/infra/terragrunt.hcl`:
+
+| You bring | Set |
+|-----------|-----|
+| Nothing | `network_cidr` (the range for the new network) |
+| Your network | `existing_network`: the AKS, runner, Postgres and private endpoint subnet IDs, and two free addresses in the AKS subnet (`temporal_ip`, and `proxy_ip` in `loadbalancer` mode) |
+| Your cluster, database, cache, storage or vault | `existing_aks_cluster_id`, `existing_postgres_id`, `existing_redis_id`, `existing_storage_account_id`, `existing_key_vault_id` |
+
+We never create a DNS zone. Set `existing_dns_zone_id` to the Azure DNS zone that
+holds your hostname, or set `create_dns_records = false` and create the records
+listed in the `required_dns_records` output yourself.
 
 ---
 
 ## Azure / AKS
 
-### Step 1 — Sign in to Azure
+### Step 1: Sign in to Azure
 
 ```bash
 az login
 az account set --subscription "<subscription-id>"   # az account show --query id -o tsv
 ```
 
-### Step 2 — Get the repo and pin a release
+### Step 2: Copy the example into your repository
+
+Copy `examples/azure` from a released tag into a repository you own:
 
 ```bash
-git clone https://github.com/autohealai/autoheal-byoc-infra.git
-cd autoheal-byoc-infra
-git checkout v1.3.0          # pin a released version; don't run main
+git clone --branch v2.0.0 https://github.com/autohealai/autoheal-byoc-infra.git
+mkdir acme-autoheal && cp -r autoheal-byoc-infra/examples/azure/. acme-autoheal/
+cd acme-autoheal
 ```
 
-### Step 3 — Make your own copy of the example
+### Step 3: Create the state storage account (one time)
 
-Never edit the example in place — copy it, so you can keep your settings and pull
-repo updates cleanly:
-
-```bash
-cp -r examples/azure-byoc examples/azure-byoc-mine
-cd examples/azure-byoc-mine
-```
-
-### Step 4 — Fill in your settings
-
-Open `terragrunt.hcl` and edit the values marked `EDIT` / `REPLACE_ME`:
-
-- `namespace` — your customer/tenant short name, e.g. `acme`. It becomes the first
-  part of every resource name.
-- `environment` — lifecycle, one of `stage` | `prod` | `play` (this is **not** the
-  region).
-- `location` — the Azure region, e.g. `centralus` (see step 4 above).
-- `subscription_id` — from `az account show --query id -o tsv`.
-- the `remote_state` block — `resource_group_name` and `storage_account_name` for
-  where Terraform keeps its state. Pick names now; you create them in Step 5. The
-  storage account name must be 3–24 lowercase letters/numbers and globally unique.
-
-The example ships as a **playground** config: it opens the Blob and Key Vault
-firewalls (`*_network_default_action = "Allow"`) so the copy-paste flow just
-works. For a `stage`/`prod` install, follow the comment in the file to switch to
-private endpoints instead.
-
-**Production backup, high availability and encryption.** The defaults keep the
-data tier at a minimal playground posture (7-day local database backup, no standby,
-Microsoft-managed encryption keys). For a real install, uncomment the backup/HA/
-encryption block in the example `terragrunt.hcl` and set your values. A few settings
-cannot be changed after the first apply, so decide them now:
-
-- `postgres_geo_redundant_backup_enabled` — copy database backups to the paired
-  region. **Create-time only.**
-- `cmk_enabled` — encrypt the database and file storage with a key you own in Key
-  Vault instead of the Microsoft-managed key (needs
-  `key_vault_purge_protection_enabled = true`). **Create-time only on the database.**
-- `key_vault_soft_delete_retention_days` and `key_vault_purge_protection_enabled` —
-  how long a deleted secret/vault stays recoverable, and whether the vault can ever
-  be purged. **Create-time / irreversible.**
-
-Everything else (backup retention length, high availability, soft-delete windows,
-point-in-time restore) can be turned on or changed later. See each setting's
-description in the module READMEs under `modules/azure/`.
-
-### Step 5 — Create the remote-state backend (one time)
-
-Terraform stores its state in an Azure Storage container, but it cannot create the
-account that holds its *own* state (chicken-and-egg). Create it once with the
-helper script. **The three names must match the `remote_state` block from Step 4.**
+Edit `root.hcl`: pick the resource group, storage account (3 to 24 lowercase
+letters and digits, globally unique) and container names. Then create them:
 
 ```bash
-../../scripts/bootstrap-state-azure.sh \
+../autoheal-byoc-infra/scripts/bootstrap-state-azure.sh \
   --subscription    "<subscription-id>" \
-  --resource-group  rg-autoheal-tfstate \
-  --storage-account stautohealtfstate \
-  --location        centralus
+  --resource-group  rg-acme-tfstate \
+  --storage-account stacmetfstate \
+  --location        eastus2
 ```
 
-The script is idempotent — re-running against an existing backend is a no-op.
+The script is idempotent. It also grants you Storage Blob Data Contributor on
+the account, because `root.hcl` reads state with Entra ID. A pipeline identity
+needs the same grant.
 
-### Step 6 — Initialize
+### Step 4: Fill in your settings
+
+- `prod/versions.hcl`: the infra tag and the chart version.
+- `prod/infra/terragrunt.hcl`: `namespace` (your short name, e.g. `acme`; it
+  starts every resource name), `environment` (e.g. `prod`; not the region),
+  `subscription_id`, `location`, `hostname`, `edge_mode`, the `existing_*` IDs
+  from "Decide what you bring", sizing, and the network paths:
+  `private_endpoints_enabled = true` and `deployer_ip_ranges` set to the public
+  egress address of the machine that runs Terraform.
+- Secrets, as environment variables, never in a file:
+
+  ```bash
+  export TF_VAR_llm_api_key="..."               # if your LLM provider uses a key
+  export TF_VAR_postgres_admin_password="..."   # only with existing_postgres_id
+  ```
+
+**Backup, high availability and encryption.** The defaults keep the data tier
+small (7-day local database backup, no standby, Microsoft-managed keys). For a
+real install set the `postgres_*`, `blob_*` and `key_vault_*` inputs described in
+`compositions/azure/variables.tf`. Decide these before the first apply; they
+cannot be changed later:
+
+- `postgres_geo_redundant_backup_enabled`: copy database backups to the paired
+  region. Create time only.
+- `cmk_enabled`: encrypt the database and storage with a key you own (needs
+  `key_vault_purge_protection_enabled = true`). Create time only on the
+  database.
+- `key_vault_soft_delete_retention_days` and `key_vault_purge_protection_enabled`:
+  how long a deleted vault stays recoverable, and whether it can ever be purged.
+
+### Step 5: Plan and apply the infra folder
 
 ```bash
-terragrunt init
-```
-
-This downloads the providers and connects to the state backend from Step 5. (If
-this fails with a backend error, you almost certainly skipped Step 5 or the names
-don't match.)
-
-### Step 7 — Preview the plan
-
-```bash
+cd prod/infra
 terragrunt plan
-```
-
-**Nothing is created yet.** Read the summary at the bottom — it should report a
-number of resources to *add* and `0 to change, 0 to destroy`. If `plan` errors
-here, it is usually a reachability or permission precondition telling you exactly
-what to fix.
-
-### Step 8 — Apply
-
-```bash
 terragrunt apply
 ```
 
-Review the plan once more and type `yes`. This provisions the full stack and takes
-~15–25 minutes.
+Read the plan before typing `yes`. If the plan stops with an error, it names the
+input to change (a missing subnet, an address outside the AKS subnet, no path to
+the vault, and so on).
 
-### Step 9 — Save the outputs
+With `create_role_assignments = false` the first apply stops after creating the
+identities and prints the missing grants. Have them made, then run
+`terragrunt apply` again.
 
-```bash
-terragrunt output -json > autoheal-infra-outputs.json
-```
-
-Keep this file — the application install reads it. See
-[What the outputs are for](#what-the-outputs-are-for).
-
-### Step 10 — (Optional) sanity-check the cluster
+### Step 6: Check the outputs
 
 ```bash
-az aks get-credentials --resource-group <rg> --name <cluster_name>
-kubectl get nodes      # should list the node pool, all Ready
+terragrunt output required_role_assignments   # empty when Terraform made the grants
+terragrunt output required_dns_records        # empty when Terraform made the records
+terragrunt output -raw autoheal_values_yaml   # what the chart receives; no secrets
 ```
 
-`<rg>` and `<cluster_name>` are in your outputs file (`resource_group_name`,
-`cluster_name`).
+### Step 7: Install the application
+
+Edit `prod/app/values-customer.yaml` (admin email, LLM, SSO, sizing). Do not set
+`global.infra`; those values come from the infra folder. Then:
+
+```bash
+cd ../app
+terragrunt plan
+terragrunt apply
+```
+
+The app folder logs in to the cluster with `kubelogin` using your `az login`
+session. In a pipeline that signs in with a federated identity, set
+`kubelogin_login_mode = "workloadidentity"` in `prod/app/terragrunt.hcl`.
+
+To install with Helm or Flux instead of the app folder, see
+`examples/azure/README.md`.
+
+### Step 8: Check the cluster (optional)
+
+```bash
+az aks get-credentials --resource-group <resource_group> --name <name>
+kubelogin convert-kubeconfig -l azurecli
+kubectl get pods -n autoheal
+```
+
+`<resource_group>` and `<name>` are in `terragrunt output cluster` in
+`prod/infra`.
 
 ---
 
-## AWS / EKS
+## AWS / EKS (1.x)
 
-### Step 1 — Sign in to AWS
+AWS still uses the 1.x composition `aws-byoc`, which creates the cluster and
+data tier and outputs the 1.x contract. Pin a 1.x tag for it.
+
+### Step 1: Sign in to AWS
 
 ```bash
 aws sso login --profile <profile>     # or: aws configure
 export AWS_PROFILE=<profile>
 ```
 
-### Step 2 — Get the repo and pin a release
+### Step 2: Get the repo and pin a release
 
 ```bash
 git clone https://github.com/autohealai/autoheal-byoc-infra.git
 cd autoheal-byoc-infra
-git checkout v1.3.0
+git checkout v1.4.0   # the last 1.x release
 ```
 
-### Step 3 — Make your own copy of the example
+### Step 3: Make your own copy of the example
 
 ```bash
 cp -r examples/aws-byoc examples/aws-byoc-mine
 cd examples/aws-byoc-mine
 ```
 
-### Step 4 — Fill in your settings
+### Step 4: Fill in your settings
 
 Open `terragrunt.hcl` and edit the `EDIT`-marked values: `namespace`,
 `environment`, `region`, `availability_zones` (match them to the region), and the
@@ -270,9 +246,9 @@ Open `terragrunt.hcl` and edit the `EDIT`-marked values: `namespace`,
 
 Create the state bucket and lock table once (or have your platform team do it), and
 put their names in the `remote_state` block. Unlike Azure, there is no bootstrap
-script — a bucket and a DynamoDB table are all that is needed.
+script; a bucket and a DynamoDB table are all that is needed.
 
-### Step 5 — Init, plan, apply, save outputs
+### Step 5: Init, plan, apply, save outputs
 
 ```bash
 terragrunt init
@@ -283,67 +259,26 @@ terragrunt output -json > autoheal-infra-outputs.json
 
 ---
 
-## What the outputs are for
+## Upgrading
 
-`autoheal-infra-outputs.json` carries `cluster_name`, `postgres_host`,
-`redis_endpoint`, `object_store`, `secret_store_uri`, `registry`, and
-`runner_identity`. The application install reads these; the names are identical on
-AWS and Azure, so the install does not care which cloud it ran on.
-
-> **`redis_endpoint` is AWS-only.** The `azure-byoc` composition runs Redis
-> in-cluster (shipped by the app Helm chart) and does not emit it. If you bring
-> your own managed Redis on Azure, use `azure-byoc-connect`, which still emits it.
-
-The Azure composition also emits identity/wiring extras the app install needs:
-`resource_group_name`, `oidc_issuer_url`, `acr_id`, `runner_subnet_id`, and the
-ESO wiring (`eso_identity_client_id`, `eso_tenant_id`, `eso_service_account`).
-
----
-
-## Next: install the application
-
-Provisioning stops at a running cluster + data tier + identities. The Autoheal
-application is installed separately, by the **Autoheal BYOC Helm install** (the
-umbrella chart / `install-aks.sh`), which consumes `autoheal-infra-outputs.json`
-to:
-
-- point `kubectl`/Helm at `cluster_name` in `resource_group_name`;
-- stamp the app ServiceAccounts with `runner_identity` (the workload-identity
-  client id);
-- wire the ESO `ClusterSecretStore` at `secret_store_uri` using
-  `eso_identity_client_id` / `eso_tenant_id` / `eso_service_account`;
-- pull images from `registry`.
-
-See the Autoheal BYOC install guide for the chart values and the exact mapping.
-
----
-
-## Stage 2: the runner
-
-The runner is intentionally **not** part of the composition: it needs the Temporal
-internal load-balancer address, which only exists *after* the application is
-deployed. Once the app is up, apply the runner as a second stage (Azure uses
-`modules/azure/runner-vmss`, AWS uses `modules/aws/runner-asg`). On Azure the
-runner-vmss module takes:
-
-- from the infra outputs: `resource_group_name`, `location` (your `location`
-  input), `runner_subnet_id` → `subnet_id`, `acr_id`, and `acr_name`;
-- from the app install: `temporal_host` (the Temporal internal-LB address), plus
-  `runner_image` and `sandbox_image`;
-- from you: `admin_ssh_public_key`.
-
-See the install guide for the stage-2 wrapper that supplies these.
+Change the two numbers in `prod/versions.hcl`, then plan and apply `prod/infra`
+and `prod/app` again. Read `CHANGELOG.md` first; upgrading from 1.x has its own
+notes there.
 
 ---
 
 ## Tearing it down
 
-Destroy in the reverse order of creation — the runner stage-2 apply first (if you
-ran it), then the main stack:
+Destroy in the reverse order of creation, the app folder first:
 
 ```bash
-terragrunt destroy      # from the same examples/<your-copy> dir
+cd prod/app   && terragrunt destroy
+cd ../infra   && terragrunt destroy
 ```
+
+Brought resources are only read, so destroy leaves them in place. It removes
+what the infra folder created, including the vault entries it wrote to a
+brought vault.
 
 > **Azure Key Vault soft-delete.** The provider uses the azurerm default
 > `purge_soft_delete_on_destroy = true`, so teardown behaves differently depending
@@ -355,7 +290,7 @@ terragrunt destroy      # from the same examples/<your-copy> dir
 >   purge ever doesn't complete, free it with
 >   `az keyvault purge --name <vault-name>`.)
 > - **Purge protection on** (`key_vault_purge_protection_enabled = true`): the
->   vault **cannot** be purged on destroy or manually — it is soft-deleted and the
+>   vault **cannot** be purged on destroy or manually; it is soft-deleted and the
 >   name stays reserved for the full `key_vault_soft_delete_retention_days` window
 >   (default 7, up to 90). Leave purge protection off for throwaway/`play` installs
 >   for this reason.
@@ -366,16 +301,18 @@ terragrunt destroy      # from the same examples/<your-copy> dir
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| `terragrunt init` fails with a backend error | the Azure state backend doesn't exist, or the `remote_state` names don't match | run Step 5 (bootstrap-state-azure.sh); make the three names match `terragrunt.hcl` |
-| `apply` fails midway with `AuthorizationFailed` | the apply identity lacks `roleAssignments/write` | grant Owner, or Contributor + User Access Administrator, at **subscription** scope (Before you start §3) |
-| `plan` errors about "no apply-time / runtime path to Blob/Key Vault" | the firewalls are deny-all with no reachable path | for a playground, keep `*_network_default_action = "Allow"`; for stage/prod set `private_endpoints_enabled`/`deployer_ip_ranges` per the example comments |
-| quota or zone errors during `apply` | region quota or AKS/PG zone availability | use a tested region (`centralus`/`westus3`/`northcentralus`) and raise vCPU quota |
-| a provider "not registered" error (Azure) | first-time subscription | run the `az provider register` loop (Before you start §4) |
+| `terragrunt init` fails with a backend error or 403 | the state storage account does not exist, the names do not match `root.hcl`, or you lack Storage Blob Data Contributor on it | run Step 3; a new grant can take a few minutes to apply |
+| `apply` fails with `AuthorizationFailed` on a role assignment | the identity cannot write role assignments | grant Owner, or Contributor + User Access Administrator, or set `create_role_assignments = false` |
+| the apply stops listing missing role grants | `create_role_assignments = false` and the grants are not made yet | make the grants in `required_role_assignments`, then apply again |
+| `plan` errors with "No apply-time path" or "No runtime path" to the Blob account or Key Vault | the firewalls deny all with no path open | set `deployer_ip_ranges` and `private_endpoints_enabled = true` |
+| `plan` errors that a hostname is not inside the zone | `hostname` is not under `existing_dns_zone_id` | fix the hostname, or set `create_dns_records = false` |
+| the app folder fails to log in to the cluster | `kubelogin` missing, or the wrong login mode | install `kubelogin`; set `kubelogin_login_mode` to match how the pipeline signs in |
+| a provider "not registered" error | first use of the subscription | run the `az provider register` loop |
 
 ---
 
 ## Notes
 
 - `plan` is a safe dry run. Nothing exists until `apply`.
-- For a real install, state lives in a shared remote backend (configured in the
-  example's `terragrunt.hcl`), never on a laptop.
+- State holds the generated secrets, so keep it in the encrypted remote backend
+  from `root.hcl` and limit who can read it.

@@ -6,6 +6,121 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+2.0.0, Azure first. `compositions/aws-byoc` and the AWS modules are unchanged.
+
+### Added
+- `compositions/azure`: one Azure composition for every case. Each building
+  block (resource group, network, cluster, Postgres, Redis, storage, registry,
+  Key Vault) takes an optional `existing_*` ID: empty means we create it, set
+  means we read it with a data source and never change it. Impossible mixes stop
+  the plan with plain messages (`validation.tf`).
+- `compositions/azure`: `hostname`, `auth_hostname`, `auth_app_hostname`,
+  `edge_mode` (`loadbalancer`, `gateway-api`, `istio`, `ingress`, `none`) and
+  `edge_address`. DNS A records for the three hostnames in an existing zone
+  (`existing_dns_zone_id`), or the `required_dns_records` output with
+  `create_dns_records = false`. We never create the zone.
+- `compositions/azure`: reserved internal addresses for Temporal and, in
+  `loadbalancer` mode, the proxy. Computed in a network we create, taken from
+  `existing_network.temporal_ip` and `proxy_ip` in a brought one.
+- `compositions/azure`: the runner VMs (`modules/azure/runner-vmss`) in the same
+  apply, pulling `runner-go:chart-<autoheal_version>` from
+  `runner_image_repository`.
+- `compositions/azure`: one workload identity per chart role (secrets,
+  api-server, agents-worker), federated to the chart's service accounts
+  (`service_accounts`).
+- `compositions/azure`: every secret the chart reads is generated or passed in
+  and written to the vault in the same apply. Entries: `postgres-admin-password`,
+  `api-server-db-password`, `agents-db-password`, `temporal-db-password`,
+  `zitadel-db-password`, `api-server-database-url`, `agents-database-url`,
+  `api-server-jwt-secret`, `zitadel-master-key`, `auth-app-session-secret`,
+  `first-admin-password`, and when they apply `redis-access-key`,
+  `api-server-redis-url`, `llm-api-key`, `sso-client-secret`, `tls-certificate`,
+  `tls-private-key`, `runner-ssh-private-key`. New sensitive inputs:
+  `postgres_admin_password` (required with `existing_postgres_id`),
+  `llm_api_key`, `sso_client_secret`, `tls_certificate`.
+- `compositions/azure`: `create_role_assignments`. With `false` no grant is
+  made; the `required_role_assignments` output lists them for an administrator
+  and the apply stops, naming the missing workload grants, until they exist.
+- `compositions/azure` outputs: `autoheal_values` and `autoheal_values_yaml` (the
+  chart's infra values: `global.infra`, the suggested `global.addons`,
+  `global.secrets` and `global.edge`, and the Temporal and Zitadel copies),
+  `cluster`, `required_role_assignments`, `required_dns_records`.
+- `compositions/app`: installs the chart with one `helm_release` from the infra
+  composition's `autoheal_values` and the customer's `values-customer.yaml`,
+  atomic with wait. Logs in with `kubelogin` on AKS and `aws eks get-token` on
+  EKS. `chart_repository` takes the public OCI registry (default), an HTTPS
+  repository or a local chart path.
+- `modules/azure/managed-redis`: Azure Managed Redis with public access off.
+- `modules/azure/dns`: A records in an existing public or private zone.
+- `modules/azure/aks`: `entra_integration_enabled` and
+  `key_vault_secrets_provider_enabled` (both default `true`).
+- `examples/azure`: a deployment repository with `root.hcl` (generated azurerm
+  backend, Entra ID auth), `prod/versions.hcl`, `prod/infra` and `prod/app`.
+- `scripts/bootstrap-state-azure.sh`: grants the signed-in identity Storage Blob
+  Data Contributor on the state account, which `use_azuread_auth` needs.
+- `tofu test` / `terraform test` suites for both compositions, passing on
+  Terraform 1.9 and OpenTofu 1.11.
+
+### Changed
+- `modules/azure/external-secrets` is renamed `modules/azure/secrets-identity`.
+  It is federated to the chart's service accounts and read by the Key Vault CSI
+  driver; `role_assignment_enabled = false` leaves the grant to an administrator.
+- `modules/azure/keyvault`: no longer seeds entries; the composition writes them.
+- `modules/azure/runner-vmss`: `acr_id` and `acr_name` are optional. Without
+  `acr_name` the VMs pull public images and install no Azure CLI.
+  `acr_pull_enabled` gates the grant.
+- Compositions ship without `backend.tf`. The caller generates it (Terragrunt
+  `remote_state` with `generate`), so one `compositions/app` serves both clouds.
+- `required_version` of the compositions is `>= 1.7`; `azurerm` is `~> 4.50`.
+
+### Removed
+- `compositions/azure-byoc` and `compositions/azure-byoc-connect` (replaced by
+  `compositions/azure`), with `examples/azure-byoc` and
+  `examples/azure-byoc-connect` (replaced by `examples/azure`).
+- The v1 Azure output contract (`cluster_name`, `postgres_host`,
+  `object_store`, `secret_store_uri`, `registry`, `runner_identity`,
+  `blob_endpoint`, `eso_*`, `kube_host` and the rest). The chart reads
+  `autoheal_values`.
+
+### Upgrading from 1.x
+`compositions/azure/moved.tf` moves the state of both v1 compositions. Point the
+folder's `source` at `compositions/azure`, set the inputs below, and read the
+plan before applying: it must not replace the cluster, the Postgres server, the
+storage account or the vault.
+
+- New required inputs: `hostname`, `autoheal_version`.
+- From `azure-byoc`:
+  - `address_space = ["10.60.0.0/16"]` becomes `network_cidr = "10.60.0.0/16"`.
+  - `node_vm_size`, `node_min_count`, `node_max_count` and `postgres_sku_name`
+    become `aks_node_size`, `aks_node_count`, `aks_node_max_count` and
+    `postgres_sku`.
+  - `federated_service_accounts` becomes `service_accounts`.
+  - Set `storage_container_name = "attachments"`; the new default `autoheal`
+    would replace the container.
+  - Set `create_registry = true` to keep the registry. 2.0 creates none by
+    default; the images come from the public registry.
+  - Redis was in-cluster in 1.x. 2.0 creates Azure Managed Redis unless
+    `redis_enabled = false`.
+  - The cluster gets Entra integration with Azure RBAC and the Key Vault CSI
+    driver add-on, in place. The deployer then needs a Kubernetes role; 2.0
+    grants itself Azure Kubernetes Service RBAC Cluster Admin.
+  - Destroy the separate v1 runner apply (`modules/azure/runner-vmss`) after the
+    upgrade; the composition now runs the runner.
+- From `azure-byoc-connect`: the name inputs become IDs. `aks_cluster_name`,
+  `postgres_server_name`, `redis_cache_name`, `storage_account_name`,
+  `key_vault_name` and `acr_name` become `existing_aks_cluster_id`,
+  `existing_postgres_id`, `existing_redis_id`, `existing_storage_account_id`,
+  `existing_key_vault_id` and `existing_acr_id`; `resource_group_name` becomes
+  `existing_resource_group_id`. Also set `existing_network` and
+  `postgres_admin_password`. `seed_secrets_enabled`, `additional_secrets` and
+  `grant_app_acr_pull` are gone.
+- Identities: the v1 app and External Secrets identities move to the
+  api-server and secrets identities. Their names change, so both are replaced
+  and get new client IDs, which reach the chart through `autoheal_values`.
+- Vault entries: the v1 seeded entries are forgotten, not deleted, so a running
+  1.x install keeps working until the chart upgrade. Delete them by hand
+  afterwards.
+
 ## [1.4.0] - 2026-10-16
 
 ### Added

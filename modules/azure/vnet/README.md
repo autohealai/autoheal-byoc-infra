@@ -68,6 +68,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'acme'. | `string` | `null` | no |
 | <a name="input_pg_private_dns_zone_name"></a> [pg\_private\_dns\_zone\_name](#input\_pg\_private\_dns\_zone\_name) | Private DNS zone name for PG Flexible Server. Empty disables the zone (connect installs that bring their own). Must end in .private.postgres.database.azure.com. | `string` | `""` | no |
 | <a name="input_private_endpoints_enabled"></a> [private\_endpoints\_enabled](#input\_private\_endpoints\_enabled) | Create privatelink DNS zones + VNet links for Blob and Key Vault private endpoints. | `bool` | `false` | no |
+| <a name="input_redis_private_endpoint_enabled"></a> [redis\_private\_endpoint\_enabled](#input\_redis\_private\_endpoint\_enabled) | Create the privatelink DNS zone + VNet link for an Azure Managed Redis private endpoint (privatelink.redis.azure.net). | `bool` | `false` | no |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Resource group the network lands in (created by the composition). | `string` | n/a | yes |
 | <a name="input_runner_nat_enabled"></a> [runner\_nat\_enabled](#input\_runner\_nat\_enabled) | Create a NAT gateway for outbound egress on the runner subnet (the runner VMSS has no public IP). | `bool` | `true` | no |
 | <a name="input_subnet_aks_prefix"></a> [subnet\_aks\_prefix](#input\_subnet\_aks\_prefix) | Subnet for AKS nodes/pods (overlay CNI, so this only sizes nodes). | `string` | `"10.60.0.0/20"` | no |
@@ -83,6 +84,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="output_blob_private_dns_zone_id"></a> [blob\_private\_dns\_zone\_id](#output\_blob\_private\_dns\_zone\_id) | Privatelink DNS zone id for Blob, or empty when private endpoints are off. |
 | <a name="output_foundry_private_dns_zone_ids"></a> [foundry\_private\_dns\_zone\_ids](#output\_foundry\_private\_dns\_zone\_ids) | Privatelink DNS zone ids for AI Foundry / Azure OpenAI, or [] when the Foundry endpoint is off. |
 | <a name="output_pg_private_dns_zone_id"></a> [pg\_private\_dns\_zone\_id](#output\_pg\_private\_dns\_zone\_id) | Private DNS zone id for PG Flexible Server, or empty when no zone was created. |
+| <a name="output_redis_private_dns_zone_id"></a> [redis\_private\_dns\_zone\_id](#output\_redis\_private\_dns\_zone\_id) | Privatelink DNS zone id for Azure Managed Redis, or empty when the Redis endpoint is off. |
 | <a name="output_runner_nat_public_ip"></a> [runner\_nat\_public\_ip](#output\_runner\_nat\_public\_ip) | Static egress IP of the runner subnet's NAT gateway (for outbound allowlisting), or empty when NAT is off. |
 | <a name="output_subnet_aks_id"></a> [subnet\_aks\_id](#output\_subnet\_aks\_id) | Subnet ID for AKS nodes/pods. |
 | <a name="output_subnet_db_id"></a> [subnet\_db\_id](#output\_subnet\_db\_id) | Subnet ID delegated to PostgreSQL Flexible Server. |

@@ -1,15 +1,16 @@
-# Autoheal BYOC — Azure runner VMSS
+# Autoheal BYOC - Azure runner VMSS
 
 VMSS that runs the runner-go worker as a container (Docker-out-of-Docker) in the
-runner subnet, polling Temporal's `runners` namespace via the internal LB. The AWS
-analogue is the EKS EC2/ASG runner. No public IP: egress is via the runner subnet's
-NAT gateway (`modules/azure/vnet`). A user-assigned identity granted only AcrPull
-lets it pull images keyless; cloud-init wires the systemd units and an hourly ACR
-credential refresh.
+runner subnet, polling Temporal's `runners` namespace at `temporal_host`. The AWS
+analogue is the EKS EC2/ASG runner. No public IP: egress is via the runner
+subnet's NAT gateway (`modules/azure/vnet`). The user-assigned identity can be
+granted AcrPull; when `acr_name` is set, cloud-init also installs the Azure CLI
+and refreshes the ACR login hourly. With public images neither runs.
 
-Deploy this as a separate step after the cluster + Temporal are up, because it
-needs `temporal_host` (the internal LB IP). Naming and tags follow the repo's
-null-label convention (see `label.tf` and
+The composition creates it in the same apply as the cluster: `temporal_host` is
+the reserved internal address the chart later pins the Temporal load balancer
+to, and the runner retries until Temporal answers. Naming and tags follow the
+repo's null-label convention (see `label.tf` and
 [docs/MODULE_STANDARD.md](../../../docs/MODULE_STANDARD.md)).
 
 ## Usage
@@ -48,8 +49,9 @@ See [examples/basic](examples/basic) for a runnable configuration.
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
-| <a name="input_acr_id"></a> [acr\_id](#input\_acr\_id) | ACR resource id to grant the runner identity AcrPull. | `string` | n/a | yes |
-| <a name="input_acr_name"></a> [acr\_name](#input\_acr\_name) | ACR registry name (for `az acr login -n` in the credential-refresh timer). | `string` | n/a | yes |
+| <a name="input_acr_id"></a> [acr\_id](#input\_acr\_id) | ACR resource ID to grant the runner identity AcrPull on. Used only when acr\_pull\_enabled is true. | `string` | `""` | no |
+| <a name="input_acr_name"></a> [acr\_name](#input\_acr\_name) | ACR name for `az acr login -n` in the credential-refresh timer. Empty means the images are public: no Azure CLI is installed and no login runs. | `string` | `""` | no |
+| <a name="input_acr_pull_enabled"></a> [acr\_pull\_enabled](#input\_acr\_pull\_enabled) | Grant the runner identity AcrPull on acr\_id. Plan-time bool: acr\_id is computed when the ACR is created in the same apply, so it cannot gate count. Leave false when images come from a public registry. | `bool` | `false` | no |
 | <a name="input_admin_ssh_public_key"></a> [admin\_ssh\_public\_key](#input\_admin\_ssh\_public\_key) | SSH public key for the admin user (break-glass; the SSM-equivalent is az run-command). No password auth. | `string` | n/a | yes |
 | <a name="input_admin_username"></a> [admin\_username](#input\_admin\_username) | Admin username on the VMSS instances. | `string` | `"azureuser"` | no |
 | <a name="input_attributes"></a> [attributes](#input\_attributes) | ID element. Extra qualifiers appended to id, e.g. ['db']. | `list(string)` | `[]` | no |
@@ -64,12 +66,13 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'acme'. | `string` | `null` | no |
 | <a name="input_os_disk_size_gb"></a> [os\_disk\_size\_gb](#input\_os\_disk\_size\_gb) | OS disk size. Holds Docker layers + sandbox dirs + git datasource caches; 30GB proved insufficient on the EC2 runner, so default large. | `number` | `200` | no |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Resource group the VMSS lands in (created by the composition). | `string` | n/a | yes |
-| <a name="input_runner_image"></a> [runner\_image](#input\_runner\_image) | Fully-qualified runner-go image, e.g. <acr>.azurecr.io/release/runner-go:<ver>. | `string` | n/a | yes |
+| <a name="input_runner_image"></a> [runner\_image](#input\_runner\_image) | Fully qualified runner-go image, e.g. public.ecr.aws/e4h3h0d9/runner-go:chart-1.0.0. | `string` | n/a | yes |
 | <a name="input_runner_name"></a> [runner\_name](#input\_runner\_name) | NAME env the worker registers under. | `string` | `"runner-byoc-aks"` | no |
-| <a name="input_sandbox_image"></a> [sandbox\_image](#input\_sandbox\_image) | Fully-qualified sandbox image pre-pulled on boot, e.g. <acr>.azurecr.io/dev/sandbox:latest. | `string` | n/a | yes |
+| <a name="input_sandbox_image"></a> [sandbox\_image](#input\_sandbox\_image) | Fully qualified sandbox image to pre-pull on boot. Empty skips the pre-pull. | `string` | `""` | no |
 | <a name="input_subnet_id"></a> [subnet\_id](#input\_subnet\_id) | Runner subnet id (snet-runner from modules/azure/vnet). Egress is via that subnet's NAT gateway; the VMSS gets no public IP. | `string` | n/a | yes |
 | <a name="input_tags"></a> [tags](#input\_tags) | Additional tags, merged into the generated tag set. | `map(string)` | `{}` | no |
-| <a name="input_temporal_host"></a> [temporal\_host](#input\_temporal\_host) | Temporal frontend as host:port, the internal LB (e.g. 10.60.0.7:7233). The runner polls the `runners` namespace here. | `string` | n/a | yes |
+| <a name="input_temporal_host"></a> [temporal\_host](#input\_temporal\_host) | Temporal frontend host:port the runner polls, e.g. 10.60.15.253:7233 (the reserved internal address of the Temporal load balancer). | `string` | n/a | yes |
+| <a name="input_upgrade_mode"></a> [upgrade\_mode](#input\_upgrade\_mode) | VMSS upgrade mode. Manual keeps running instances on the old model until they are upgraded by hand; Automatic reimages instances when the model changes, such as a new runner image tag. | `string` | `"Manual"` | no |
 | <a name="input_vm_sku"></a> [vm\_sku](#input\_vm\_sku) | VM size. Some policies forbid Intel Dsv5; D4s\_v6 is validated. | `string` | `"Standard_D4s_v6"` | no |
 
 ## Outputs
@@ -77,6 +80,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | Name | Description |
 |------|-------------|
 | <a name="output_identity_client_id"></a> [identity\_client\_id](#output\_identity\_client\_id) | Client id of the runner's user-assigned identity. |
-| <a name="output_identity_principal_id"></a> [identity\_principal\_id](#output\_identity\_principal\_id) | Principal id of the runner's user-assigned identity (granted AcrPull). |
+| <a name="output_identity_name"></a> [identity\_name](#output\_identity\_name) | Name of the runner's user-assigned identity. |
+| <a name="output_identity_principal_id"></a> [identity\_principal\_id](#output\_identity\_principal\_id) | Principal id of the runner's user-assigned identity (granted AcrPull when acr\_pull\_enabled). |
 | <a name="output_vmss_id"></a> [vmss\_id](#output\_vmss\_id) | Resource ID of the runner VMSS. |
 <!-- END_TF_DOCS -->

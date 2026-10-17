@@ -1,16 +1,17 @@
 name: azure/runner-vmss
-title: Autoheal BYOC — Azure runner VMSS
+title: Autoheal BYOC - Azure runner VMSS
 description: |-
   VMSS that runs the runner-go worker as a container (Docker-out-of-Docker) in the
-  runner subnet, polling Temporal's `runners` namespace via the internal LB. The AWS
+  runner subnet, polling Temporal's runners namespace at temporal_host. The AWS
   analogue is the EKS EC2/ASG runner. No public IP: egress is via the runner
-  subnet's NAT gateway (modules/azure/vnet). A user-assigned identity granted only
-  AcrPull lets it pull images keyless; cloud-init wires the systemd units and an
-  hourly ACR credential refresh.
+  subnet's NAT gateway (modules/azure/vnet). The user-assigned identity can be
+  granted AcrPull; when acr_name is set, cloud-init also installs the Azure CLI
+  and refreshes the ACR login hourly. With public images neither runs.
 
-  Deploy this as a separate step after the cluster + Temporal are up, because it
-  needs temporal_host (the internal LB IP). Naming and tags follow the repo's
-  null-label convention (see label.tf and docs/MODULE_STANDARD.md).
+  The composition creates it in the same apply as the cluster: temporal_host is
+  the reserved internal address the chart later pins the Temporal load balancer
+  to, and the runner retries until Temporal answers. Naming and tags follow the
+  repo's null-label convention (see label.tf and docs/MODULE_STANDARD.md).
 
 usage: |-
   See examples/basic for a runnable configuration.

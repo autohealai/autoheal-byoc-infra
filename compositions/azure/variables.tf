@@ -223,7 +223,7 @@ variable "private_endpoints_enabled" {
 variable "deployer_ip_ranges" {
   type        = list(string)
   default     = []
-  description = "Apply-time path. Public egress CIDRs of the Terraform apply host, allowed through the Blob and Key Vault firewalls we create so the apply can write vault entries. Leave empty only when both *_network_default_action values are Allow."
+  description = "Apply-time path. Public egress CIDRs of the Terraform apply host, allowed through the Blob and Key Vault firewalls we create so the apply can write vault entries. A single address may be written with or without /32. Leave empty only when both *_network_default_action values are Allow."
 }
 
 variable "workload_egress_ip_ranges" {

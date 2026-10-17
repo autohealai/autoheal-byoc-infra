@@ -117,5 +117,10 @@ variable "network_default_action" {
 variable "allowed_ip_ranges" {
   type        = list(string)
   default     = []
-  description = "Public IPs/CIDRs allowed through the storage firewall when default_action=Deny (e.g. the Terraform apply host, which creates the container over the data plane)."
+  description = "Public IPs/CIDRs allowed through the storage firewall when default_action=Deny (e.g. the Terraform apply host, which creates the container over the data plane). A /32 range is written as the bare address; /31 is not accepted by Azure Storage."
+
+  validation {
+    condition     = alltrue([for r in var.allowed_ip_ranges : !endswith(r, "/31")])
+    error_message = "Azure Storage does not accept /31 ranges in allowed_ip_ranges. List the two addresses instead."
+  }
 }

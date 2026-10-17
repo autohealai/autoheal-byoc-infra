@@ -82,6 +82,12 @@ All notable changes to this repo are documented here. Format follows
   `blob_endpoint`, `eso_*`, `kube_host` and the rest). The chart reads
   `autoheal_values`.
 
+### Fixed
+- `modules/azure/blob`: a `/32` entry in `allowed_ip_ranges` is written to the
+  storage firewall as the bare address. Azure Storage rejects `/31` and `/32`,
+  so `deployer_ip_ranges = ["203.0.113.10/32"]` failed the plan before. A `/31`
+  entry now fails the module's input check with a plain message.
+
 ### Upgrading from 1.x
 `compositions/azure/moved.tf` moves the state of both v1 compositions. Point the
 folder's `source` at `compositions/azure`, set the inputs below, and read the

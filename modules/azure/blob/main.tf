@@ -105,10 +105,12 @@ resource "azurerm_storage_account" "this" {
   # when the Terraform run must create the container / seed data over the data plane
   # (default_action=Deny blocks that otherwise). Set network_default_action=Allow
   # only for throwaway/playground accounts with no private endpoint.
+  # The storage firewall takes a single address without a prefix and rejects /31
+  # and /32, so a /32 range is written as the bare address.
   network_rules {
     default_action = var.network_default_action
     bypass         = ["AzureServices"]
-    ip_rules       = var.allowed_ip_ranges
+    ip_rules       = distinct([for r in var.allowed_ip_ranges : trimsuffix(r, "/32")])
   }
 
   lifecycle {

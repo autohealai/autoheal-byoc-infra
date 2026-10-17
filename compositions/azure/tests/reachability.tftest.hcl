@@ -121,6 +121,18 @@ run "accepts_apply_and_runtime" {
   }
 }
 
+# A single address written as a /32. The storage firewall rejects /32, so the
+# blob module writes the bare address; the provider would fail this plan
+# otherwise.
+run "accepts_a_slash_32_address" {
+  command = plan
+
+  variables {
+    deployer_ip_ranges        = ["203.0.113.10/32"]
+    private_endpoints_enabled = true
+  }
+}
+
 # The cluster's outbound CIDRs are an alternative runtime path.
 run "accepts_workload_egress_ranges" {
   command = plan

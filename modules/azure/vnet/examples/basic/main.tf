@@ -1,5 +1,6 @@
-# Minimal VNet: the default four subnets + runner NAT, no private endpoints.
-# Doubles as the CI plan/validate fixture.
+# Minimal VNet: the default four subnets + runner NAT, no private endpoints, and
+# the AKS subnet NSG for the reserved Temporal address. Doubles as the CI
+# plan/validate fixture.
 
 terraform {
   required_version = ">= 1.6"
@@ -25,6 +26,9 @@ module "vnet" {
 
   resource_group_name = "rg-autoheal-play"
   location            = "centralus"
+
+  # Third address from the end of the default AKS subnet 10.60.0.0/20.
+  temporal_ip = "10.60.15.253"
 }
 
 output "vnet_id" {

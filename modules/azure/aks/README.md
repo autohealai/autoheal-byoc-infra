@@ -59,7 +59,9 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_context"></a> [context](#input\_context) | Single object to set the entire naming/tagging context at once (inheritance from the composition). Individual non-null inputs below override it. | `any` | <pre>{<br/>  "additional_tag_map": {},<br/>  "attributes": [],<br/>  "delimiter": null,<br/>  "descriptor_formats": {},<br/>  "enabled": true,<br/>  "environment": null,<br/>  "id_length_limit": null,<br/>  "label_key_case": null,<br/>  "label_order": [],<br/>  "label_value_case": null,<br/>  "labels_as_tags": [<br/>    "unset"<br/>  ],<br/>  "name": null,<br/>  "namespace": null,<br/>  "regex_replace_chars": null,<br/>  "stage": null,<br/>  "tags": {},<br/>  "tenant": null<br/>}</pre> | no |
 | <a name="input_create_cluster"></a> [create\_cluster](#input\_create\_cluster) | true (default) provisions the cluster; false connects to an existing cluster (same label id) in var.resource\_group\_name and creates no cluster resources (the AWS eks module's create\_cluster analogue). | `bool` | `true` | no |
 | <a name="input_enabled"></a> [enabled](#input\_enabled) | Set to false to prevent the module from creating any resources. | `bool` | `null` | no |
+| <a name="input_entra_integration_enabled"></a> [entra\_integration\_enabled](#input\_entra\_integration\_enabled) | Turn on Entra (AAD) integration with Azure RBAC so clients log in with kubelogin. Default true. Local accounts stay enabled unless admin\_group\_object\_ids is set. | `bool` | `true` | no |
 | <a name="input_environment"></a> [environment](#input\_environment) | ID element. Lifecycle (stage/prod/play) in this repo — NOT region. | `string` | `null` | no |
+| <a name="input_key_vault_secrets_provider_enabled"></a> [key\_vault\_secrets\_provider\_enabled](#input\_key\_vault\_secrets\_provider\_enabled) | Enable the Key Vault secrets provider (CSI driver) add-on, which the chart uses to read the vault. | `bool` | `true` | no |
 | <a name="input_kubernetes_version"></a> [kubernetes\_version](#input\_kubernetes\_version) | Kubernetes version (create mode). null = AKS default. | `string` | `null` | no |
 | <a name="input_label_order"></a> [label\_order](#input\_label\_order) | Order of ID elements in id. Repo default drops 'stage'. | `list(string)` | <pre>[<br/>  "namespace",<br/>  "environment",<br/>  "name",<br/>  "attributes"<br/>]</pre> | no |
 | <a name="input_location"></a> [location](#input\_location) | Azure region. | `string` | n/a | yes |
@@ -71,10 +73,11 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_node_vm_size"></a> [node\_vm\_size](#input\_node\_vm\_size) | Default node pool VM size. Some policies forbid Intel Dsv5; D4s\_v6 is the validated SKU. | `string` | `"Standard_D4s_v6"` | no |
 | <a name="input_private_cluster_enabled"></a> [private\_cluster\_enabled](#input\_private\_cluster\_enabled) | Provision a private control plane: the API server is reachable only from the VNet and peered/connected networks, with no public endpoint. Default false = public endpoint (restrict it with api\_server\_authorized\_ip\_ranges). Whatever runs kubectl/Terraform must have in-VNet connectivity when true. | `bool` | `false` | no |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Resource group the cluster lands in (created by the composition). | `string` | n/a | yes |
+| <a name="input_secret_rotation_interval"></a> [secret\_rotation\_interval](#input\_secret\_rotation\_interval) | How often the CSI driver polls the vault for changed secrets. | `string` | `"2m"` | no |
 | <a name="input_sku_tier"></a> [sku\_tier](#input\_sku\_tier) | AKS SKU tier: Free \| Standard \| Premium. | `string` | `"Standard"` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Additional tags, merged into the generated tag set. | `map(string)` | `{}` | no |
 | <a name="input_tenant_id"></a> [tenant\_id](#input\_tenant\_id) | Entra tenant for managed-AAD RBAC. Empty = the current provider's tenant. Only used when admin\_group\_object\_ids is set. | `string` | `""` | no |
-| <a name="input_vnet_id"></a> [vnet\_id](#input\_vnet\_id) | VNet id the control-plane UAMI gets Network Contributor on (create mode, custom VNet). | `string` | `""` | no |
+| <a name="input_vnet_id"></a> [vnet\_id](#input\_vnet\_id) | Scope the control-plane UAMI gets Network Contributor on (create mode, custom VNet): the VNet ID, or the node subnet ID when the network belongs to someone else. | `string` | `""` | no |
 | <a name="input_vnet_subnet_id"></a> [vnet\_subnet\_id](#input\_vnet\_subnet\_id) | Subnet id for the default node pool (create mode); modules/azure/vnet output subnet\_aks\_id. | `string` | `""` | no |
 
 ## Outputs
@@ -85,6 +88,8 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="output_cluster_id"></a> [cluster\_id](#output\_cluster\_id) | Resource ID of the cluster. |
 | <a name="output_cluster_name"></a> [cluster\_name](#output\_cluster\_name) | AKS cluster name. Maps to the cross-cloud output contract 'cluster\_name'. |
 | <a name="output_host"></a> [host](#output\_host) | Kubernetes API server host. |
+| <a name="output_identity_name"></a> [identity\_name](#output\_identity\_name) | Name of the control-plane user-assigned identity (create mode), or empty in connect mode. |
+| <a name="output_identity_principal_id"></a> [identity\_principal\_id](#output\_identity\_principal\_id) | Principal id of the control-plane user-assigned identity (create mode), or empty in connect mode. |
 | <a name="output_kubelet_identity_object_id"></a> [kubelet\_identity\_object\_id](#output\_kubelet\_identity\_object\_id) | Kubelet identity object id (granted AcrPull for node image pulls). |
 | <a name="output_node_resource_group"></a> [node\_resource\_group](#output\_node\_resource\_group) | Auto-managed node resource group (MC\_*). |
 | <a name="output_oidc_issuer_url"></a> [oidc\_issuer\_url](#output\_oidc\_issuer\_url) | OIDC issuer URL for Entra Workload Identity federated credentials (feeds modules/azure/workload-identity). |

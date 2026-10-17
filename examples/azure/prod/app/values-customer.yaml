@@ -1,0 +1,37 @@
+# The settings you choose. It must not contain global.infra: those values come
+# from the infra folder, and the chart rejects a file that sets them. Shared
+# settings sit under global. A block named after a service sets that service's
+# size.
+
+global:
+  adminEmail: platform-admin@acme.example
+
+  tenant:
+    name: acme
+
+  edge:
+    mode: loadbalancer                # matches edge_mode in infra/terragrunt.hcl
+    exposure: internal                # reachable only from your network
+    tls:
+      secretName: autoheal-tls        # your certificate, synced from Key Vault
+
+  llm:
+    provider: azure-openai
+    endpoint: https://acme-openai.openai.azure.com
+    model: gpt-5-mini
+    apiKeyVaultEntry: llm-api-key     # the name of the vault entry, not the key
+
+  sso:
+    enabled: true
+    issuer: https://login.microsoftonline.com/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/v2.0
+    clientId: "abcdabcd-1234-5678-9abc-def012345678"
+    clientSecretVaultEntry: sso-client-secret   # pass TF_VAR_sso_client_secret to the infra folder
+
+  imageRegistry: ""                   # empty means pull from the public registry
+
+# Per service: size only. The chart defaults suit production; these add workers.
+agents-py-worker:
+  replicaCount: 3
+  resources:
+    requests: { cpu: "1", memory: 2Gi }
+    limits: { memory: 4Gi }

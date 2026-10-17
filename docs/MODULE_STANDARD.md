@@ -6,7 +6,12 @@ does not meet this bar should not merge.
 ## 1. Repo shape: monorepo of modules + compositions
 
 - `modules/<cloud>/<name>/` — one concern each, reusable, cloud-scoped.
-- `compositions/<cloud>-byoc/` — wire modules into the full Autoheal stack.
+- `compositions/<cloud>/`: wire modules into the Autoheal infrastructure for one
+  cloud, for every case (create, bring, mixed). `compositions/aws-byoc` keeps its
+  1.x name until it moves to this shape.
+- `compositions/app/`: installs the chart on any cloud from the infra
+  composition's outputs. The only composition with the `helm` and `kubernetes`
+  providers.
 - Consumers run compositions, never raw modules.
 
 ## 2. Naming and tagging: one shared label base
@@ -112,24 +117,37 @@ terraform {
 
 ## 8. The output contract (cross-cloud)
 
-`compositions/aws-byoc` and `compositions/azure-byoc` **must emit the same output
-names** so the Autoheal app install is cloud-agnostic and GKE can drop in later:
+Every 2.x infra composition emits the same output names, so `compositions/app`
+and the chart do not care which cloud built the cluster:
 
 | Output | Meaning |
 |--------|---------|
-| `cluster_name`     | AKS/EKS cluster name |
-| `postgres_host`    | PostgreSQL FQDN |
-| `redis_endpoint`   | Redis endpoint — AWS only. Azure `azure-byoc` runs Redis in-cluster (app Helm chart) and omits this; `azure-byoc-connect` still emits it for bring-your-own managed Redis. |
-| `object_store`     | Blob container / S3 bucket |
-| `secret_store_uri` | Key Vault URI / SM ARN prefix |
-| `registry`         | ACR login server / ECR registry |
-| `runner_identity`  | runner workload identity (client id / role arn) |
+| `autoheal_values`           | The chart's infra values as an object: `global.infra` facts, suggested `global.addons`, `global.secrets`, `global.edge` and `global.imageRegistry`, and the Temporal and Zitadel copies. Shape versioned by `global.infra.version`. |
+| `autoheal_values_yaml`      | The same values as YAML, for a Helm or Flux install. |
+| `cluster`                   | `cloud`, `name`, `endpoint`, base64 `ca_certificate`, and `resource_group` (Azure) or `region` (AWS). No credential. |
+| `required_role_assignments` | Grants an administrator must make when the composition makes none. |
+| `required_dns_records`      | DNS records a person must create when the composition creates none. |
+| `network`                   | The network Autoheal runs in. Azure: `vnet_id`, `vnet_name`, `resource_group_name`, `address_space`, `aks_subnet_id`, `runner_subnet_id`, `private_endpoint_subnet_id`. AWS will emit the VPC equivalents. |
+
+None of them may hold a secret. Bump `global.infra.version` (the
+`infra_contract_version` local) when the shape of `global.infra` changes.
+
+`compositions/aws-byoc` still emits the 1.x contract (`cluster_name`,
+`postgres_host`, `redis_endpoint`, `object_store`, `secret_store_uri`,
+`registry`, `runner_identity`) until it moves to 2.x.
 
 ## 9. Secrets
 
-- No secrets in variables or state. Secrets live in Key Vault / Secrets Manager.
+- Secrets live in Key Vault / Secrets Manager. The compositions generate the
+  install's secrets (database passwords, signing keys) and write them there in
+  the same apply, so those values are in state: state must be in an encrypted,
+  access-controlled backend (section 11).
+- Secrets passed in (an LLM key, a brought server's admin password) are
+  `sensitive` variables, set from the pipeline's secret store as `TF_VAR_*`,
+  never in a committed file.
+- No output carries a secret. Anything sensitive that must be output is marked
+  `sensitive`.
 - `detect-secrets` + `.secrets.baseline` in pre-commit.
-- Outputs carrying anything sensitive are marked `sensitive`.
 
 ## 10. CI gates (every PR)
 
@@ -138,8 +156,13 @@ names** so the Autoheal app install is cloud-agnostic and GKE can drop in later:
 
 ## 11. Remote state
 
-Compositions configure a `remote_state` backend (Azure Storage container /
-S3 + DynamoDB lock). State is never laptop-local for a real install.
+State lives in a remote backend (Azure Storage container / S3 + DynamoDB lock),
+never on a laptop for a real install. Compositions do not commit a `backend.tf`:
+the caller generates it, for example with Terragrunt `remote_state` and
+`generate` (`examples/azure/root.hcl`). That keeps `compositions/app` usable on
+any cloud and lets Terragrunt write the file without a conflict.
+`compositions/aws-byoc` keeps its 1.x partial `backend "s3" {}` block until it
+moves to 2.x.
 
 ## 12. Versioning
 

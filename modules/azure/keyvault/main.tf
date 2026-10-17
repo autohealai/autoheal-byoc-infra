@@ -1,13 +1,14 @@
-# Key Vault, RBAC mode. The AWS analogue is modules/aws/secrets-manager. ESO reads
-# these secrets via its own dedicated, least-scoped identity (modules/azure/
-# external-secrets grants that identity Key Vault Secrets User — NOT the app
-# identity). The ClusterSecretStore + ExternalSecrets are in-cluster objects wired
-# by the app/install layer, which consumes the composition's eso_* outputs.
+# Key Vault, RBAC mode. The AWS analogue is modules/aws/secrets-manager. In-cluster
+# workloads read these secrets through the Key Vault CSI driver using a dedicated
+# workload identity (modules/azure/secrets-identity grants it Key Vault Secrets
+# User). The composition writes the secret entries itself, so it can write to a
+# vault this module created or to one the customer brought.
 #
-# RBAC mode means the principal running Terraform needs a data-plane role to seed
-# secrets, so we grant the deployer Key Vault Secrets Officer. The seed secrets
-# depend on that assignment; Azure RBAC propagation can lag a few seconds, so a
-# first apply may need one retry if it races (documented, not worked around).
+# RBAC mode means the principal running Terraform needs a data-plane role to write
+# secrets, so by default we grant the deployer Key Vault Secrets Officer. Azure RBAC
+# propagation can lag a few seconds, so a first apply may need one retry if it races
+# (documented, not worked around). Set deployer_role_enabled = false when the
+# deployer cannot create role assignments and an admin grants the role instead.
 #
 # Vault names allow dashes but cap at 24 chars, so we truncate the label id;
 # name_override forces an exact name when a fixed convention is required.
@@ -27,9 +28,9 @@ resource "azurerm_key_vault" "this" {
   soft_delete_retention_days = var.soft_delete_retention_days
   tags                       = module.this.tags
 
-  # Firewall: default-deny. ESO reads secrets over a private endpoint, so the public
-  # path stays closed. bypass=AzureServices admits trusted Azure platform services;
-  # allowed_ip_ranges opens the apply host's public IP so the deployer can seed
+  # Firewall: default-deny. The CSI driver reads secrets over a private endpoint, so
+  # the public path stays closed. bypass=AzureServices admits trusted Azure platform services;
+  # allowed_ip_ranges opens the apply host's public IP so the deployer can write
   # secrets over the data plane (RBAC-mode vaults enforce data-plane access, which
   # default_action=Deny would otherwise block). Set network_default_action=Allow
   # only for throwaway/playground vaults with no private endpoint.
@@ -41,18 +42,24 @@ resource "azurerm_key_vault" "this" {
 }
 
 resource "azurerm_role_assignment" "deployer" {
+  count                = var.deployer_role_enabled ? 1 : 0
   scope                = azurerm_key_vault.this.id
   role_definition_name = "Key Vault Secrets Officer"
   principal_id         = var.deployer_object_id
 }
 
-# for_each over the secret NAMES (not the sensitive map itself — a sensitive value
-# cannot key resource instances). Names are not secret; values stay sensitive.
-resource "azurerm_key_vault_secret" "seed" {
-  for_each     = nonsensitive(toset(keys(var.secrets)))
-  name         = each.value
-  value        = var.secrets[each.value]
-  key_vault_id = azurerm_key_vault.this.id
+moved {
+  from = azurerm_role_assignment.deployer
+  to   = azurerm_role_assignment.deployer[0]
+}
 
-  depends_on = [azurerm_role_assignment.deployer]
+# v1 seeded secrets from this module. v2 writes all entries from the composition.
+# Forget the v1 seed resources without deleting the secrets from the vault, so an
+# upgrade never removes a value a running install still reads.
+removed {
+  from = azurerm_key_vault_secret.seed
+
+  lifecycle {
+    destroy = false
+  }
 }

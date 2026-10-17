@@ -27,7 +27,7 @@ variable "kubernetes_version" {
 variable "vnet_id" {
   type        = string
   default     = ""
-  description = "VNet id the control-plane UAMI gets Network Contributor on (create mode, custom VNet)."
+  description = "Scope the control-plane UAMI gets Network Contributor on (create mode, custom VNet): the VNet ID, or the node subnet ID when the network belongs to someone else."
 }
 
 variable "vnet_subnet_id" {
@@ -100,4 +100,22 @@ variable "acr_pull_enabled" {
   type        = bool
   default     = true
   description = "Grant the kubelet identity AcrPull on var.acr_id. Plan-time bool: acr_id is usually a computed ACR id (module.acr.acr_id), which cannot gate count directly — so a composition that creates its ACR must gate on this instead. Set false (with acr_id empty) for pull-through / public-registry clusters."
+}
+
+variable "entra_integration_enabled" {
+  type        = bool
+  default     = true
+  description = "Turn on Entra (AAD) integration with Azure RBAC so clients log in with kubelogin. Default true. Local accounts stay enabled unless admin_group_object_ids is set."
+}
+
+variable "key_vault_secrets_provider_enabled" {
+  type        = bool
+  default     = true
+  description = "Enable the Key Vault secrets provider (CSI driver) add-on, which the chart uses to read the vault."
+}
+
+variable "secret_rotation_interval" {
+  type        = string
+  default     = "2m"
+  description = "How often the CSI driver polls the vault for changed secrets."
 }

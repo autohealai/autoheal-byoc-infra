@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# bootstrap-state-azure.sh — create the Azure remote-state backend for a BYOC install.
+# bootstrap-state-azure.sh: create the Azure remote-state backend for a BYOC install.
 #
 # Terragrunt stores its state in an Azure Storage container, but Terraform cannot
 # create the account that holds its own state (chicken-and-egg). Run this ONCE,
@@ -15,8 +15,10 @@
 #     --location       centralus \
 #     [--container     tfstate]
 #
-# The three names must match the `remote_state.config` block in your
-# examples/<name>/terragrunt.hcl. See docs/CONSUMING.md.
+# The three names must match the remote_state config block in your root.hcl
+# (examples/azure/root.hcl). That block sets use_azuread_auth = true, so the
+# script also grants the signed-in identity Storage Blob Data Contributor on the
+# account: Terraform reads and writes state with Entra ID, not the account key.
 
 set -euo pipefail
 
@@ -55,7 +57,7 @@ command -v az >/dev/null || die "az CLI not found on PATH"
 
 echo "==> subscription $SUBSCRIPTION"
 az account set --subscription "$SUBSCRIPTION" \
-  || die "cannot select subscription — run 'az login' and confirm access"
+  || die "cannot select subscription; run 'az login' and confirm access"
 
 # 1. Resource group ---------------------------------------------------------
 if [[ "$(az group exists --name "$RESOURCE_GROUP")" == "true" ]]; then
@@ -71,7 +73,7 @@ fi
 if az storage account show --name "$STORAGE_ACCOUNT" --resource-group "$RESOURCE_GROUP" -o none 2>/dev/null; then
   echo "==> storage account $STORAGE_ACCOUNT already exists"
 elif [[ "$(az storage account check-name --name "$STORAGE_ACCOUNT" --query nameAvailable -o tsv)" != "true" ]]; then
-  die "storage account name '$STORAGE_ACCOUNT' is already taken (global namespace) — pick another"
+  die "storage account name '$STORAGE_ACCOUNT' is already taken (global namespace); pick another"
 else
   echo "==> creating storage account $STORAGE_ACCOUNT"
   az storage account create \
@@ -83,7 +85,7 @@ else
     --min-tls-version TLS1_2 \
     --allow-blob-public-access false \
     -o none
-  # Blob versioning gives state-file history — cheap insurance against a bad apply.
+  # Blob versioning gives state-file history, a cheap guard against a bad apply.
   az storage account blob-service-properties update \
     --account-name "$STORAGE_ACCOUNT" \
     --resource-group "$RESOURCE_GROUP" \
@@ -108,15 +110,41 @@ else
     -o none
 fi
 
+# 4. Data access for the signed-in identity -----------------------------------
+# use_azuread_auth = true in root.hcl: state is read and written with Entra ID,
+# which needs a data role. Owner alone has none.
+ACCOUNT_ID="$(az storage account show --name "$STORAGE_ACCOUNT" --resource-group "$RESOURCE_GROUP" --query id -o tsv)"
+if [[ "$(az account show --query user.type -o tsv)" == "user" ]]; then
+  PRINCIPAL_ID="$(az ad signed-in-user show --query id -o tsv)"
+  PRINCIPAL_TYPE="User"
+else
+  PRINCIPAL_ID="$(az ad sp show --id "$(az account show --query user.name -o tsv)" --query id -o tsv)"
+  PRINCIPAL_TYPE="ServicePrincipal"
+fi
+if [[ -n "$(az role assignment list --assignee "$PRINCIPAL_ID" --scope "$ACCOUNT_ID" --role "Storage Blob Data Contributor" --query '[0].id' -o tsv)" ]]; then
+  echo "==> Storage Blob Data Contributor already granted to $PRINCIPAL_ID"
+else
+  echo "==> granting Storage Blob Data Contributor on $STORAGE_ACCOUNT to $PRINCIPAL_ID"
+  az role assignment create \
+    --assignee-object-id "$PRINCIPAL_ID" \
+    --assignee-principal-type "$PRINCIPAL_TYPE" \
+    --role "Storage Blob Data Contributor" \
+    --scope "$ACCOUNT_ID" \
+    -o none
+  echo "    (a new grant can take a few minutes to apply; retry init if it returns 403)"
+fi
+
 cat <<DONE
 
-State backend ready. Put these in your terragrunt.hcl remote_state.config:
+State backend ready. Put these in the remote_state config block of root.hcl:
 
   resource_group_name  = "$RESOURCE_GROUP"
   storage_account_name = "$STORAGE_ACCOUNT"
   container_name       = "$CONTAINER"
 
-Next:
-  cd examples/<your-copy>
-  terragrunt init && terragrunt plan && terragrunt apply
+A pipeline identity other than you also needs Storage Blob Data Contributor on
+$ACCOUNT_ID.
+
+Next, from your copy of examples/azure:
+  cd prod/infra && terragrunt plan
 DONE

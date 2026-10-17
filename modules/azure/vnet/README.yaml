@@ -5,7 +5,9 @@ description: |-
   purpose-built subnets (AKS nodes, PG-delegated, private endpoints, runner VMSS),
   a NAT gateway for runner egress, the PostgreSQL
   Flexible Server private DNS zone, and optional privatelink DNS zones for Blob,
-  Key Vault, and AI Foundry / Azure OpenAI.
+  Key Vault, and AI Foundry / Azure OpenAI. When temporal_ip is set, an NSG on
+  the AKS subnet lets only the runner subnet reach that address on ports 7233
+  (Temporal) and 8083 (the api-server-go internal listener for tool results).
 
   The AWS analogue is modules/aws/vpc. Naming and tags follow the repo's
   null-label convention (see label.tf and docs/MODULE_STANDARD.md).

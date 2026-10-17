@@ -6,6 +6,195 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+2.0.0, Azure first. `compositions/aws-byoc` and the AWS modules are unchanged.
+
+### Added
+- `compositions/azure`: one Azure composition for every case. Each building
+  block (resource group, network, cluster, Postgres, Redis, storage, registry,
+  Key Vault) takes an optional `existing_*` ID: empty means we create it, set
+  means we read it with a data source and never change it. Impossible mixes stop
+  the plan with plain messages (`validation.tf`).
+- `compositions/azure`: `hostname`, `auth_hostname`, `auth_app_hostname`,
+  `edge_mode` (`loadbalancer`, `gateway-api`, `istio`, `ingress`, `none`) and
+  `edge_address`. DNS A records for the three hostnames in an existing zone
+  (`existing_dns_zone_id`), or the `required_dns_records` output with
+  `create_dns_records = false`. We never create the zone.
+- `compositions/azure`: reserved internal addresses for Temporal and, in
+  `loadbalancer` mode, the proxy. Computed in a network we create, taken from
+  `existing_network.temporal_ip` and `proxy_ip` in a brought one.
+- `compositions/azure`: the runner VMs (`modules/azure/runner-vmss`) in the same
+  apply, pulling `<registry>/app/runner-go:chart-<autoheal_version>`. The
+  registry is the composition's ACR when there is one, else
+  `public.ecr.aws/e4h3h0d9`. `runner_image_repository` and `runner_image_tag`
+  override the repository and the tag. The runners
+  post sandbox tool results to
+  `http://<temporal_ip>:8083/api/v1/internal/sandbox-tool-responses`, the
+  api-server-go internal listener the chart puts on the Temporal address.
+- `modules/azure/runner-vmss`: `tool_response_callback_url`, written to the
+  runner's environment as `SANDBOX_TOOL_RESPONSE_CALLBACK_URL`.
+- `modules/azure/vnet`: `temporal_ip`. When set, an NSG on the AKS subnet lets
+  only the runner subnet reach that address on 7233 and 8083, and denies the
+  two ports there from every other source. The composition sets it in a network
+  it creates. Outputs `aks_nsg_id` and `aks_nsg_name`.
+- `compositions/azure`: one workload identity per chart role (secrets,
+  api-server, agents-worker), federated to the chart's service accounts
+  (`service_accounts`). The secrets identity is federated to `autoheal-hooks`
+  only, the service account of the chart's secrets-sync hook Job and CronJob.
+- `compositions/azure`: every secret the chart reads is generated or passed in
+  and written to the vault in the same apply, under the names in the chart's
+  `docs/secrets.md`. Entries: `postgres-admin-password`,
+  `api-server-db-password`, `agents-db-password`, `temporal-db-password`,
+  `zitadel-db-password`, `api-server-database-url`, `api-server-jwt-secret`,
+  `zitadel-master-key`, `auth-app-session-secret`, `first-admin-password`,
+  `oauth-encryption-key`, `oauth-state-signing-key`,
+  `tool-response-server-secret`, and when they apply `redis-access-key`,
+  `api-server-redis-url`, `llm-api-key`, `sso-client-secret`, `tls-certificate`,
+  `tls-private-key`, `edge-ca-certificate`, `github-app-private-key`,
+  `github-app-webhook-secret`. New sensitive inputs: `postgres_admin_password`
+  (required with `existing_postgres_id`), `llm_api_key`, `sso_client_secret`,
+  `tls_certificate`, `github_app_private_key`, `github_app_webhook_secret`; and
+  `edge_ca_certificate`. A generated runner SSH key stays in the state and is
+  not written to the vault.
+- `compositions/azure`: a runtime Key Vault for the integration credentials
+  api-server-go stores (`SECRET_MANAGER_PROVIDER=azurekeyvault`), separate from
+  the install vault so the api-server identity cannot read install secrets.
+  Azure RBAC, same firewall and private endpoint as the install vault. The
+  api-server identity gets Key Vault Secrets Officer on it. New inputs:
+  `existing_runtime_key_vault_id`, `runtime_key_vault_soft_delete_retention_days`
+  (default 90) and `runtime_key_vault_purge_protection_enabled` (default: the
+  install vault's setting). `autoheal_values` gains
+  `global.infra.runtimeSecrets = { kind = "azurekeyvault", vaultURL }`.
+- `compositions/azure`: with a registry, `autoheal_values` suggests
+  `global.imageRegistry` (the login server) and the matching Temporal and Zitadel
+  image repositories under `<login server>/external/`, which the chart's
+  validation requires.
+- `compositions/azure`: `create_role_assignments`. With `false` no grant is
+  made; the `required_role_assignments` output lists them for an administrator
+  and the apply stops, naming the missing workload grants, until they exist.
+- `compositions/azure` outputs: `autoheal_values` and `autoheal_values_yaml` (the
+  chart's infra values: `global.infra`, the suggested `global.addons`,
+  `global.secrets`, `global.edge` and `global.imageRegistry`, and the Temporal
+  and Zitadel copies),
+  `cluster`, `required_role_assignments`, `required_dns_records`, `network`
+  (VNet and subnet IDs and the address space).
+- `compositions/app`: installs the chart with one `helm_release` from the infra
+  composition's `autoheal_values` and the customer's `values-customer.yaml`,
+  atomic with wait. Logs in with `kubelogin` on AKS and `aws eks get-token` on
+  EKS. `chart_repository` takes the public OCI registry (default), an HTTPS
+  repository or a local chart path.
+- `modules/azure/managed-redis`: Azure Managed Redis with public access off.
+- `modules/azure/dns`: A records in an existing public or private zone.
+- `modules/azure/aks`: `entra_integration_enabled` and
+  `key_vault_secrets_provider_enabled` (both default `true`).
+- `examples/azure`: a deployment repository with `root.hcl` (generated azurerm
+  backend, Entra ID auth), `prod/versions.hcl`, `prod/infra` and `prod/app`.
+- `scripts/bootstrap-state-azure.sh`: grants the signed-in identity Storage Blob
+  Data Contributor on the state account, which `use_azuread_auth` needs.
+- `tofu test` / `terraform test` suites for both compositions, passing on
+  Terraform 1.9 and OpenTofu 1.11.
+
+### Changed
+- `modules/azure/external-secrets` is renamed `modules/azure/secrets-identity`.
+  It is federated to the chart's service accounts and read by the Key Vault CSI
+  driver; `role_assignment_enabled = false` leaves the grant to an administrator.
+- `modules/azure/keyvault`: no longer seeds entries; the composition writes them.
+- `modules/azure/runner-vmss`: `acr_id` and `acr_name` are optional. Without
+  `acr_name` the VMs pull public images and install no Azure CLI.
+  `acr_pull_enabled` gates the grant. The runner unit retries the image pull
+  with a backoff (15 seconds, doubling up to 5 minutes) until it succeeds, with
+  no systemd start limit, so the image can be pushed after the VMs boot.
+- The runner image moves from `<registry>/runner-go` to
+  `<registry>/app/runner-go`, the chart's image layout.
+- Compositions ship without `backend.tf`. The caller generates it (Terragrunt
+  `remote_state` with `generate`), so one `compositions/app` serves both clouds.
+- `required_version` of the compositions is `>= 1.7`; `azurerm` is `~> 4.50`.
+
+### Removed
+- `compositions/azure-byoc` and `compositions/azure-byoc-connect` (replaced by
+  `compositions/azure`), with `examples/azure-byoc` and
+  `examples/azure-byoc-connect` (replaced by `examples/azure`).
+- The v1 Azure output contract (`cluster_name`, `postgres_host`,
+  `object_store`, `secret_store_uri`, `registry`, `runner_identity`,
+  `blob_endpoint`, `eso_*`, `kube_host` and the rest). The chart reads
+  `autoheal_values`.
+
+### Fixed
+- `modules/azure/runner-vmss`: the cloud-init step that writes the host's docker
+  group ID into the runner unit was parsed as a YAML mapping (because of
+  `cut -d: -f3`) and skipped, so `docker run --group-add __DOCKER_GID__`
+  failed. The step is now a quoted string.
+- `modules/azure/blob`: a `/32` entry in `allowed_ip_ranges` is written to the
+  storage firewall as the bare address. Azure Storage rejects `/31` and `/32`,
+  so `deployer_ip_ranges = ["203.0.113.10/32"]` failed the plan before. A `/31`
+  entry now fails the module's input check with a plain message.
+- `modules/azure/aks`: the system node pool declares `upgrade_settings` with a
+  10% max surge, which AKS sets on a new pool. Without it, every plan after the
+  first apply tried to remove the block. A cluster that has another max surge
+  moves to 10% on its next apply.
+- `modules/azure/vnet`: the Postgres subnet ignores `service_endpoints`. Azure
+  Database for PostgreSQL adds a `Microsoft.Storage` endpoint to its delegated
+  subnet when the server is created, and every later plan tried to remove it.
+- `compositions/azure`: the runner scale set uses `upgrade_mode = "Manual"`.
+  With `Automatic` and the `latest` image, any runner change (a new image tag,
+  a new setting) made the provider start a rolling OS upgrade. That needs a
+  health probe the scale set does not have, so the apply failed with
+  `MaxUnhealthyInstancePercentExceededBeforeRollingUpgrade`. With `Manual` the
+  provider updates and reimages each instance in the same apply. Changing the
+  mode replaces the scale set once; the runners are stateless.
+- `modules/azure/runner-vmss`: runner-go can pull the sandbox image from the
+  ACR. The login file it reads was a copy of the host's docker login, which
+  keeps the ACR token in `identitytoken` and leaves the password in `auth`
+  empty. runner-go reads only `auth`, so ACR answered `authentication required`
+  and no sandbox started on a new VM. `acr-login.sh` now writes the token as
+  the password of the user `00000000-0000-0000-0000-000000000000`.
+
+### Upgrading from 1.x
+`compositions/azure/moved.tf` moves the state of both v1 compositions. Point the
+folder's `source` at `compositions/azure`, set the inputs below, and read the
+plan before applying: it must not replace the cluster, the Postgres server, the
+storage account or the vault.
+
+- New required inputs: `hostname`, `autoheal_version`.
+- From `azure-byoc`:
+  - `address_space = ["10.60.0.0/16"]` becomes `network_cidr = "10.60.0.0/16"`.
+  - `node_vm_size`, `node_min_count`, `node_max_count` and `postgres_sku_name`
+    become `aks_node_size`, `aks_node_count`, `aks_node_max_count` and
+    `postgres_sku`.
+  - `federated_service_accounts` becomes `service_accounts`.
+  - Set `storage_container_name = "attachments"`; the new default `autoheal`
+    would replace the container.
+  - Set `create_registry = true` to keep the registry. 2.0 creates none by
+    default; the images come from the public registry.
+  - Redis was in-cluster in 1.x. 2.0 creates Azure Managed Redis unless
+    `redis_enabled = false`.
+  - The cluster gets Entra integration with Azure RBAC and the Key Vault CSI
+    driver add-on, in place. The deployer then needs a Kubernetes role; 2.0
+    grants itself Azure Kubernetes Service RBAC Cluster Admin.
+  - Destroy the separate v1 runner apply (`modules/azure/runner-vmss`) after the
+    upgrade; the composition now runs the runner.
+  - The plan adds an NSG on the AKS subnet. Ports 7233 and 8083 on the Temporal
+    address then answer only the runner subnet.
+  - The plan adds the runtime vault, its private endpoint and the api-server
+    grant on it. To use a vault you already have, set
+    `existing_runtime_key_vault_id`.
+  - With `create_registry = true` the runner image path becomes
+    `<login server>/app/runner-go`. Copy the images to `app/` and `external/` in
+    the registry before the upgrade, or set `runner_image_repository`.
+- From `azure-byoc-connect`: the name inputs become IDs. `aks_cluster_name`,
+  `postgres_server_name`, `redis_cache_name`, `storage_account_name`,
+  `key_vault_name` and `acr_name` become `existing_aks_cluster_id`,
+  `existing_postgres_id`, `existing_redis_id`, `existing_storage_account_id`,
+  `existing_key_vault_id` and `existing_acr_id`; `resource_group_name` becomes
+  `existing_resource_group_id`. Also set `existing_network` and
+  `postgres_admin_password`. `seed_secrets_enabled`, `additional_secrets` and
+  `grant_app_acr_pull` are gone.
+- Identities: the v1 app and External Secrets identities move to the
+  api-server and secrets identities. Their names change, so both are replaced
+  and get new client IDs, which reach the chart through `autoheal_values`.
+- Vault entries: the v1 seeded entries are forgotten, not deleted, so a running
+  1.x install keeps working until the chart upgrade. Delete them by hand
+  afterwards.
+
 ## [1.4.0] - 2026-10-16
 
 ### Added

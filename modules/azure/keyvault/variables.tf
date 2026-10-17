@@ -24,14 +24,13 @@ variable "tenant_id" {
 
 variable "deployer_object_id" {
   type        = string
-  description = "Object id of the principal running Terraform. Granted Key Vault Secrets Officer so the apply can seed secrets (RBAC-mode vaults enforce data-plane RBAC)."
+  description = "Object id of the principal running Terraform. Granted Key Vault Secrets Officer when deployer_role_enabled is true, so the apply can write secrets (RBAC-mode vaults enforce data-plane RBAC)."
 }
 
-variable "secrets" {
-  type        = map(string)
-  default     = {}
-  sensitive   = true
-  description = "Secret name -> value to seed (e.g. the generated PG password). ESO syncs these into the cluster."
+variable "deployer_role_enabled" {
+  type        = bool
+  default     = true
+  description = "Grant deployer_object_id Key Vault Secrets Officer on the vault. Set false when the deployer cannot create role assignments; an admin must then grant the role before secrets can be written."
 }
 
 variable "purge_protection_enabled" {
@@ -65,5 +64,5 @@ variable "network_default_action" {
 variable "allowed_ip_ranges" {
   type        = list(string)
   default     = []
-  description = "Public IPs/CIDRs allowed through the vault firewall when default_action=Deny (e.g. the Terraform apply host, which seeds secrets over the data plane)."
+  description = "Public IPs/CIDRs allowed through the vault firewall when default_action=Deny (e.g. the Terraform apply host, which writes secrets over the data plane)."
 }

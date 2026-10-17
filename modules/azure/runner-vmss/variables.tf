@@ -40,6 +40,17 @@ variable "temporal_host" {
   description = "Temporal frontend host:port the runner polls, e.g. 10.60.15.253:7233 (the reserved internal address of the Temporal load balancer)."
 }
 
+variable "tool_response_callback_url" {
+  type        = string
+  default     = ""
+  description = "URL the runner posts sandbox tool results to, set as SANDBOX_TOOL_RESPONSE_CALLBACK_URL: the api-server-go internal listener, e.g. http://10.60.15.253:8083/api/v1/internal/sandbox-tool-responses. Empty leaves it unset and tool results go through Temporal only."
+
+  validation {
+    condition     = var.tool_response_callback_url == "" || can(regex("^https?://[^\\s]+$", var.tool_response_callback_url))
+    error_message = "tool_response_callback_url must be empty or an http(s) URL."
+  }
+}
+
 variable "runner_image" {
   type        = string
   description = "Fully qualified runner-go image, e.g. public.ecr.aws/e4h3h0d9/runner-go:chart-1.0.0."

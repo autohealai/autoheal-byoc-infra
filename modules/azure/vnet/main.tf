@@ -2,6 +2,8 @@
 # modules/aws/vpc. Provides:
 #   - VNet + four subnets: AKS nodes, PG-delegated, private endpoints, runner.
 #   - A NAT gateway for the runner subnet (runner VMSS has no public IP).
+#   - When temporal_ip is set, an NSG on the AKS subnet that lets only the runner
+#     subnet reach that address on 7233 (Temporal) and 8083 (tool results).
 #   - PostgreSQL Flexible Server private DNS zone (pre-created + VNet-linked;
 #     inline creation trips a "server name + zone suffix" validation).
 #   - Optional privatelink DNS zones for Blob / Key Vault / AI Foundry.
@@ -59,6 +61,50 @@ resource "azurerm_subnet" "runner" {
   resource_group_name  = var.resource_group_name
   virtual_network_name = azurerm_virtual_network.this.name
   address_prefixes     = [var.subnet_runner_prefix]
+}
+
+# The Temporal load balancer address also carries the api-server-go internal
+# listener on 8083, which takes sandbox tool results and checks an HMAC key on
+# each result but not the caller. Only the runner subnet may reach either port
+# on that address; every other source is denied. Other traffic to the AKS
+# subnet keeps the default rules (VNet and Azure load balancer allowed). In-
+# cluster callers use the Kubernetes services and do not cross this NSG.
+resource "azurerm_network_security_group" "aks" {
+  count               = var.temporal_ip == "" ? 0 : 1
+  name                = "${module.this.id}-aks-nsg"
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  tags                = module.this.tags
+
+  security_rule {
+    name                       = "allow-runner-to-temporal-address"
+    priority                   = 100
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    source_address_prefix      = var.subnet_runner_prefix
+    destination_address_prefix = var.temporal_ip
+    destination_port_ranges    = ["7233", "8083"]
+  }
+
+  security_rule {
+    name                       = "deny-others-to-temporal-address"
+    priority                   = 110
+    direction                  = "Inbound"
+    access                     = "Deny"
+    protocol                   = "*"
+    source_port_range          = "*"
+    source_address_prefix      = "*"
+    destination_address_prefix = var.temporal_ip
+    destination_port_ranges    = ["7233", "8083"]
+  }
+}
+
+resource "azurerm_subnet_network_security_group_association" "aks" {
+  count                     = var.temporal_ip == "" ? 0 : 1
+  subnet_id                 = azurerm_subnet.aks.id
+  network_security_group_id = azurerm_network_security_group.aks[0].id
 }
 
 # Outbound egress for the runner subnet. The runner VMSS is created with no public

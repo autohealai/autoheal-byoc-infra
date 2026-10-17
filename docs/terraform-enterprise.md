@@ -17,7 +17,7 @@ input to the resource ID, and the composition only reads it:
 | You bring | Set |
 | --- | --- |
 | Nothing | `network_cidr` (the composition creates the network, AKS, Postgres, Redis, storage, Key Vault and the registry) |
-| Your network | `existing_network` (subnet IDs and two free addresses in the AKS subnet) |
+| Your network | `existing_network` (subnet IDs and two free addresses in the AKS subnet). Allow ports 7233 and 8083 on the Temporal address from the runner subnet only. |
 | Your resource group | `existing_resource_group_id` |
 | Your cluster, database, cache, storage, vault or registry | `existing_aks_cluster_id`, `existing_postgres_id`, `existing_redis_id`, `existing_storage_account_id`, `existing_key_vault_id`, `existing_acr_id` |
 | Role grants made by your administrators | `create_role_assignments = false` |
@@ -215,6 +215,11 @@ These variables are secrets. Tick **Sensitive** for each:
 | `postgres_admin_password` | `postgres-admin-password` | Only with `existing_postgres_id`. For a server the composition creates, it generates the password. |
 | `sso_client_secret` | `sso-client-secret` | When SSO is on |
 | `tls_certificate` | `tls-certificate`, `tls-private-key` | When the edge serves your own certificate. HCL: `{ certificate = "<PEM chain>", private_key = "<PEM>" }` |
+| `github_app_private_key` | `github-app-private-key` | When you connect a GitHub App. Paste the PEM; Terraform stores it base64-encoded. |
+| `github_app_webhook_secret` | `github-app-webhook-secret` | When you connect a GitHub App |
+
+When a private CA signed your certificate, also set `edge_ca_certificate` (not
+sensitive) to the CA's PEM certificate. It is stored as `edge-ca-certificate`.
 
 For a production install, also set these variables:
 
@@ -287,6 +292,7 @@ Open the workspace **Outputs** tab:
 | `cluster` | The cluster name, resource group, endpoint and CA certificate. |
 | `required_role_assignments` | Grants your administrators must make. Empty when `create_role_assignments = true`. |
 | `required_dns_records` | DNS records a person must create. Empty when Terraform creates them. |
+| `network` | The VNet and subnet IDs and the address space, for peering, firewall rules or a VPN. |
 
 None of the outputs holds a secret.
 

@@ -23,6 +23,9 @@ write_files:
       LOG_LEVEL=info
       LOG_FORMAT=json
       SANDBOX_WORKER_DEPLOYMENT_NAME=sandbox
+%{ if tool_response_callback_url != "" ~}
+      SANDBOX_TOOL_RESPONSE_CALLBACK_URL=${tool_response_callback_url}
+%{ endif ~}
 %{ if acr_name != "" ~}
   - path: /usr/local/bin/acr-login.sh
     permissions: '0755'
@@ -53,18 +56,43 @@ write_files:
       [Install]
       WantedBy=timers.target
 %{ endif ~}
+  - path: /usr/local/bin/runner-pull.sh
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      # Pull the runner image, retrying until it succeeds. The VMs boot during
+      # the first apply, often before the image is pushed to a new registry, so
+      # a failed pull waits and tries again: 15s, doubling up to 5 minutes. With
+      # a registry login, the credentials are refreshed before each try, which
+      # also covers a role grant that is still propagating.
+      image="$1"
+      acr_name="${acr_name}"
+      delay=15
+      while true; do
+        if [ -n "$acr_name" ]; then /usr/local/bin/acr-login.sh || true; fi
+        /usr/bin/docker pull "$image" && exit 0
+        echo "pull of $image failed, retrying in $delay seconds"
+        sleep "$delay"
+        delay=$(( delay * 2 ))
+        if [ "$delay" -gt 300 ]; then delay=300; fi
+      done
   - path: /etc/systemd/system/runner-go.service
     permissions: '0644'
     content: |
       [Unit]
       Description=Autoheal runner-go (Docker-out-of-Docker sandbox worker)
-      After=docker.service%{ if acr_name != "" } acr-login.service%{ endif }
+      After=docker.service network-online.target%{ if acr_name != "" } acr-login.service%{ endif }
+      Wants=network-online.target
       Requires=docker.service
+      # No start limit: a failed start is retried for as long as it takes.
+      StartLimitIntervalSec=0
       [Service]
       Restart=always
       RestartSec=10
+      # The pull step waits until the image exists, so it has no start timeout.
+      TimeoutStartSec=infinity
       ExecStartPre=-/usr/bin/docker rm -f runner-go
-      ExecStartPre=/usr/bin/docker pull ${runner_image}
+      ExecStartPre=/usr/local/bin/runner-pull.sh ${runner_image}
       # --group-add <docker-gid>: the runner container runs as uid/gid 1000
       # (alpine adduser 'runner'); the host docker.sock is root:docker mode 660,
       # so the runner must join the host docker group to drive the daemon (DooD).
@@ -98,14 +126,20 @@ runcmd:
   - systemctl enable --now docker
 %{ if acr_name != "" ~}
   - systemctl enable --now acr-login.timer
-  - /usr/local/bin/acr-login.sh
+  # May fail while the AcrPull grant propagates; runner-pull.sh logs in again.
+  - /usr/local/bin/acr-login.sh || true
 %{ endif ~}
   # Substitute the host's real docker gid into the runner unit (only known now
   # that docker.io is installed), so the container can access the host socket.
-  - sed -i "s/__DOCKER_GID__/$(getent group docker | cut -d: -f3)/" /etc/systemd/system/runner-go.service
+  # Single-quoted for YAML: a bare "-d: " would turn the item into a mapping,
+  # which cloud-init does not run.
+  - 'sed -i "s/__DOCKER_GID__/$(getent group docker | cut -d: -f3)/" /etc/systemd/system/runner-go.service'
 %{ if sandbox_image != "" ~}
   # Pre-pull the sandbox image so the first investigation doesn't wait on a cold pull
   - docker pull ${sandbox_image} || true
 %{ endif ~}
   - systemctl daemon-reload
-  - systemctl enable --now runner-go.service
+  # --no-block: the start waits in runner-pull.sh until the image exists, which
+  # must not hold up cloud-init.
+  - systemctl enable runner-go.service
+  - systemctl start --no-block runner-go.service

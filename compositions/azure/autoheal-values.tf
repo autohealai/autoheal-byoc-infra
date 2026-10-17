@@ -63,9 +63,11 @@ locals {
       secrets = {
         mode = "keyvault-csi"
       }
-      edge = {
-        mode = var.edge_mode
-      }
+      # The CA entry is suggested only when edge_ca_certificate is set.
+      edge = merge(
+        { mode = var.edge_mode },
+        { for k, v in { tls = { caVaultEntry = "edge-ca-certificate" } } : k => v if var.edge_ca_certificate != "" },
+      )
     }
 
     temporal = {

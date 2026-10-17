@@ -8,6 +8,8 @@
 #                              create_role_assignments = false
 #   required_dns_records       records a person must create, filled only when we
 #                              do not create them
+#   network                    the VNet and subnets Autoheal runs in, created or
+#                              brought
 #
 # None of them holds a secret.
 
@@ -42,4 +44,17 @@ output "required_role_assignments" {
 output "required_dns_records" {
   description = "DNS records a person must create (name, type, value). Filled when create_dns_records = false, or when the address is not known yet (edge_address empty in a mode other than loadbalancer)."
   value       = local.required_dns_records
+}
+
+output "network" {
+  description = "The VNet and subnets Autoheal runs in: vnet_id, vnet_name, resource_group_name, address_space, aks_subnet_id, runner_subnet_id and private_endpoint_subnet_id. For a brought network the VNet is not read, so address_space is empty, and private_endpoint_subnet_id is empty when existing_network.endpoint_subnet_id is."
+  value = {
+    vnet_id                    = local.create_network ? module.vnet[0].vnet_id : local.brought_vnet_id
+    vnet_name                  = local.create_network ? module.vnet[0].vnet_name : try(split("/", local.brought_vnet_id)[8], "")
+    resource_group_name        = local.create_network ? local.rg : try(split("/", local.brought_vnet_id)[4], "")
+    address_space              = local.create_network ? [var.network_cidr] : []
+    aks_subnet_id              = local.aks_subnet_id
+    runner_subnet_id           = local.runner_subnet_id
+    private_endpoint_subnet_id = local.endpoint_subnet_id
+  }
 }

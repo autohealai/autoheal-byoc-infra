@@ -41,6 +41,17 @@ variable "subnet_runner_prefix" {
   description = "Dedicated subnet for the runner VMSS (DooD job runners), isolated from AKS nodes."
 }
 
+variable "temporal_ip" {
+  type        = string
+  default     = ""
+  description = "Reserved internal address of the Temporal load balancer in the AKS subnet. The chart also puts the api-server-go internal listener (port 8083) on it. When set, an NSG on the AKS subnet lets only the runner subnet reach this address on ports 7233 and 8083. Empty creates no NSG."
+
+  validation {
+    condition     = var.temporal_ip == "" || can(cidrhost("${var.temporal_ip}/32", 0))
+    error_message = "temporal_ip must be empty or an IPv4 address."
+  }
+}
+
 variable "runner_nat_enabled" {
   type        = bool
   default     = true

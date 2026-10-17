@@ -1,6 +1,9 @@
 # Network: the VNet and subnets we create, or the customer's subnets read through
 # data sources. The reserved Temporal and proxy addresses are computed in
-# locals.tf; validation.tf checks they sit inside the AKS subnet.
+# locals.tf; validation.tf checks they sit inside the AKS subnet. In a network
+# we create, an NSG on the AKS subnet lets only the runner subnet reach the
+# Temporal address on 7233 and 8083. A brought network needs the same rule from
+# its owner (see the README).
 
 resource "azurerm_resource_group" "this" {
   count    = local.create_resource_group ? 1 : 0
@@ -31,6 +34,10 @@ module "vnet" {
   subnet_db_prefix     = local.created_subnets.postgres
   subnet_pe_prefix     = local.created_subnets.endpoint
   subnet_runner_prefix = local.created_subnets.runner
+
+  # NSG on the AKS subnet: only the runner subnet reaches the reserved Temporal
+  # address, on 7233 (Temporal) and 8083 (api-server-go tool results).
+  temporal_ip = local.temporal_ip
 
   # The Postgres private DNS zone (only when we create Postgres) and the
   # privatelink zones for the private endpoints we create, all linked to this VNet.

@@ -24,27 +24,43 @@ All notable changes to this repo are documented here. Format follows
   `existing_network.temporal_ip` and `proxy_ip` in a brought one.
 - `compositions/azure`: the runner VMs (`modules/azure/runner-vmss`) in the same
   apply, pulling `runner-go:chart-<autoheal_version>` from
-  `runner_image_repository`.
+  `runner_image_repository`. `runner_image_tag` overrides the tag. The runners
+  post sandbox tool results to
+  `http://<temporal_ip>:8083/api/v1/internal/sandbox-tool-responses`, the
+  api-server-go internal listener the chart puts on the Temporal address.
+- `modules/azure/runner-vmss`: `tool_response_callback_url`, written to the
+  runner's environment as `SANDBOX_TOOL_RESPONSE_CALLBACK_URL`.
+- `modules/azure/vnet`: `temporal_ip`. When set, an NSG on the AKS subnet lets
+  only the runner subnet reach that address on 7233 and 8083, and denies the
+  two ports there from every other source. The composition sets it in a network
+  it creates. Outputs `aks_nsg_id` and `aks_nsg_name`.
 - `compositions/azure`: one workload identity per chart role (secrets,
   api-server, agents-worker), federated to the chart's service accounts
-  (`service_accounts`).
+  (`service_accounts`). The secrets identity is federated to `autoheal-hooks`
+  only, the service account of the chart's secrets-sync hook Job and CronJob.
 - `compositions/azure`: every secret the chart reads is generated or passed in
-  and written to the vault in the same apply. Entries: `postgres-admin-password`,
+  and written to the vault in the same apply, under the names in the chart's
+  `docs/secrets.md`. Entries: `postgres-admin-password`,
   `api-server-db-password`, `agents-db-password`, `temporal-db-password`,
-  `zitadel-db-password`, `api-server-database-url`, `agents-database-url`,
-  `api-server-jwt-secret`, `zitadel-master-key`, `auth-app-session-secret`,
-  `first-admin-password`, and when they apply `redis-access-key`,
+  `zitadel-db-password`, `api-server-database-url`, `api-server-jwt-secret`,
+  `zitadel-master-key`, `auth-app-session-secret`, `first-admin-password`,
+  `oauth-encryption-key`, `oauth-state-signing-key`,
+  `tool-response-server-secret`, and when they apply `redis-access-key`,
   `api-server-redis-url`, `llm-api-key`, `sso-client-secret`, `tls-certificate`,
-  `tls-private-key`, `runner-ssh-private-key`. New sensitive inputs:
-  `postgres_admin_password` (required with `existing_postgres_id`),
-  `llm_api_key`, `sso_client_secret`, `tls_certificate`.
+  `tls-private-key`, `edge-ca-certificate`, `github-app-private-key`,
+  `github-app-webhook-secret`. New sensitive inputs: `postgres_admin_password`
+  (required with `existing_postgres_id`), `llm_api_key`, `sso_client_secret`,
+  `tls_certificate`, `github_app_private_key`, `github_app_webhook_secret`; and
+  `edge_ca_certificate`. A generated runner SSH key stays in the state and is
+  not written to the vault.
 - `compositions/azure`: `create_role_assignments`. With `false` no grant is
   made; the `required_role_assignments` output lists them for an administrator
   and the apply stops, naming the missing workload grants, until they exist.
 - `compositions/azure` outputs: `autoheal_values` and `autoheal_values_yaml` (the
   chart's infra values: `global.infra`, the suggested `global.addons`,
   `global.secrets` and `global.edge`, and the Temporal and Zitadel copies),
-  `cluster`, `required_role_assignments`, `required_dns_records`.
+  `cluster`, `required_role_assignments`, `required_dns_records`, `network`
+  (VNet and subnet IDs and the address space).
 - `compositions/app`: installs the chart with one `helm_release` from the infra
   composition's `autoheal_values` and the customer's `values-customer.yaml`,
   atomic with wait. Logs in with `kubelogin` on AKS and `aws eks get-token` on
@@ -68,7 +84,9 @@ All notable changes to this repo are documented here. Format follows
 - `modules/azure/keyvault`: no longer seeds entries; the composition writes them.
 - `modules/azure/runner-vmss`: `acr_id` and `acr_name` are optional. Without
   `acr_name` the VMs pull public images and install no Azure CLI.
-  `acr_pull_enabled` gates the grant.
+  `acr_pull_enabled` gates the grant. The runner unit retries the image pull
+  with a backoff (15 seconds, doubling up to 5 minutes) until it succeeds, with
+  no systemd start limit, so the image can be pushed after the VMs boot.
 - Compositions ship without `backend.tf`. The caller generates it (Terragrunt
   `remote_state` with `generate`), so one `compositions/app` serves both clouds.
 - `required_version` of the compositions is `>= 1.7`; `azurerm` is `~> 4.50`.
@@ -83,6 +101,10 @@ All notable changes to this repo are documented here. Format follows
   `autoheal_values`.
 
 ### Fixed
+- `modules/azure/runner-vmss`: the cloud-init step that writes the host's docker
+  group ID into the runner unit was parsed as a YAML mapping (because of
+  `cut -d: -f3`) and skipped, so `docker run --group-add __DOCKER_GID__`
+  failed. The step is now a quoted string.
 - `modules/azure/blob`: a `/32` entry in `allowed_ip_ranges` is written to the
   storage firewall as the bare address. Azure Storage rejects `/31` and `/32`,
   so `deployer_ip_ranges = ["203.0.113.10/32"]` failed the plan before. A `/31`
@@ -112,6 +134,8 @@ storage account or the vault.
     grants itself Azure Kubernetes Service RBAC Cluster Admin.
   - Destroy the separate v1 runner apply (`modules/azure/runner-vmss`) after the
     upgrade; the composition now runs the runner.
+  - The plan adds an NSG on the AKS subnet. Ports 7233 and 8083 on the Temporal
+    address then answer only the runner subnet.
 - From `azure-byoc-connect`: the name inputs become IDs. `aks_cluster_name`,
   `postgres_server_name`, `redis_cache_name`, `storage_account_name`,
   `key_vault_name` and `acr_name` become `existing_aks_cluster_id`,

@@ -52,9 +52,10 @@ module "runner" {
   acr_id           = module.acr.acr_id
   acr_name         = module.acr.acr_name
 
-  temporal_host = "10.60.0.7:7233"
-  runner_image  = "${module.acr.login_server}/release/runner-go:latest"
-  sandbox_image = "${module.acr.login_server}/dev/sandbox:latest"
+  temporal_host              = "10.60.0.7:7233"
+  tool_response_callback_url = "http://10.60.0.7:8083/api/v1/internal/sandbox-tool-responses"
+  runner_image               = "${module.acr.login_server}/release/runner-go:latest"
+  sandbox_image              = "${module.acr.login_server}/dev/sandbox:latest"
 
   admin_ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAM example"
 }

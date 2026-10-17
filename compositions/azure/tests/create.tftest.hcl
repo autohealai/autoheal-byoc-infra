@@ -68,6 +68,9 @@ mock_provider "azurerm" {
   mock_resource "azurerm_public_ip" {
     defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.Network/publicIPAddresses/pip-acme" }
   }
+  mock_resource "azurerm_network_security_group" {
+    defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.Network/networkSecurityGroups/nsg-acme" }
+  }
   mock_resource "azurerm_postgresql_flexible_server" {
     defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.DBforPostgreSQL/flexibleServers/psql-acme" }
   }
@@ -256,20 +259,113 @@ run "loadbalancer_defaults" {
     error_message = "The three records are created in the zone."
   }
 
+  # The chart's default entry names (docs/secrets.md in the chart). The
+  # generated runner SSH key is not among them: it stays in the state.
   assert {
     condition = toset(keys(azurerm_key_vault_secret.entry)) == toset([
       "postgres-admin-password", "api-server-db-password", "agents-db-password", "temporal-db-password",
-      "zitadel-db-password", "api-server-database-url", "agents-database-url", "api-server-jwt-secret",
-      "zitadel-master-key", "auth-app-session-secret", "first-admin-password", "redis-access-key",
-      "api-server-redis-url", "runner-ssh-private-key",
+      "zitadel-db-password", "api-server-database-url", "api-server-jwt-secret", "zitadel-master-key",
+      "auth-app-session-secret", "first-admin-password", "oauth-encryption-key", "oauth-state-signing-key",
+      "tool-response-server-secret", "redis-access-key", "api-server-redis-url",
     ])
     error_message = "The default vault entries are written."
+  }
+
+  assert {
+    condition     = random_bytes.oauth_encryption_key.length == 32 && random_bytes.oauth_state_signing_key.length == 32
+    error_message = "oauth-encryption-key and oauth-state-signing-key must each be 32 random bytes."
+  }
+
+  assert {
+    condition     = random_password.tool_response_server_secret.length >= 48 && !random_password.tool_response_server_secret.special
+    error_message = "The tool response secret must be 48+ letters and digits."
+  }
+
+  # Only the chart's hook service account reads the vault.
+  assert {
+    condition     = tolist(var.service_accounts.secrets) == tolist(["autoheal-hooks"]) && var.service_accounts.namespace == "autoheal"
+    error_message = "By default the secrets identity is federated to autoheal-hooks in namespace autoheal only."
+  }
+
+  assert {
+    condition     = !contains(keys(output.autoheal_values.global.edge), "tls")
+    error_message = "No CA entry is suggested without edge_ca_certificate."
+  }
+
+  assert {
+    condition = (
+      tolist(output.network.address_space) == tolist(["10.60.0.0/16"]) &&
+      output.network.resource_group_name == "rg-acme-prod-autoheal" &&
+      output.network.vnet_name == module.vnet[0].vnet_name
+    )
+    error_message = "network describes the VNet we create and its address space."
+  }
+
+  assert {
+    condition     = local.runner_image == "public.ecr.aws/e4h3h0d9/runner-go:chart-1.0.0"
+    error_message = "The runner pulls runner-go:chart-<autoheal_version> from the public registry by default."
+  }
+
+  assert {
+    condition     = local.tool_response_callback_url == "http://10.60.15.253:8083/api/v1/internal/sandbox-tool-responses"
+    error_message = "The runner posts tool results to the api-server-go internal listener on the Temporal address."
+  }
+
+  assert {
+    condition     = module.vnet[0].aks_nsg_name == "${module.vnet[0].vnet_name}-aks-nsg"
+    error_message = "A network we create gets the AKS subnet NSG for the Temporal address."
   }
 
   assert {
     condition     = length(module.redis) == 1 && length(module.pe_redis) == 1 && length(module.acr) == 0
     error_message = "Redis and its private endpoint are created; no registry by default."
   }
+}
+
+# Optional entries the chart reads when they are configured: the private CA of
+# the edge certificate and the GitHub App credentials.
+run "optional_vault_entries" {
+  command = plan
+
+  variables {
+    tls_certificate = {
+      certificate = "-----BEGIN CERTIFICATE-----\nleaf\n-----END CERTIFICATE-----\n"
+      private_key = "-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----\n"
+    }
+    edge_ca_certificate       = "-----BEGIN CERTIFICATE-----\nca\n-----END CERTIFICATE-----\n"
+    github_app_private_key    = "-----BEGIN RSA PRIVATE KEY-----\napp\n-----END RSA PRIVATE KEY-----\n"
+    github_app_webhook_secret = "webhook"
+    llm_api_key               = "llm"
+    sso_client_secret         = "sso"
+  }
+
+  assert {
+    condition = alltrue([
+      for e in ["tls-certificate", "tls-private-key", "edge-ca-certificate", "github-app-private-key", "github-app-webhook-secret", "llm-api-key", "sso-client-secret"] :
+      contains(keys(azurerm_key_vault_secret.entry), e)
+    ])
+    error_message = "Each optional entry is written when its input is set."
+  }
+
+  assert {
+    condition     = nonsensitive(azurerm_key_vault_secret.entry["github-app-private-key"].value) == base64encode("-----BEGIN RSA PRIVATE KEY-----\napp\n-----END RSA PRIVATE KEY-----\n")
+    error_message = "The GitHub App key is stored as base64 of the PEM, the form the chart reads."
+  }
+
+  assert {
+    condition     = output.autoheal_values.global.edge.tls.caVaultEntry == "edge-ca-certificate"
+    error_message = "global.edge.tls.caVaultEntry is suggested when edge_ca_certificate is set."
+  }
+}
+
+run "github_key_must_be_pem" {
+  command = plan
+
+  variables {
+    github_app_private_key = "LS0tLS1CRUdJTg=="
+  }
+
+  expect_failures = [var.github_app_private_key]
 }
 
 run "gateway_api_with_edge_address" {
@@ -393,6 +489,13 @@ run "custom_hostnames_and_registry" {
     auth_app_hostname       = "login-app.acme.example"
     create_registry         = true
     create_role_assignments = false
+    runner_image_repository = "cracmeprodautoheal.azurecr.io/runner-go"
+    runner_image_tag        = "test-1"
+  }
+
+  assert {
+    condition     = local.runner_image == "cracmeprodautoheal.azurecr.io/runner-go:test-1"
+    error_message = "runner_image_repository and runner_image_tag override the runner image."
   }
 
   assert {
@@ -403,6 +506,16 @@ run "custom_hostnames_and_registry" {
   assert {
     condition     = length(output.required_role_assignments) == 8
     error_message = "A created cluster, vault and registry with create_role_assignments = false lists all eight grants."
+  }
+
+  # The cluster identity creates the internal load balancers on the pinned
+  # addresses, so its network grant is listed too.
+  assert {
+    condition = length([
+      for l in output.required_role_assignments : l
+      if startswith(l, "Network Contributor on ") && endswith(l, " for acme-prod-autoheal-uami")
+    ]) == 1
+    error_message = "The cluster identity's Network Contributor grant on the VNet must be listed."
   }
 }
 

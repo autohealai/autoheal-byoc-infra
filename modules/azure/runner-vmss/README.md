@@ -9,8 +9,14 @@ and refreshes the ACR login hourly. With public images neither runs.
 
 The composition creates it in the same apply as the cluster: `temporal_host` is
 the reserved internal address the chart later pins the Temporal load balancer
-to, and the runner retries until Temporal answers. Naming and tags follow the
-repo's null-label convention (see `label.tf` and
+to, and the runner retries until Temporal answers. Before each start the
+systemd unit pulls `runner_image` and retries with a backoff (15 seconds,
+doubling up to 5 minutes) until the pull succeeds, so the image may be pushed to
+a new registry after the apply without reimaging the VMs.
+`tool_response_callback_url` sets `SANDBOX_TOOL_RESPONSE_CALLBACK_URL`, where the
+runner posts sandbox tool results (the api-server-go internal listener on port
+8083 of the same reserved address). Naming and tags follow the repo's null-label
+convention (see `label.tf` and
 [docs/MODULE_STANDARD.md](../../../docs/MODULE_STANDARD.md)).
 
 ## Usage
@@ -72,6 +78,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_subnet_id"></a> [subnet\_id](#input\_subnet\_id) | Runner subnet id (snet-runner from modules/azure/vnet). Egress is via that subnet's NAT gateway; the VMSS gets no public IP. | `string` | n/a | yes |
 | <a name="input_tags"></a> [tags](#input\_tags) | Additional tags, merged into the generated tag set. | `map(string)` | `{}` | no |
 | <a name="input_temporal_host"></a> [temporal\_host](#input\_temporal\_host) | Temporal frontend host:port the runner polls, e.g. 10.60.15.253:7233 (the reserved internal address of the Temporal load balancer). | `string` | n/a | yes |
+| <a name="input_tool_response_callback_url"></a> [tool\_response\_callback\_url](#input\_tool\_response\_callback\_url) | URL the runner posts sandbox tool results to, set as SANDBOX\_TOOL\_RESPONSE\_CALLBACK\_URL: the api-server-go internal listener, e.g. http://10.60.15.253:8083/api/v1/internal/sandbox-tool-responses. Empty leaves it unset and tool results go through Temporal only. | `string` | `""` | no |
 | <a name="input_upgrade_mode"></a> [upgrade\_mode](#input\_upgrade\_mode) | VMSS upgrade mode. Manual keeps running instances on the old model until they are upgraded by hand; Automatic reimages instances when the model changes, such as a new runner image tag. | `string` | `"Manual"` | no |
 | <a name="input_vm_sku"></a> [vm\_sku](#input\_vm\_sku) | VM size. Some policies forbid Intel Dsv5; D4s\_v6 is validated. | `string` | `"Standard_D4s_v6"` | no |
 

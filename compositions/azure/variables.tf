@@ -141,7 +141,7 @@ variable "dns_record_ttl" {
 
 variable "autoheal_version" {
   type        = string
-  description = "Autoheal release (the chart version). The runner VMs pull runner-go:chart-<autoheal_version>."
+  description = "Autoheal release (the chart version). The runner VMs pull runner-go:chart-<autoheal_version> unless runner_image_tag is set."
 
   validation {
     condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$", var.autoheal_version))
@@ -152,7 +152,18 @@ variable "autoheal_version" {
 variable "runner_image_repository" {
   type        = string
   default     = "public.ecr.aws/e4h3h0d9/runner-go"
-  description = "Repository the runner VMs pull runner-go from. The tag is chart-<autoheal_version>. Override to use a mirror or a test registry."
+  description = "Repository the runner VMs pull runner-go from. Override to use a mirror or a test registry. The VMs retry the pull until the image exists, so it may be pushed after the apply."
+}
+
+variable "runner_image_tag" {
+  type        = string
+  default     = ""
+  description = "Tag of the runner-go image. Empty means chart-<autoheal_version>. Changing it rolls the runner VMs."
+
+  validation {
+    condition     = can(regex("^([A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?$", var.runner_image_tag))
+    error_message = "runner_image_tag must be a valid image tag, or empty."
+  }
 }
 
 variable "runner_sandbox_image" {
@@ -333,7 +344,7 @@ variable "create_registry" {
 variable "redis_enabled" {
   type        = bool
   default     = true
-  description = "Use Redis. When true and existing_redis_id is empty, we create an Azure Managed Redis with a private endpoint. When false, global.infra.redis is left out."
+  description = "Use Redis. When true and existing_redis_id is empty, we create an Azure Managed Redis with a private endpoint. When false, global.infra.redis and the Redis vault entries are left out; the current chart version requires Redis, so keep true for a chart install."
 }
 
 variable "create_storage_container" {
@@ -361,12 +372,12 @@ variable "create_role_assignments" {
 variable "service_accounts" {
   type = object({
     namespace     = optional(string, "autoheal")
-    secrets       = optional(list(string), ["api-server-go", "agents-py-http", "agents-py-worker", "auth-app", "frontend", "autoheal-hooks", "temporal", "zitadel"])
+    secrets       = optional(list(string), ["autoheal-hooks"])
     api_server    = optional(list(string), ["api-server-go"])
     agents_worker = optional(list(string), ["agents-py-http", "agents-py-worker"])
   })
   default     = {}
-  description = "Chart service accounts federated to each workload identity. secrets: every pod that mounts the vault. api_server and agents_worker: pods that read and write the blob container. Defaults match the chart in namespace autoheal."
+  description = "Chart service accounts federated to each workload identity. secrets: the pods that read the vault, which in the chart is only autoheal-hooks (the secrets-sync hook Job and CronJob); no service pod mounts the vault. api_server and agents_worker: pods that read and write the blob container. Defaults match the chart in namespace autoheal."
 }
 
 # ---------------------------------------------------------------------------
@@ -442,7 +453,7 @@ variable "runner_vm_size" {
 variable "runner_admin_ssh_public_key" {
   type        = string
   default     = ""
-  description = "SSH public key for the runner VMs' admin user. Empty means we generate a key pair and store the private key in the vault as runner-ssh-private-key."
+  description = "SSH public key for the runner VMs' admin user. Empty means we generate a key pair; the private key is kept only in the Terraform state (tls_private_key.runner), not in the vault."
 }
 
 # ---------------------------------------------------------------------------
@@ -604,4 +615,34 @@ variable "tls_certificate" {
   default     = null
   sensitive   = true
   description = "Corporate TLS certificate (PEM, full chain) and private key (PEM) for the three hostnames. Stored in the vault as tls-certificate and tls-private-key. Not needed with a cloud-issued or cert-manager certificate."
+}
+
+variable "edge_ca_certificate" {
+  type        = string
+  default     = ""
+  description = "PEM certificate of the private CA that signed tls_certificate. Stored in the vault as edge-ca-certificate, and global.edge.tls.caVaultEntry is suggested in autoheal_values so api-server-go trusts it. Needed only when a private CA signed the edge certificate."
+
+  validation {
+    condition     = var.edge_ca_certificate == "" || startswith(trimspace(var.edge_ca_certificate), "-----BEGIN CERTIFICATE-----")
+    error_message = "edge_ca_certificate must be a PEM certificate."
+  }
+}
+
+variable "github_app_private_key" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Private key of the GitHub App, as PEM text. Stored base64-encoded in the vault as github-app-private-key, the form the chart reads. The chart reads it only when values-customer.yaml sets api-server-go.secretEnv.GITHUB_APP_PRIVATE_KEY_BASE64 to github-app-private-key."
+
+  validation {
+    condition     = var.github_app_private_key == "" || startswith(trimspace(var.github_app_private_key), "-----BEGIN")
+    error_message = "github_app_private_key must be PEM text, not base64. Terraform encodes it."
+  }
+}
+
+variable "github_app_webhook_secret" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Webhook secret of the GitHub App. Stored in the vault as github-app-webhook-secret. The chart reads it only when values-customer.yaml sets api-server-go.secretEnv.GITHUB_APP_WEBHOOK_SECRET to github-app-webhook-secret."
 }

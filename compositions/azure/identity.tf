@@ -2,8 +2,10 @@
 # service accounts through the cluster's OIDC issuer, so pods get Entra tokens
 # with no stored credential.
 #
-#   secrets        read the vault (Key Vault Secrets User). Used by the Key Vault
-#                  CSI driver for every pod that mounts the SecretProviderClass.
+#   secrets        read the vault (Key Vault Secrets User). Used by the chart's
+#                  autoheal-hooks service account: the secrets-sync hook Job and
+#                  CronJob mount the SecretProviderClass and copy the entries
+#                  into Kubernetes Secrets. No service pod mounts the vault.
 #   api-server     read and write the blob container (Storage Blob Data
 #                  Contributor, scoped to the container).
 #   agents-worker  the same blob grant, for the agents services.

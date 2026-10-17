@@ -1,10 +1,14 @@
 # Runner VMs: runner-go on a VM scale set in the runner subnet, created in this
 # apply. They connect to Temporal at the reserved internal address, which the chart
-# later pins the Temporal load balancer to. Until the chart is installed the
-# runner keeps retrying.
+# later pins the Temporal load balancer to, and post sandbox tool results to the
+# api-server-go internal listener on port 8083 of the same address. Until the
+# chart is installed the runner keeps retrying.
 #
 # The image is runner-go:chart-<autoheal_version>, so bumping autoheal_version
 # changes the runner in the infra plan and the chart in the app plan.
+# runner_image_repository and runner_image_tag override it. The VMs retry the
+# pull until it succeeds, so the image may be pushed to a new registry after the
+# first apply.
 
 module "runner" {
   source = "../../modules/azure/runner-vmss"
@@ -19,12 +23,13 @@ module "runner" {
   location            = var.location
   subnet_id           = local.runner_subnet_id
 
-  temporal_host  = "${local.temporal_ip}:7233"
-  runner_image   = "${var.runner_image_repository}:chart-${var.autoheal_version}"
-  sandbox_image  = var.runner_sandbox_image
-  runner_name    = "${local.id}-runner"
-  vm_sku         = var.runner_vm_size
-  instance_count = var.runner_node_count
+  temporal_host              = "${local.temporal_ip}:7233"
+  tool_response_callback_url = local.tool_response_callback_url
+  runner_image               = local.runner_image
+  sandbox_image              = var.runner_sandbox_image
+  runner_name                = "${local.id}-runner"
+  vm_sku                     = var.runner_vm_size
+  instance_count             = var.runner_node_count
 
   # Apply a new image or settings to every instance in the same apply.
   upgrade_mode = "Automatic"
@@ -40,5 +45,10 @@ module "runner" {
 }
 
 locals {
+  # The chart puts the api-server-go internal listener on the Temporal address,
+  # port 8083 (api-server-go-internal-lb). The runners post tool results there.
+  tool_response_callback_url = "http://${local.temporal_ip}:8083/api/v1/internal/sandbox-tool-responses"
+
+  runner_image    = "${var.runner_image_repository}:${var.runner_image_tag != "" ? var.runner_image_tag : "chart-${var.autoheal_version}"}"
   runner_uses_acr = local.acr_enabled && startswith(lower(var.runner_image_repository), "${lower(local.acr_name)}.azurecr.io/")
 }

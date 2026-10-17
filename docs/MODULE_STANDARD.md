@@ -127,6 +127,7 @@ and the chart do not care which cloud built the cluster:
 | `cluster`                   | `cloud`, `name`, `endpoint`, base64 `ca_certificate`, and `resource_group` (Azure) or `region` (AWS). No credential. |
 | `required_role_assignments` | Grants an administrator must make when the composition makes none. |
 | `required_dns_records`      | DNS records a person must create when the composition creates none. |
+| `network`                   | The network Autoheal runs in. Azure: `vnet_id`, `vnet_name`, `resource_group_name`, `address_space`, `aks_subnet_id`, `runner_subnet_id`, `private_endpoint_subnet_id`. AWS will emit the VPC equivalents. |
 
 None of them may hold a secret. Bump `global.infra.version` (the
 `infra_contract_version` local) when the shape of `global.infra` changes.

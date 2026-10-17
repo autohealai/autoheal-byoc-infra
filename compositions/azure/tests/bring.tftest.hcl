@@ -335,6 +335,29 @@ run "everything_brought" {
   }
 
   assert {
+    condition = (
+      output.network.vnet_id == "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform-net/providers/Microsoft.Network/virtualNetworks/vnet-platform-weu" &&
+      output.network.vnet_name == "vnet-platform-weu" &&
+      output.network.resource_group_name == "rg-platform-net" &&
+      length(output.network.address_space) == 0 &&
+      endswith(output.network.aks_subnet_id, "/vnet-platform-weu/subnets/snet-aks") &&
+      endswith(output.network.runner_subnet_id, "/vnet-platform-weu/subnets/snet-runner") &&
+      endswith(output.network.private_endpoint_subnet_id, "/vnet-platform-weu/subnets/snet-pe")
+    )
+    error_message = "network is derived from the brought subnet IDs; the VNet is not read, so address_space is empty."
+  }
+
+  assert {
+    condition     = local.tool_response_callback_url == "http://10.50.4.11:8083/api/v1/internal/sandbox-tool-responses" && length(module.vnet) == 0
+    error_message = "In a brought network the runner posts tool results to the brought temporal_ip, and no NSG is created."
+  }
+
+  assert {
+    condition     = nonsensitive(startswith(sensitive(local.api_server_redis_url), "rediss://:") && endswith(sensitive(local.api_server_redis_url), "/0"))
+    error_message = "api-server-redis-url is rediss://:<key>@<host>:<port>/0, the form in the chart's docs/secrets.md."
+  }
+
+  assert {
     condition     = length(module.pe_blob) == 0 && length(module.pe_vault) == 0 && length(module.pe_redis) == 0 && length(azurerm_private_dns_zone.brought) == 0
     error_message = "No private endpoint or zone for brought resources."
   }

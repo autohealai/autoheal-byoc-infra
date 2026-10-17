@@ -16,14 +16,14 @@ One file per building block.
 
 | File | Creates, or reads when brought |
 |------|--------------------------------|
-| `network.tf` | Resource group, VNet with AKS, Postgres, private endpoint and runner subnets, the runner's NAT gateway, Postgres private DNS zone. Brought: `existing_resource_group_id`, `existing_network`. |
+| `network.tf` | Resource group, VNet with AKS, Postgres, private endpoint and runner subnets, the runner's NAT gateway, an NSG on the AKS subnet for the Temporal address, Postgres private DNS zone. Brought: `existing_resource_group_id`, `existing_network`. |
 | `cluster.tf` | AKS with the OIDC issuer, workload identity, Entra ID RBAC and the Key Vault CSI driver add-on. Brought: `existing_aks_cluster_id`. |
 | `postgres.tf` | PostgreSQL Flexible Server and its admin password. Brought: `existing_postgres_id`. |
 | `redis.tf` | Azure Managed Redis. Brought: `existing_redis_id` (Managed Redis or Azure Cache for Redis). |
 | `storage.tf` | Storage account and the blob container. Brought: `existing_storage_account_id`. |
 | `keyvault.tf` | Key Vault (Azure RBAC). Brought: `existing_key_vault_id`. |
 | `registry.tf` | Container registry, only with `create_registry = true`. Brought: `existing_acr_id`. |
-| `identity.tf` | Workload identities, one per chart role, federated to the chart's service accounts. |
+| `identity.tf` | Workload identities, one per chart role, federated to the chart's service accounts. The secrets identity is federated to `autoheal-hooks` only. |
 | `role-assignments.tf` | Grants, or the `required_role_assignments` list and the check that the grants exist. |
 | `secrets.tf` | Every secret the chart reads, generated or passed in, written to the vault. |
 | `private-endpoints.tf` | Private endpoints for the vault, storage and Redis, and the privatelink zones. |
@@ -56,6 +56,15 @@ them (`existing_network.temporal_ip` and `proxy_ip`). They reach the chart as
 `global.infra.temporal.internalIP` and `global.infra.edge.internalIP`, and the
 DNS records point at the proxy address from the first apply.
 
+The chart also puts the api-server-go internal listener on the Temporal
+address, port 8083. The runners post sandbox tool results there
+(`SANDBOX_TOOL_RESPONSE_CALLBACK_URL`, set by the composition). The listener
+checks an HMAC key on each result, not the caller, so only the runner subnet
+should reach it. In a network we create, an NSG on the AKS subnet allows ports
+7233 and 8083 on the Temporal address from the runner subnet and denies them
+from everywhere else. In a brought network, ask your network team for the same
+rule.
+
 ## Edge modes
 
 | `edge_mode` | DNS records point at | `global.infra.edge` |
@@ -79,29 +88,54 @@ grants and run it again.
 | Key Vault Secrets User on the vault, for the secrets identity | Always |
 | Storage Blob Data Contributor on the container, for the api-server and agents-worker identities | Always |
 | Key Vault Secrets Officer on the vault, for the deployer | Vault we create. On a brought vault it is made when `create_role_assignments = true`, and not listed otherwise: the vault owner gives you write access. |
-| Network Contributor on the VNet or AKS subnet, for the cluster identity | Cluster we create |
+| Network Contributor on the VNet or AKS subnet, for the cluster identity, which creates the internal load balancers on the reserved addresses | Cluster we create |
 | Azure Kubernetes Service RBAC Cluster Admin on the cluster, for the deployer | Cluster we create |
 | AcrPull on the registry, for the runner | With a registry |
 | AcrPull on the registry, for the kubelet | With a registry and a cluster we create |
 
 ## Vault entries
 
-Written in the same apply, to the vault we create or the one you bring. The chart
-mounts them with the Key Vault CSI driver.
+Written in the same apply, to the vault we create or the one you bring. The
+names are the chart's defaults, the list in the chart's `docs/secrets.md`. The
+chart's secrets-sync hook Job and CronJob, running as the `autoheal-hooks`
+service account with the secrets identity, copy them into Kubernetes Secrets
+through the Key Vault CSI driver. No service pod mounts the vault, so
+`service_accounts.secrets` defaults to `["autoheal-hooks"]`.
 
 | Entry | Source |
 |-------|--------|
 | `postgres-admin-password` | Generated for a server we create; `postgres_admin_password` for a brought one |
 | `api-server-db-password`, `agents-db-password`, `temporal-db-password`, `zitadel-db-password` | Generated |
-| `api-server-database-url`, `agents-database-url` | Built from the host and the generated passwords |
+| `api-server-database-url` | Built from the host and the generated `app_user` password |
 | `api-server-jwt-secret`, `zitadel-master-key`, `auth-app-session-secret`, `first-admin-password` | Generated |
-| `redis-access-key`, `api-server-redis-url` | Read from Redis, when there is one |
+| `oauth-encryption-key` | Generated: base64 of 32 random bytes, an AES-256 key for api-server-go |
+| `oauth-state-signing-key` | Generated: base64 of 32 random bytes |
+| `tool-response-server-secret` | Generated: 64 letters and digits |
+| `redis-access-key`, `api-server-redis-url` | Read from Redis, when there is one. The URL is `rediss://:<key>@<host>:<port>/0`. |
 | `llm-api-key` | `llm_api_key`, when set |
 | `sso-client-secret` | `sso_client_secret`, when set |
 | `tls-certificate`, `tls-private-key` | `tls_certificate`, when set |
-| `runner-ssh-private-key` | Generated when `runner_admin_ssh_public_key` is empty |
+| `edge-ca-certificate` | `edge_ca_certificate`, when set. `autoheal_values` then suggests `global.edge.tls.caVaultEntry`. |
+| `github-app-private-key` | `github_app_private_key` (PEM), stored base64-encoded, when set |
+| `github-app-webhook-secret` | `github_app_webhook_secret`, when set |
 
-Generated values are kept across upgrades.
+Generated values are kept across upgrades. The chart reads the two GitHub
+entries only when `values-customer.yaml` maps them in
+`api-server-go.secretEnv` (`GITHUB_APP_PRIVATE_KEY_BASE64`,
+`GITHUB_APP_WEBHOOK_SECRET`).
+
+When `runner_admin_ssh_public_key` is empty we generate the runner SSH key. Its
+private half is not written to the vault, which the secrets identity can read;
+it stays in the Terraform state (`tls_private_key.runner`). Pass your own public
+key to keep the private key out of the state.
+
+## Runner image
+
+The runner VMs pull `runner_image_repository:runner_image_tag`, by default
+`public.ecr.aws/e4h3h0d9/runner-go:chart-<autoheal_version>`. They boot during
+the apply and retry the pull with a backoff until it succeeds, so with a
+registry created in the same apply you can push the image afterwards; the
+runner starts within about five minutes of the push, with no reimage.
 
 ## Outputs
 
@@ -112,6 +146,7 @@ Generated values are kept across upgrades.
 | `cluster` | `cloud`, `name`, `resource_group`, `endpoint`, base64 `ca_certificate`. No credential. |
 | `required_role_assignments` | Grants for an administrator, filled when `create_role_assignments = false`. |
 | `required_dns_records` | Records for a person to create (`name`, `type`, `value`), filled when we do not create them. |
+| `network` | `vnet_id`, `vnet_name`, `resource_group_name`, `address_space`, `aks_subnet_id`, `runner_subnet_id`, `private_endpoint_subnet_id`. For a brought network the VNet is not read, so `address_space` is empty. |
 
 `autoheal_values` keys:
 
@@ -129,6 +164,7 @@ global.infra.temporal.internalIP
 global.addons.install                         suggestion: true when we created the cluster
 global.secrets.mode                           suggestion: keyvault-csi
 global.edge.mode                              suggestion: edge_mode
+global.edge.tls.caVaultEntry                  suggestion: edge-ca-certificate, when edge_ca_certificate is set
 temporal.server.config.persistence.{default,visibility}.sql.host   copy of the database host
 zitadel.zitadel.configmapConfig.ExternalDomain                     copy of hosts.auth
 zitadel.zitadel.configmapConfig.Database.Postgres.Host             copy of the database host

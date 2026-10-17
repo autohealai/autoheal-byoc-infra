@@ -23,7 +23,7 @@ building block takes an `existing_*` ID; uncomment the ones you already have.
 | You bring | Set |
 |-----------|-----|
 | Nothing (we create the network, AKS, Postgres, Redis, storage, Key Vault) | `network_cidr` |
-| Your network | `existing_network` (subnet IDs and two free addresses in the AKS subnet) |
+| Your network | `existing_network` (subnet IDs and two free addresses in the AKS subnet). Allow ports 7233 and 8083 on the Temporal address from the runner subnet only. |
 | Your cluster, database, cache, storage or vault | `existing_aks_cluster_id`, `existing_postgres_id`, `existing_redis_id`, `existing_storage_account_id`, `existing_key_vault_id` |
 | Role grants made by your administrators | `create_role_assignments = false`, then make the grants in the `required_role_assignments` output |
 | DNS outside Azure DNS | `create_dns_records = false`, then create the records in the `required_dns_records` output |
@@ -65,9 +65,12 @@ variables from your pipeline's secret store; Terraform writes them to Key Vault:
 | `TF_VAR_postgres_admin_password` | `postgres-admin-password` | Only with `existing_postgres_id`; for a server we create, Terraform generates it |
 | `TF_VAR_sso_client_secret` | `sso-client-secret` | When SSO is on |
 | `TF_VAR_tls_certificate` | `tls-certificate`, `tls-private-key` | When the edge serves your own certificate; an HCL object `{ certificate = "<PEM chain>", private_key = "<PEM>" }` |
+| `TF_VAR_github_app_private_key` | `github-app-private-key` | When you connect a GitHub App; the PEM, which Terraform stores base64-encoded |
+| `TF_VAR_github_app_webhook_secret` | `github-app-webhook-secret` | When you connect a GitHub App |
 
 Terraform generates and stores the rest (database passwords, the JWT key, the
-Zitadel master key, the first admin password).
+Zitadel master key, the first admin password, the OAuth keys and the tool
+response server secret).
 
 ## Running it
 

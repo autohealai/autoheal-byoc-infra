@@ -4,7 +4,9 @@ Network substrate for a BYOC-on-AKS Autoheal install. Creates a VNet with four
 purpose-built subnets (AKS nodes, PG-delegated, private endpoints, runner VMSS),
 a NAT gateway for runner egress, the PostgreSQL Flexible
 Server private DNS zone, and optional privatelink DNS zones for Blob, Key Vault,
-and AI Foundry / Azure OpenAI.
+and AI Foundry / Azure OpenAI. When `temporal_ip` is set, an NSG on the AKS
+subnet lets only the runner subnet reach that address on ports 7233 (Temporal)
+and 8083 (the api-server-go internal listener for tool results).
 
 The AWS analogue is `modules/aws/vpc`. Naming and tags follow the repo's
 null-label convention (see `label.tf` and
@@ -40,6 +42,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 |------|------|
 | [azurerm_nat_gateway.runner](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/nat_gateway) | resource |
 | [azurerm_nat_gateway_public_ip_association.runner](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/nat_gateway_public_ip_association) | resource |
+| [azurerm_network_security_group.aks](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/network_security_group) | resource |
 | [azurerm_private_dns_zone.pe](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_dns_zone) | resource |
 | [azurerm_private_dns_zone.pg](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_dns_zone) | resource |
 | [azurerm_private_dns_zone_virtual_network_link.pe](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_dns_zone_virtual_network_link) | resource |
@@ -50,6 +53,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | [azurerm_subnet.pe](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/subnet) | resource |
 | [azurerm_subnet.runner](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/subnet) | resource |
 | [azurerm_subnet_nat_gateway_association.runner](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/subnet_nat_gateway_association) | resource |
+| [azurerm_subnet_network_security_group_association.aks](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/subnet_network_security_group_association) | resource |
 | [azurerm_virtual_network.this](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/virtual_network) | resource |
 
 ## Inputs
@@ -76,11 +80,14 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_subnet_pe_prefix"></a> [subnet\_pe\_prefix](#input\_subnet\_pe\_prefix) | Subnet for private endpoints (KV/Blob/Foundry when private). | `string` | `"10.60.17.0/24"` | no |
 | <a name="input_subnet_runner_prefix"></a> [subnet\_runner\_prefix](#input\_subnet\_runner\_prefix) | Dedicated subnet for the runner VMSS (DooD job runners), isolated from AKS nodes. | `string` | `"10.60.19.0/24"` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Additional tags, merged into the generated tag set. | `map(string)` | `{}` | no |
+| <a name="input_temporal_ip"></a> [temporal\_ip](#input\_temporal\_ip) | Reserved internal address of the Temporal load balancer in the AKS subnet. The chart also puts the api-server-go internal listener (port 8083) on it. When set, an NSG on the AKS subnet lets only the runner subnet reach this address on ports 7233 and 8083. Empty creates no NSG. | `string` | `""` | no |
 
 ## Outputs
 
 | Name | Description |
 |------|-------------|
+| <a name="output_aks_nsg_id"></a> [aks\_nsg\_id](#output\_aks\_nsg\_id) | Resource ID of the AKS subnet NSG, or empty when temporal\_ip is not set. |
+| <a name="output_aks_nsg_name"></a> [aks\_nsg\_name](#output\_aks\_nsg\_name) | Name of the AKS subnet NSG, or empty when temporal\_ip is not set. |
 | <a name="output_blob_private_dns_zone_id"></a> [blob\_private\_dns\_zone\_id](#output\_blob\_private\_dns\_zone\_id) | Privatelink DNS zone id for Blob, or empty when private endpoints are off. |
 | <a name="output_foundry_private_dns_zone_ids"></a> [foundry\_private\_dns\_zone\_ids](#output\_foundry\_private\_dns\_zone\_ids) | Privatelink DNS zone ids for AI Foundry / Azure OpenAI, or [] when the Foundry endpoint is off. |
 | <a name="output_pg_private_dns_zone_id"></a> [pg\_private\_dns\_zone\_id](#output\_pg\_private\_dns\_zone\_id) | Private DNS zone id for PG Flexible Server, or empty when no zone was created. |

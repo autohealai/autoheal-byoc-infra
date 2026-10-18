@@ -6,6 +6,8 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-17
+
 2.0.0, Azure first. `compositions/aws-byoc` and the AWS modules are unchanged.
 
 ### Added

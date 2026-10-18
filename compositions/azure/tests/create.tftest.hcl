@@ -293,6 +293,11 @@ run "loadbalancer_defaults" {
   }
 
   assert {
+    condition     = !contains(keys(output.autoheal_values.global), "llm")
+    error_message = "Nothing under global.llm is suggested without llm_gateway_extra_headers."
+  }
+
+  assert {
     condition = (
       tolist(output.network.address_space) == tolist(["10.60.0.0/16"]) &&
       output.network.resource_group_name == "rg-acme-prod-autoheal" &&
@@ -360,7 +365,7 @@ run "loadbalancer_defaults" {
 }
 
 # Optional entries the chart reads when they are configured: the private CA of
-# the edge certificate and the GitHub App credentials.
+# the edge certificate, the GitHub App credentials and the LLM gateway.
 run "optional_vault_entries" {
   command = plan
 
@@ -374,11 +379,13 @@ run "optional_vault_entries" {
     github_app_webhook_secret = "webhook"
     llm_api_key               = "llm"
     sso_client_secret         = "sso"
+    llm_gateway_api_key       = "gateway"
+    llm_gateway_extra_headers = "{\"x-portkey-config\":\"{\\\"retry\\\":{\\\"attempts\\\":2}}\"}"
   }
 
   assert {
     condition = alltrue([
-      for e in ["tls-certificate", "tls-private-key", "edge-ca-certificate", "github-app-private-key", "github-app-webhook-secret", "llm-api-key", "sso-client-secret"] :
+      for e in ["tls-certificate", "tls-private-key", "edge-ca-certificate", "github-app-private-key", "github-app-webhook-secret", "llm-api-key", "sso-client-secret", "gateway-api-key", "gateway-extra-headers"] :
       contains(keys(azurerm_key_vault_secret.entry), e)
     ])
     error_message = "Each optional entry is written when its input is set."
@@ -392,6 +399,104 @@ run "optional_vault_entries" {
   assert {
     condition     = output.autoheal_values.global.edge.tls.caVaultEntry == "edge-ca-certificate"
     error_message = "global.edge.tls.caVaultEntry is suggested when edge_ca_certificate is set."
+  }
+
+  assert {
+    condition     = output.autoheal_values.global.llm == { gateway = { extraHeadersVaultEntry = "gateway-extra-headers" } }
+    error_message = "Only global.llm.gateway.extraHeadersVaultEntry is suggested when llm_gateway_extra_headers is set."
+  }
+}
+
+# The gateway headers must be a JSON object of strings, as agents-py reads them.
+run "gateway_headers_must_be_json" {
+  command = plan
+
+  variables {
+    llm_gateway_extra_headers = "x-portkey-config: {}"
+  }
+
+  expect_failures = [var.llm_gateway_extra_headers]
+}
+
+run "gateway_headers_must_be_an_object" {
+  command = plan
+
+  variables {
+    llm_gateway_extra_headers = "[\"x-portkey-config\"]"
+  }
+
+  expect_failures = [var.llm_gateway_extra_headers]
+}
+
+run "gateway_header_values_must_be_strings" {
+  command = plan
+
+  variables {
+    llm_gateway_extra_headers = "{\"x-portkey-config\":{\"retry\":{\"attempts\":2}}}"
+  }
+
+  expect_failures = [var.llm_gateway_extra_headers]
+}
+
+# agents-py stops at startup on a null header value.
+run "gateway_header_values_must_not_be_null" {
+  command = plan
+
+  variables {
+    llm_gateway_extra_headers = "{\"x-portkey-config\":null}"
+  }
+
+  expect_failures = [var.llm_gateway_extra_headers]
+}
+
+run "gateway_headers_must_not_be_empty" {
+  command = plan
+
+  variables {
+    llm_gateway_extra_headers = "{}"
+  }
+
+  expect_failures = [var.llm_gateway_extra_headers]
+}
+
+# The key alone: its entry, no headers entry, and nothing under global.llm, so
+# charts up to 1.0.0-rc.2 still accept autoheal_values.
+run "gateway_key_alone" {
+  command = plan
+
+  variables {
+    llm_gateway_api_key = "gateway"
+  }
+
+  assert {
+    condition     = contains(keys(azurerm_key_vault_secret.entry), "gateway-api-key") && !contains(keys(azurerm_key_vault_secret.entry), "gateway-extra-headers")
+    error_message = "llm_gateway_api_key alone writes gateway-api-key and not gateway-extra-headers."
+  }
+
+  assert {
+    condition     = !contains(keys(output.autoheal_values.global), "llm")
+    error_message = "Nothing under global.llm is suggested for llm_gateway_api_key alone."
+  }
+}
+
+# The headers alone: the vault has no gateway-api-key, so an empty
+# apiKeyVaultEntry is suggested. The chart then stops with its message for a
+# kind that needs a key, instead of failing to mount the missing entry.
+run "gateway_headers_without_key" {
+  command = plan
+
+  variables {
+    llm_gateway_extra_headers = "{\"x-portkey-config\":\"{}\"}"
+  }
+
+  assert {
+    condition     = contains(keys(azurerm_key_vault_secret.entry), "gateway-extra-headers") && !contains(keys(azurerm_key_vault_secret.entry), "gateway-api-key")
+    error_message = "llm_gateway_extra_headers alone writes gateway-extra-headers and not gateway-api-key."
+  }
+
+  assert {
+    condition     = output.autoheal_values.global.llm == { gateway = { extraHeadersVaultEntry = "gateway-extra-headers", apiKeyVaultEntry = "" } }
+    error_message = "With the headers and no key, extraHeadersVaultEntry and an empty apiKeyVaultEntry are suggested."
   }
 }
 

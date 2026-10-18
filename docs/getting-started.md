@@ -140,6 +140,8 @@ needs the same grant.
   ```bash
   export TF_VAR_llm_api_key="..."               # if your LLM provider uses a key
   export TF_VAR_postgres_admin_password="..."   # only with existing_postgres_id
+  export TF_VAR_llm_gateway_api_key="..."       # only through an LLM gateway; any value for Portkey OSS
+  export TF_VAR_llm_gateway_extra_headers="..." # only if the gateway needs headers
   ```
 
 **Backup, high availability and encryption.** The defaults keep the data tier

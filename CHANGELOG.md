@@ -10,10 +10,14 @@ All notable changes to this repo are documented here. Format follows
 - `compositions/azure`: `llm_gateway_api_key` and `llm_gateway_extra_headers`
   (both sensitive, default empty) for installs that send model calls through an
   LLM gateway. Stored as the `gateway-api-key` and `gateway-extra-headers`
-  vault entries when set. `llm_gateway_extra_headers` must be a JSON object of
-  strings. When it is set, `autoheal_values` suggests
-  `global.llm.gateway.extraHeadersVaultEntry`, which needs autoheal chart
-  1.0.0-rc.3 or later; older charts reject `global.llm.gateway`.
+  vault entries when set. `llm_gateway_api_key` is needed for every gateway
+  kind except `custom`; for a gateway that ignores it, such as Portkey OSS, set
+  any value. `llm_gateway_extra_headers` must be a JSON object with at least one
+  header, each value a string. When it is set, `autoheal_values` suggests
+  `global.llm.gateway.extraHeadersVaultEntry`, plus an empty
+  `global.llm.gateway.apiKeyVaultEntry` when `llm_gateway_api_key` is unset.
+  These need autoheal chart 1.0.0-rc.3 or later; older charts reject
+  `global.llm.gateway`.
 
 ## [2.0.0] - 2026-10-17
 

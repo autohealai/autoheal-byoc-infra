@@ -85,6 +85,7 @@ inputs = {
 
   # The LLM API key is a secret, so it is not in this file. The pipeline passes
   # it as TF_VAR_llm_api_key and Terraform stores it in Key Vault as llm-api-key.
-  # Through an LLM gateway, also TF_VAR_llm_gateway_api_key and, when the
-  # gateway needs headers, TF_VAR_llm_gateway_extra_headers.
+  # Through an LLM gateway, also TF_VAR_llm_gateway_api_key (any value for a
+  # gateway that ignores it, such as Portkey OSS) and, when the gateway needs
+  # headers, TF_VAR_llm_gateway_extra_headers.
 }

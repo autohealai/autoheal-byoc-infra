@@ -645,22 +645,22 @@ variable "llm_gateway_api_key" {
   type        = string
   default     = ""
   sensitive   = true
-  description = "Key of the customer's LLM gateway (global.llm.gateway in the chart), not a provider key. Stored in the vault as gateway-api-key, the chart's default for global.llm.gateway.apiKeyVaultEntry. For a gateway that ignores it, such as Portkey OSS, any value."
+  description = "Key of the customer's LLM gateway (global.llm.gateway in the chart), not a provider key. Stored in the vault as gateway-api-key, the chart's default for global.llm.gateway.apiKeyVaultEntry. Needed for every gateway kind except custom, as agents-py does not start without it. For a gateway that ignores it, such as Portkey OSS, set any value."
 }
 
 variable "llm_gateway_extra_headers" {
   type        = string
   default     = ""
   sensitive   = true
-  description = "Extra request headers for the LLM gateway, as a JSON object of strings. Stored in the vault as gateway-extra-headers, and global.llm.gateway.extraHeadersVaultEntry is suggested in autoheal_values. For Portkey OSS it holds the x-portkey-config header, which carries the provider keys."
+  description = "Extra request headers for the LLM gateway, as a JSON object of strings with at least one header. Stored in the vault as gateway-extra-headers, and global.llm.gateway.extraHeadersVaultEntry is suggested in autoheal_values, with an empty apiKeyVaultEntry when llm_gateway_api_key is unset. For Portkey OSS it holds the x-portkey-config header, which carries the provider keys."
 
   validation {
     condition = var.llm_gateway_extra_headers == "" || try(
-      length(keys(jsondecode(var.llm_gateway_extra_headers))) >= 0 &&
-      alltrue([for v in values(jsondecode(var.llm_gateway_extra_headers)) : jsonencode(v) == jsonencode(tostring(v))]),
+      length(jsondecode(var.llm_gateway_extra_headers)) > 0 &&
+      alltrue([for v in values(jsondecode(var.llm_gateway_extra_headers)) : v != null && jsonencode(v) == jsonencode(tostring(v))]),
       false,
     )
-    error_message = "llm_gateway_extra_headers must be a JSON object whose values are strings."
+    error_message = "llm_gateway_extra_headers must be a JSON object with at least one header, each value a string. Leave it empty for no headers."
   }
 }
 

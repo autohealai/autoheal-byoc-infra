@@ -104,7 +104,7 @@ az account set --subscription "<subscription-id>"   # az account show --query id
 Copy `examples/azure` from a released tag into a repository you own:
 
 ```bash
-git clone --branch v2.0.0 https://github.com/autohealai/autoheal-byoc-infra.git
+git clone --branch v2.1.0 https://github.com/autohealai/autoheal-byoc-infra.git
 mkdir acme-autoheal && cp -r autoheal-byoc-infra/examples/azure/. acme-autoheal/
 cd acme-autoheal
 ```
@@ -138,9 +138,9 @@ needs the same grant.
 - Secrets, as environment variables, never in a file:
 
   ```bash
-  export TF_VAR_llm_api_key="..."               # if your LLM provider uses a key
+  export TF_VAR_llm_api_key="..."               # if your LLM provider uses a key; not with an LLM gateway
   export TF_VAR_postgres_admin_password="..."   # only with existing_postgres_id
-  export TF_VAR_llm_gateway_api_key="..."       # only through an LLM gateway; any value for Portkey OSS
+  export TF_VAR_llm_gateway_api_key="..."       # only with an LLM gateway; see "Optional: an LLM gateway"
   export TF_VAR_llm_gateway_extra_headers="..." # only if the gateway needs headers
   ```
 
@@ -189,7 +189,16 @@ terragrunt output -raw autoheal_values_yaml   # what the chart receives; no secr
 ### Step 7: Install the application
 
 Edit `prod/app/values-customer.yaml` (admin email, LLM, SSO, sizing). Do not set
-`global.infra`; those values come from the infra folder. Then:
+`global.infra`; those values come from the infra folder. For an LLM gateway, see
+"Optional: an LLM gateway" below.
+
+For `provider: azure-openai`, `global.llm.endpoint` is the resource's v1
+endpoint, ending in `/openai/v1/`, such as
+`https://acme-openai.openai.azure.com/openai/v1/`. For `anthropic-foundry`, it
+ends in `/anthropic/`. The same resource also needs an embedding deployment
+named `text-embedding-3-large`, which Autoheal uses to find related
+investigations. To use another deployment, set `global.llm.embeddingModel` to
+`azure-openai:<deployment>`; it must return 1024 dimensions. Then:
 
 ```bash
 cd ../app
@@ -214,6 +223,118 @@ kubectl get pods -n autoheal
 
 `<resource_group>` and `<name>` are in `terragrunt output cluster` in
 `prod/infra`.
+
+### Optional: an LLM gateway
+
+By default agents-py calls the LLM provider named in `global.llm` directly.
+With an LLM gateway, such as Portkey, LiteLLM, OpenRouter or Helicone, agents-py
+sends every model and embeddings call to the gateway instead, and the gateway
+calls the provider. Use one to keep the provider keys, routing, retries,
+fallbacks, budgets and request logs in one place.
+
+You need:
+
+- autoheal chart 1.0.0-rc.3 or later in `prod/versions.hcl`. Older charts
+  reject `global.llm.gateway`.
+- A gateway you run. It is not part of the install. The agents-py pods must
+  reach it, for example as a service in its own namespace of the AKS cluster,
+  and it needs outbound access to the provider. For a cluster without internet
+  access, mirror its image into your registry. Portkey OSS is the
+  `portkeyai/gateway` image and listens on port 8787.
+
+**1. Store the gateway secrets.** Set them with the other secrets from Step 4,
+then plan and apply `prod/infra` again. Terraform writes them to Key Vault.
+
+| Gateway | `TF_VAR_llm_gateway_api_key` | `TF_VAR_llm_gateway_extra_headers` |
+|---------|------------------------------|------------------------------------|
+| Portkey OSS, which you host | any value; Portkey OSS ignores it | `{"x-portkey-config":"<config>"}`, which carries the routing and the provider keys |
+| Hosted Portkey, with a default config on the API key | the Portkey API key | not set |
+| LiteLLM, OpenRouter, Helicone or another kind the chart knows | the gateway key | only if the gateway needs more headers |
+| A custom gateway that takes only headers | not set | the headers, as a JSON object of strings |
+
+With the gateway on, `TF_VAR_llm_api_key` is not needed: the gateway holds the
+provider keys.
+
+For Portkey OSS the header holds the whole config as one JSON string. This
+config sends Claude models to Azure AI Foundry and every other model, the
+embeddings included, to Azure OpenAI:
+
+```json
+{
+  "request_timeout": 120000,
+  "strategy": {
+    "mode": "conditional",
+    "conditions": [{"query": {"params.model": {"$regex": "^claude"}}, "then": "claude"}],
+    "default": "azure-openai"
+  },
+  "targets": [
+    {"name": "claude", "provider": "anthropic", "api_key": "<key>",
+     "custom_host": "https://<resource>.services.ai.azure.com/anthropic/v1"},
+    {"name": "azure-openai", "provider": "openai", "api_key": "<key>",
+     "custom_host": "https://<resource>.openai.azure.com/openai/v1"}
+  ]
+}
+```
+
+Save it as `portkey-config.json`, outside the repository since it holds the
+provider keys, and set the variables from it:
+
+```bash
+export TF_VAR_llm_gateway_api_key="unused"
+export TF_VAR_llm_gateway_extra_headers="$(jq -cn --arg cfg "$(jq -c . portkey-config.json)" '{"x-portkey-config": $cfg}')"
+```
+
+In a pipeline, keep the header value in the pipeline's secret store like the
+other secrets.
+
+**2. Turn the gateway on** in `prod/app/values-customer.yaml`. `global.llm`
+still names the provider and the model:
+
+```yaml
+global:
+  llm:
+    provider: azure-openai
+    model: gpt-5-mini
+    gateway:
+      enabled: true
+      kind: portkey     # portkey, litellm, openrouter, helicone, pydantic or custom
+      baseUrl: http://portkey-gateway.llm-gateway.svc.cluster.local:8787/v1
+```
+
+- `kind` sets how agents-py sends the gateway key: `portkey` as
+  `x-portkey-api-key`, `helicone` as `Helicone-Auth`, the others as
+  `Authorization: Bearer`.
+- `baseUrl` is the gateway's OpenAI-compatible root, ending in `/v1`. Claude
+  models use the gateway's Anthropic Messages route: `anthropicBaseUrl` when
+  set, otherwise `baseUrl` without `/v1`.
+- `global.llm.endpoint` and `global.llm.apiKeyVaultEntry` are not read and can
+  be left out.
+- Embeddings go to the gateway with the model name `text-embedding-3-large`, or
+  the name after `azure-openai:` in `global.llm.embeddingModel`. The gateway
+  must route it to a model that returns 1024 dimensions; the config above sends
+  it to Azure OpenAI. agents-py sends an embedding model through the gateway
+  only when it starts with `azure-openai:`, so the chart refuses any other.
+- Do not set the vault entry names. When `TF_VAR_llm_gateway_extra_headers` is
+  set, the infra folder's `autoheal_values` already sets `extraHeadersVaultEntry`,
+  and an empty `apiKeyVaultEntry` when `TF_VAR_llm_gateway_api_key` is not set.
+
+**3. Apply `prod/app` again.** Only the agents-py pods restart. With the gateway
+on, agents-py does not retry model calls itself, so set retries, fallbacks and
+timeouts in the gateway.
+
+**4. Check it.** Start a chat in Autoheal, then look for the calls in the
+agents-py logs. Each line should name the gateway address, not the provider:
+
+```bash
+kubectl logs -n autoheal deploy/agents-py-worker --since=10m | grep 'HTTP Request: POST'
+```
+
+To turn the gateway off, set `enabled: false`, set `TF_VAR_llm_api_key` if your
+provider uses a key, then apply `prod/infra` and `prod/app`.
+
+The chart's `docs/prerequisites.md` ("LLM gateway") is the full reference.
+`helm pull oci://public.ecr.aws/e4h3h0d9/charts/autoheal --version <version>`
+downloads the chart with its docs.
 
 ---
 
@@ -314,6 +435,10 @@ brought vault.
 | `plan` errors that a hostname is not inside the zone | `hostname` is not under `existing_dns_zone_id` | fix the hostname, or set `create_dns_records = false` |
 | the app folder fails to log in to the cluster | `kubelogin` missing, or the wrong login mode | install `kubelogin`; set `kubelogin_login_mode` to match how the pipeline signs in |
 | a provider "not registered" error | first use of the subscription | run the `az provider register` loop |
+| `prod/app` stops with "global.llm.gateway.apiKeyVaultEntry is required for gateway kind", or the `autoheal-secrets-sync` Job cannot mount `gateway-api-key` | the gateway kind needs a key and `TF_VAR_llm_gateway_api_key` is not set | set it, any value for Portkey OSS, and apply `prod/infra` again |
+| with Portkey OSS the pods run but every chat fails | the `x-portkey-config` header is missing, so Portkey has no provider to call | set `TF_VAR_llm_gateway_extra_headers`, then apply `prod/infra` and `prod/app` |
+| `prod/app` stops with "global.llm.embeddingModel ... would skip the gateway" | with the gateway on, the embedding model does not start with `azure-openai:` | set `global.llm.embeddingModel` to `azure-openai:<model the gateway routes>` |
+| the agents-py logs say "AZURE_OPENAI_BASE_URL must target the Azure OpenAI v1 GA API" | `global.llm.endpoint` does not end in `/openai/v1/` | add `/openai/v1/` to the endpoint and apply `prod/app` again |
 
 ---
 

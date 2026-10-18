@@ -6,6 +6,12 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-18
+
+Optional LLM gateway support on Azure. Installs that do not set the new inputs
+see no change: the plan is the same as on 2.0.0, and `global.infra` keeps
+contract version 2.0.0.
+
 ### Added
 - `compositions/azure`: `llm_gateway_api_key` and `llm_gateway_extra_headers`
   (both sensitive, default empty) for installs that send model calls through an
@@ -18,6 +24,27 @@ All notable changes to this repo are documented here. Format follows
   `global.llm.gateway.apiKeyVaultEntry` when `llm_gateway_api_key` is unset.
   These need autoheal chart 1.0.0-rc.3 or later; older charts reject
   `global.llm.gateway`.
+- `docs/getting-started.md`: "Optional: an LLM gateway", how to send model calls
+  through a gateway you run (Portkey OSS, hosted Portkey, LiteLLM and the other
+  kinds the chart knows): which secrets to set for each, a Portkey OSS config,
+  the `global.llm.gateway` block for `values-customer.yaml`, how embeddings go
+  through the gateway, how to check that calls go through the gateway, and
+  troubleshooting rows. `examples/azure`, `docs/terraform-enterprise.md` and
+  the README point to it.
+- `docs/getting-started.md` Step 7: the Azure OpenAI resource needs an
+  embedding deployment named `text-embedding-3-large`, or
+  `global.llm.embeddingModel` set to another one with 1024 dimensions.
+
+### Changed
+- `llm_api_key` is not needed with the chart's LLM gateway on, since the
+  gateway holds the provider keys and the chart then does not read
+  `llm-api-key`. The variable description, the secrets tables and the example
+  comments say so.
+
+### Fixed
+- `examples/azure/prod/app/values-customer.yaml` and `docs/getting-started.md`:
+  the Azure OpenAI endpoint is the v1 endpoint, ending in `/openai/v1/`.
+  agents-py rejects the bare resource address the example showed.
 
 ## [2.0.0] - 2026-10-17
 

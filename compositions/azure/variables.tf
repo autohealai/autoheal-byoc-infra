@@ -638,7 +638,7 @@ variable "llm_api_key" {
   type        = string
   default     = ""
   sensitive   = true
-  description = "LLM provider API key. Stored in the vault as llm-api-key. Not needed for Bedrock or for Azure OpenAI with workload identity."
+  description = "LLM provider API key. Stored in the vault as llm-api-key. Not needed for Bedrock, for Azure OpenAI with workload identity, or with the chart's LLM gateway on (global.llm.gateway), since the gateway holds the provider keys."
 }
 
 variable "llm_gateway_api_key" {

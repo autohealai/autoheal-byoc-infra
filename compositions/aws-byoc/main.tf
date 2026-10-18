@@ -1,12 +1,13 @@
 # Full AWS BYOC stack: wires the modules/aws/* building blocks into one install and
-# emits the cross-cloud output contract. The Azure twin is compositions/azure-byoc.
+# emits the 1.x output contract. It moves to the 2.x shape of compositions/azure in
+# a later release.
 #
 # Scope: everything up to a running cluster + data tier + identities. One thing is
 # deliberately NOT here:
 #   - The runner ASG. It needs temporal_host (the internal NLB endpoint), which only
 #     exists after the app + Temporal are deployed, so it is a separate apply after
-#     the app install (feed-forward) via modules/aws/runner-asg, matching the Azure
-#     runner unit. The vpc_id + private_subnet_ids outputs feed that step.
+#     the app install (feed-forward) via modules/aws/runner-asg. The vpc_id +
+#     private_subnet_ids outputs feed that step.
 
 locals {
   cluster_name  = var.cluster_name != "" ? var.cluster_name : "${var.namespace}-${var.environment}-${var.name}"

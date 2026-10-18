@@ -1,5 +1,5 @@
-# The cross-cloud output contract. compositions/azure-byoc emits the SAME names, so
-# the Autoheal app install is cloud-agnostic (docs/MODULE_STANDARD.md §8).
+# The 1.x output contract. The 2.x compositions emit autoheal_values and cluster
+# instead (docs/MODULE_STANDARD.md §8); this one moves to them in a later release.
 
 output "cluster_name" {
   description = "EKS cluster name."

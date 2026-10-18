@@ -1,12 +1,13 @@
-# Autoheal BYOC — AWS composition (`aws-byoc`)
+# Autoheal BYOC AWS composition (`aws-byoc`)
 
-Full AWS BYOC stack. Wires the `modules/aws/*` building blocks into one install and
-emits the cross-cloud output contract shared with `compositions/azure-byoc`, so the
-Autoheal app install is cloud-agnostic.
+Full AWS BYOC stack, still on 1.x. Wires the `modules/aws/*` building blocks into
+one install and emits the 1.x outputs, which you copy into the chart values.
 
-This is the **create** composition (Autoheal provisions the infrastructure). The
-Azure twin is `compositions/azure-byoc`; a connect-mode AWS twin (customer provisions
-infra, Autoheal only connects the app) can follow `compositions/azure-byoc-connect`.
+It creates every resource; there is no AWS composition yet that reads resources
+you already have. Azure is on 2.x: `compositions/azure` creates or reads each
+resource and outputs the chart's infra values (`autoheal_values`), and
+`compositions/app` installs the chart. This composition moves to the same shape
+in a later release.
 
 ## What it creates
 
@@ -26,13 +27,14 @@ infra, Autoheal only connects the app) can follow `compositions/azure-byoc-conne
 - **The runner ASG.** It needs `temporal_host` (the internal NLB endpoint), which
   only exists after the app + Temporal are deployed. Apply `modules/aws/runner-asg`
   separately after the app install, feeding forward the discovered endpoint and this
-  composition's `vpc_id` / `private_subnet_ids`. This mirrors the Azure runner unit.
+  composition's `vpc_id` / `private_subnet_ids`. On Azure the runner VMs are part
+  of `compositions/azure`.
 
 ## Output contract
 
-`cluster_name`, `postgres_host`, `redis_endpoint`, `object_store`,
-`secret_store_uri`, `registry`, `runner_identity` — identical names to
-`azure-byoc`. Plus extras for later steps: `vpc_id`, `private_subnet_ids`,
+The 1.x contract: `cluster_name`, `postgres_host`, `redis_endpoint`,
+`object_store`, `secret_store_uri`, `registry`, `runner_identity`. Plus extras
+for later steps: `vpc_id`, `private_subnet_ids`,
 `oidc_provider_arn`, `oidc_provider_url`, `cluster_endpoint`,
 `cluster_certificate_authority_data`.
 

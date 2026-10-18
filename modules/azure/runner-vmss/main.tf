@@ -74,6 +74,8 @@ resource "azurerm_linux_virtual_machine_scale_set" "runner" {
     version   = "latest"
   }
 
+  # Premium SSD speed grows with size, so the size also sets the IOPS; see
+  # var.os_disk_size_gb.
   os_disk {
     storage_account_type = "Premium_LRS"
     caching              = "ReadWrite"
@@ -81,9 +83,11 @@ resource "azurerm_linux_virtual_machine_scale_set" "runner" {
   }
 
   # No public IP: egress flows through the runner subnet's NAT gateway (vnet module).
+  # Accelerated networking is on, as on the hosted runners; vm_sku must support it.
   network_interface {
-    name    = "${module.this.id}-nic"
-    primary = true
+    name                          = "${module.this.id}-nic"
+    primary                       = true
+    enable_accelerated_networking = true
 
     ip_configuration {
       name      = "internal"

@@ -98,8 +98,8 @@ variable "instance_count" {
 
 variable "max_concurrent_activities" {
   type        = number
-  default     = 5
-  description = "API_WORKER_MAX_CONCURRENT_ACTIVITIES per runner."
+  default     = 20
+  description = "API_WORKER_MAX_CONCURRENT_ACTIVITIES per runner. 20 matches Autoheal's hosted runners on the same 4 vCPU, 16 GiB size."
 }
 
 variable "admin_username" {
@@ -110,6 +110,6 @@ variable "admin_username" {
 
 variable "os_disk_size_gb" {
   type        = number
-  default     = 200
-  description = "OS disk size. Holds Docker layers + sandbox dirs + git datasource caches; 30GB proved insufficient on the EC2 runner, so default large."
+  default     = 1024
+  description = "OS disk size in GiB. Holds Docker layers, sandbox dirs and git datasource caches. Premium SSD speed grows with size: 1024 GiB is P30 (5000 IOPS, 200 MB/s), the smallest size at least as fast as the 3000 IOPS gp3 disk of Autoheal's hosted runners. 200 GiB (P15, 1100 IOPS) left the first chat after a boot waiting minutes on disk writes."
 }

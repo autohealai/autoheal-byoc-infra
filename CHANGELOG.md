@@ -105,6 +105,15 @@ All notable changes to this repo are documented here. Format follows
   no systemd start limit, so the image can be pushed after the VMs boot.
 - The runner image moves from `<registry>/runner-go` to
   `<registry>/app/runner-go`, the chart's image layout.
+- `modules/azure/runner-vmss`: the runner VMs match Autoheal's hosted runners.
+  The OS disk defaults to 1024 GiB (Premium SSD P30, 5000 IOPS) instead of 200
+  GiB (P15, 1100 IOPS): after a boot the runner clones the data-source repos and
+  unpacks the sandbox image, many small files, and on P15 the first chat waited
+  minutes on disk writes. `max_concurrent_activities` defaults to 20 instead of
+  5. Docker gets the hosted runners' `daemon.json` (overlay2, logs capped at 3
+  files of 10 MB, live-restore), and accelerated networking is on.
+  `compositions/azure` passes `runner_os_disk_size_gb` and
+  `runner_max_concurrent_activities` through.
 - Compositions ship without `backend.tf`. The caller generates it (Terragrunt
   `remote_state` with `generate`), so one `compositions/app` serves both clouds.
 - `required_version` of the compositions is `>= 1.7`; `azurerm` is `~> 4.50`.
@@ -147,6 +156,11 @@ All notable changes to this repo are documented here. Format follows
   empty. runner-go reads only `auth`, so ACR answered `authentication required`
   and no sandbox started on a new VM. `acr-login.sh` now writes the token as
   the password of the user `00000000-0000-0000-0000-000000000000`.
+- `modules/azure/runner-vmss`: the runner container runs with the VM's host
+  name. runner-go names its per-host task queue after the host name when there
+  is no EC2 instance id, and the container's default host name is its id, so
+  each runner restart or reboot moved the queue and left running sandboxes with
+  no worker.
 
 ### Upgrading from 1.x
 `compositions/azure/moved.tf` moves the state of both v1 compositions. Point the

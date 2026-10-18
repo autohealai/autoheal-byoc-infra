@@ -172,6 +172,15 @@ the apply and retry the pull with a backoff until it succeeds, so with a
 registry created in the same apply you can push the image afterwards; the
 runner starts within about five minutes of the push, with no reimage.
 
+## Runner VMs
+
+The runner VMs match Autoheal's hosted runners: 4 vCPU and 16 GiB
+(`runner_vm_size`), 20 activities at once (`runner_max_concurrent_activities`)
+and an OS disk of at least 3000 IOPS. Premium SSD speed grows with size, so
+`runner_os_disk_size_gb` defaults to 1024 GiB (P30, 5000 IOPS). After a boot the
+runner clones the data-source repos and unpacks the sandbox image; on a smaller
+disk the first chat waits on those writes.
+
 ## Outputs
 
 | Output | Contents |

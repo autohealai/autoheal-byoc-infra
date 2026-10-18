@@ -31,6 +31,8 @@ module "runner" {
   sandbox_image              = var.runner_sandbox_image
   runner_name                = "${local.id}-runner"
   vm_sku                     = var.runner_vm_size
+  os_disk_size_gb            = var.runner_os_disk_size_gb
+  max_concurrent_activities  = var.runner_max_concurrent_activities
   instance_count             = var.runner_node_count
 
   # Manual, so an apply that changes the image or settings updates and reimages

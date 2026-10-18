@@ -461,6 +461,18 @@ variable "runner_vm_size" {
   description = "VM size of the runner VMs."
 }
 
+variable "runner_os_disk_size_gb" {
+  type        = number
+  default     = 1024
+  description = "OS disk size of the runner VMs in GiB. Premium SSD speed grows with size: 1024 GiB (P30, 5000 IOPS) is the smallest size at least as fast as the disk of Autoheal's hosted runners. A smaller disk makes the first chat after a boot wait on disk writes."
+}
+
+variable "runner_max_concurrent_activities" {
+  type        = number
+  default     = 20
+  description = "Activities each runner VM runs at once. 20 matches Autoheal's hosted runners on the default 4 vCPU, 16 GiB size."
+}
+
 variable "runner_admin_ssh_public_key" {
   type        = string
   default     = ""

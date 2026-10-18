@@ -160,7 +160,8 @@ All notable changes to this repo are documented here. Format follows
   name. runner-go names its per-host task queue after the host name when there
   is no EC2 instance id, and the container's default host name is its id, so
   each runner restart or reboot moved the queue and left running sandboxes with
-  no worker.
+  no worker. `HOSTNAME` is set to the container name, which runner-go uses to
+  find its own container and check its mounts at start.
 
 ### Upgrading from 1.x
 `compositions/azure/moved.tf` moves the state of both v1 compositions. Point the

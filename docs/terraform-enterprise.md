@@ -1,4 +1,4 @@
-# Run the infra in Terraform Enterprise — step by step
+# Run the infra in Terraform Enterprise, step by step
 
 This guide tells you how to run the Azure composition from Terraform Enterprise.
 Terraform Enterprise is also called HCP Terraform or Terraform Cloud. You do not
@@ -8,36 +8,40 @@ Terraform Enterprise is mostly a website. You run commands only on the Azure
 side. You use the commands to make the identity that Terraform Enterprise signs
 in as. You do all other steps in the Terraform Enterprise website.
 
-## Which composition to use
+## Which resources you bring
 
-Choose one composition before you start. The Terraform Enterprise steps are the
-same for both. Only the working directory and the Terraform inputs are different.
+There is one Azure composition, `compositions/azure`. It creates every building
+block you do not bring. For each one you already run, you set its `existing_*`
+input to the resource ID, and the composition only reads it:
 
-- **`azure-byoc-connect` (connect mode).** Use this composition when you already
-  run the cluster and the data services. These are the AKS cluster, PostgreSQL,
-  Redis, Key Vault, ACR, and the Storage Account. The composition does not build
-  these resources. It reads them. Then it makes only the application identity and
-  the ESO identity. It assigns their roles. It also seeds secrets into the
-  existing Key Vault. Use this composition when you provision your own
-  infrastructure.
-- **`azure-byoc` (create mode).** Use this composition when you want it to build
-  the full stack. The full stack is the cluster, the database, the storage, the
-  registry, and the identities.
+| You bring | Set |
+| --- | --- |
+| Nothing | `network_cidr` (the composition creates the network, AKS, Postgres, Redis, storage, Key Vault and the registry) |
+| Your network | `existing_network` (subnet IDs and two free addresses in the AKS subnet). Allow ports 7233 and 8083 on the Temporal address from the runner subnet only. |
+| Your resource group | `existing_resource_group_id` |
+| Your cluster, database, cache, storage, vaults or registry | `existing_aks_cluster_id`, `existing_postgres_id`, `existing_redis_id`, `existing_storage_account_id`, `existing_key_vault_id`, `existing_runtime_key_vault_id`, `existing_acr_id` |
+| Role grants made by your administrators | `create_role_assignments = false` |
+| DNS records made by a person | `create_dns_records = false` |
 
-Connect mode needs all of these resources before you start: the AKS cluster,
-PostgreSQL, Redis, Key Vault, ACR, and the Storage Account. If one resource is
-absent, the apply stops with an error.
+A brought resource must exist before the run. Mixes that cannot work (for
+example a brought cluster without its network) stop the plan with a message that
+says what to change. `compositions/azure/README.md` lists every case.
 
-The steps below show both modes. The connect-mode values come first.
+The Terraform Enterprise steps are the same whatever you bring. Only the inputs
+in Step 7 are different.
 
 ## What you get
 
 You get a Terraform Enterprise workspace. The workspace does these things:
 
-- It connects to this repository.
+- It connects to your copy of this repository.
 - It signs in to Azure with no stored password. It uses OIDC.
 - It runs Plan and Apply from the website.
 - It keeps the state in Terraform Enterprise. The state is locked and versioned.
+
+The state holds the passwords and keys that the composition generates and
+writes to Key Vault. Terraform Enterprise encrypts state at rest. Limit who can
+read the workspace state.
 
 ## Before you start
 
@@ -54,35 +58,35 @@ You need these items:
 
 This repository is compatible with Terraform Enterprise. These are the reasons:
 
-- The state backend is a partial `backend "azurerm" {}` block. The backend is
-  not fixed. You can move the state to Terraform Enterprise.
-- The code sets `required_version = ">= 1.6"`. Terraform Enterprise supports this
-  version.
+- The compositions have no `backend` block. Terraform Enterprise keeps the
+  state in the workspace.
+- The code sets `required_version = ">= 1.7"`. Set the workspace Terraform
+  version to 1.7 or later.
 - The code is fully declarative. It has no `local-exec`, no `remote-exec`, and no
   `null_resource`. It runs on the Terraform Enterprise remote workers.
 - The provider holds no credentials. The credentials come from workspace
   variables.
 
-We tested the code on `azure-byoc` and `azure-byoc-connect`. We ran
-`tofu init -backend=false` and `tofu validate`. Both commands passed. We did not
-run a full apply. A full apply needs your organization and your credentials.
+We tested `compositions/azure` with `terraform init -backend=false`,
+`terraform validate` and `terraform test`. We did not run it in a Terraform
+Enterprise organization. That needs your organization and your credentials.
 
 ---
 
-## Part A — Azure side (run these commands one time)
+## Part A: Azure side (run these commands one time)
 
 You make one Azure identity. Terraform Enterprise signs in as this identity. You
 give the identity the rights that the code needs. Then you let the identity sign
 in with no password.
 
-### Step 1 — Sign in to Azure
+### Step 1: Sign in to Azure
 
 ```bash
 az login
 az account set --subscription "<SUBSCRIPTION_ID>"
 ```
 
-### Step 2 — Make the identity (an app registration)
+### Step 2: Make the identity (an app registration)
 
 ```bash
 az ad app create --display-name "tfe-autoheal-byoc"
@@ -94,12 +98,12 @@ echo "App (client) ID: $APP_ID"
 
 Record the App (client) ID. You need it later.
 
-### Step 3 — Give the identity the rights that the code needs
+### Step 3: Give the identity the rights that the code needs
 
-The code makes resources. For this, the identity needs Contributor. The code also
-assigns roles to the application identities. For this, the identity needs User
-Access Administrator. Contributor cannot assign roles. Therefore you need both
-roles.
+The code makes resources. For this, the identity needs Contributor. With
+`create_role_assignments = true` (the default) the code also assigns roles to
+the Autoheal identities. For this, the identity needs User Access Administrator.
+Contributor cannot assign roles.
 
 ```bash
 SUB="/subscriptions/<SUBSCRIPTION_ID>"
@@ -107,9 +111,11 @@ az role assignment create --assignee "$APP_ID" --role "Contributor" --scope "$SU
 az role assignment create --assignee "$APP_ID" --role "User Access Administrator" --scope "$SUB"
 ```
 
-A single Owner assignment is an alternative to the two roles above.
+A single Owner assignment is an alternative to the two roles above. With
+`create_role_assignments = false`, skip User Access Administrator. See
+[Permissions summary](#permissions-summary).
 
-### Step 4 — Let Terraform Enterprise sign in with no password (OIDC)
+### Step 4: Let Terraform Enterprise sign in with no password (OIDC)
 
 This step links a Terraform Enterprise workspace to the Azure identity. You add
 two links. One link is for the Plan phase. One link is for the Apply phase.
@@ -126,7 +132,7 @@ self-hosted Terraform Enterprise, use your own address. An example is
 ISSUER="https://app.terraform.io"      # or your self-hosted Terraform Enterprise URL
 ORG="<ORG>"
 PROJECT="<PROJECT>"
-WS="autoheal-infra-play"
+WS="autoheal-infra-prod"
 
 # link for the Plan phase
 az ad app federated-credential create --id "$APP_ID" --parameters "{
@@ -145,7 +151,7 @@ az ad app federated-credential create --id "$APP_ID" --parameters "{
 }"
 ```
 
-### Step 5 — Record these three values for later
+### Step 5: Record these three values for later
 
 ```bash
 echo "ARM_CLIENT_ID (App ID):   $APP_ID"
@@ -156,74 +162,75 @@ The Azure side is complete.
 
 ---
 
-## Part B — Terraform Enterprise side (do this in the website)
+## Part B: Terraform Enterprise side (do this in the website)
 
-### Step 6 — Make a workspace
+### Step 6: Make a workspace
 
 - Open Terraform Enterprise. Choose your organization.
 - Click **New**. Then click **Workspace**.
 - Choose the **Version control workflow**.
-- Connect to this repository.
-- Set the **Terraform Working Directory**:
-  - connect mode: `compositions/azure-byoc-connect`
-  - create mode: `compositions/azure-byoc`
-- Name the workspace `autoheal-infra-play`. The name must be the same as
+- Connect to your copy of this repository (a fork or a mirror).
+- Set the **Terraform Working Directory** to `compositions/azure`.
+- Set the **VCS branch** to a branch of your copy that holds the release you
+  install, for example a branch made from the `v2.0.0` tag. To upgrade, move
+  that branch to the next tag.
+- Name the workspace `autoheal-infra-prod`. The name must be the same as
   `<WORKSPACE>` in Step 4.
 
-### Step 7 — Add the Terraform inputs (what to build)
+### Step 7: Add the Terraform inputs (what to build)
 
 Open the workspace. Click **Variables**. Click **Add variable**. For each
-variable, choose the category **Terraform**.
+variable, choose the category **Terraform**. For a list or an object, tick
+**HCL**.
 
-#### Connect mode (`azure-byoc-connect`)
-
-You point the composition at the resources that you already run. All of these
-variables are necessary. Each variable must name a resource that already exists.
+These variables are necessary in every case:
 
 | Key | Example value |
 | --- | --- |
-| `subscription_id` | your subscription GUID |
-| `location` | `centralus` |
-| `resource_group_name` | the RG that holds the existing resources |
-| `aks_cluster_name` | the existing AKS cluster name |
-| `postgres_server_name` | the existing PostgreSQL Flexible Server name |
-| `redis_cache_name` | the existing Azure Cache for Redis name |
-| `key_vault_name` | the existing Key Vault name |
-| `acr_name` | the existing Azure Container Registry name |
-| `storage_account_name` | the existing Storage Account name |
 | `namespace` | `acme` |
-| `environment` | `play` |
+| `environment` | `prod` |
+| `subscription_id` | your subscription GUID |
+| `location` | `eastus2` |
+| `hostname` | `autoheal.acme.example` |
+| `autoheal_version` | the Autoheal release, for example `1.0.0` |
 
-These variables are optional. They are common in connect mode.
+These variables depend on your setup:
 
-| Key | Value | Why |
+| Key | Value | When |
 | --- | --- | --- |
-| `seed_secrets_enabled` | `true` | The composition seeds these secrets into the existing Key Vault: `redis-host`, `redis-port`, `redis-password`, `postgres-host`, and `postgres-user`. This needs Key Vault Secrets Officer. The composition can grant this role to the deployer. Set the value to `false` if you manage your own secrets. |
-| `postgres_admin_login` | the PG admin username | The composition records this value as the `postgres-user` secret. |
-| `additional_secrets` | `{ postgres-password = "..." }` | You cannot read the server password back from the server. Pass it here. Mark the variable **Sensitive**. |
-| `grant_app_acr_pull` | `true` | Set this value to `true` only if the application pulls images directly. The kubelet identity usually pulls the images. |
+| `existing_dns_zone_id` | the Azure DNS zone ID for `hostname` | When Terraform creates the DNS records (the default). The composition never creates a zone. |
+| `create_dns_records` | `false` | When your DNS is not in Azure DNS. Create the records listed in the `required_dns_records` output. |
+| `network_cidr` | `10.60.0.0/16` | When the composition creates the network. |
+| `existing_network` | `{ aks_subnet_id = "...", ..., temporal_ip = "...", proxy_ip = "..." }` (HCL) | When you bring the network. |
+| `existing_*_id` | the resource ID | For each resource you bring (see [Which resources you bring](#which-resources-you-bring)). |
+| `deployer_ip_ranges` | the egress addresses of your Terraform Enterprise workers, for example `["203.0.113.10/32"]` (HCL) | When the composition creates the storage account or the vault. Their firewalls default to `Deny`, and Terraform writes the vault entries through them. For a test install, `storage_network_default_action` and `key_vault_network_default_action` set to `Allow` work instead. |
+| `create_role_assignments` | `false` | When your administrators make the role grants. |
+| `edge_mode` | `loadbalancer`, `gateway-api`, `istio`, `ingress` or `none` | When the edge is not the default `loadbalancer`. Set `edge_address` with the other modes. |
 
-#### Create mode (`azure-byoc`)
+These variables are secrets. Tick **Sensitive** for each:
 
-| Key | Example value | Necessary |
+| Key | Vault entry | When |
 | --- | --- | --- |
-| `namespace` | `acme` | yes |
-| `environment` | `play` | yes |
-| `subscription_id` | your subscription GUID | yes |
-| `location` | `centralus` | yes |
+| `llm_api_key` | `llm-api-key` | When your LLM provider uses an API key |
+| `postgres_admin_password` | `postgres-admin-password` | Only with `existing_postgres_id`. For a server the composition creates, it generates the password. |
+| `sso_client_secret` | `sso-client-secret` | When SSO is on |
+| `tls_certificate` | `tls-certificate`, `tls-private-key` | When the edge serves your own certificate. HCL: `{ certificate = "<PEM chain>", private_key = "<PEM>" }` |
+| `github_app_private_key` | `github-app-private-key` | When you connect a GitHub App. Paste the PEM; Terraform stores it base64-encoded. |
+| `github_app_webhook_secret` | `github-app-webhook-secret` | When you connect a GitHub App |
 
-For a real create-mode install, also set these variables. Do not use these for a
-test install.
+When a private CA signed your certificate, also set `edge_ca_certificate` (not
+sensitive) to the CA's PEM certificate. It is stored as `edge-ca-certificate`.
+
+For a production install, also set these variables:
 
 | Key | Recommended value | Why |
 | --- | --- | --- |
-| `private_endpoints_enabled` | `true` | This gives a private path for the pods. It also prevents a two-stage IP flow. |
-| `postgres_sku_name` | a provisioned SKU, for example `GP_Standard_D2ds_v5` | The BYOC policy is provisioned. It is not burstable. |
-| `storage_network_default_action` | `Deny` | This locks the Blob firewall. |
-| `key_vault_network_default_action` | `Deny` | This locks the Key Vault firewall. |
-| `admin_group_object_ids` | your Entra group object ID | This gives managed-AAD cluster access. It also disables the static local admin. |
+| `private_endpoints_enabled` | `true` | This gives the pods a private path to the data services. |
+| `aks_node_size`, `aks_node_count`, `postgres_sku` | sizes for your load | The defaults (`Standard_D4s_v6` x 2, `GP_Standard_D2ds_v5`) suit a small install. |
 
-### Step 8 — Add the Azure sign-in (OIDC, no password)
+`compositions/azure/variables.tf` documents every input.
+
+### Step 8: Add the Azure sign-in (OIDC, no password)
 
 Add these four variables. For each variable, choose the category **Environment
 variable**.
@@ -238,39 +245,30 @@ variable**.
 These four variables work with the links from Step 4. Together they let Terraform
 Enterprise sign in to Azure with no stored secret.
 
-### Step 9 — Point the state at Terraform Enterprise
+### Step 9: State
 
-A configuration cannot have a `cloud` block and a `backend` block at the same
-time. For Terraform Enterprise, replace the `backend "azurerm" {}` block with a
-`cloud` block. The block is in your composition's `backend.tf`. For connect mode,
-this is `compositions/azure-byoc-connect/backend.tf`. For create mode, this is
-`compositions/azure-byoc/backend.tf`. Make the change on the branch that the
-workspace reads.
+With the Version control workflow you do not change the code. The compositions
+have no `backend` block, and Terraform Enterprise keeps the state in the
+workspace.
 
-OLD:
-
-```hcl
-terraform {
-  backend "azurerm" {}
-}
-```
-
-NEW:
+To run plans from your own machine against the workspace (the CLI-driven
+workflow), add a `cloud` block in a file of your own, for example
+`compositions/azure/cloud.tf` in your copy:
 
 ```hcl
 terraform {
   cloud {
     organization = "<ORG>"
-    workspaces { name = "autoheal-infra-play" }
+    workspaces { name = "autoheal-infra-prod" }
   }
 }
 ```
 
-Do not use the Terragrunt wrapper with Terraform Enterprise. Terraform Enterprise
-does not run Terragrunt. Point the workspace at the composition directly. Supply
-the inputs as workspace variables.
+Do not use the Terragrunt example in `examples/azure` with Terraform Enterprise.
+Terraform Enterprise does not run Terragrunt. Point the workspace at the
+composition directly. Supply the inputs as workspace variables.
 
-### Step 10 — Run it
+### Step 10: Run it
 
 - In the workspace, click **Actions**. Then click **Start new run**. Then click
   **Plan**.
@@ -278,46 +276,66 @@ the inputs as workspace variables.
 - Click **Confirm & Apply** if the plan is correct.
 - Terraform Enterprise builds the infrastructure. It stores the state for you.
 
-### Step 11 — Get the outputs
+With `create_role_assignments = false`, the first apply stops at the role check,
+because the Autoheal identities are made in that apply. Give the
+`required_role_assignments` output to your administrators. When they have made
+the grants, start a new run.
 
-Open the workspace **Outputs** tab. The application install reads these outputs.
-The application install is the Autoheal BYOC Helm install.
+### Step 11: Get the outputs
 
-Connect mode (`azure-byoc-connect`) emits these outputs: `cluster_name`,
-`resource_group_name`, `kube_host`, `oidc_issuer_url`, `postgres_host`,
-`redis_endpoint`, `object_store`, `blob_endpoint`, `secret_store_uri`,
-`registry`, `acr_id`, `runner_identity`, `eso_identity_client_id`,
-`eso_tenant_id`, and `eso_service_account`.
+Open the workspace **Outputs** tab:
 
-Create mode (`azure-byoc`) emits the same outputs. It also emits `acr_name` and
-`runner_subnet_id`. It does not emit `redis_endpoint`. Create mode runs Redis in
-the cluster. The app Helm chart ships Redis. Create mode does not use a managed
-Redis service.
+| Output | Use |
+| --- | --- |
+| `autoheal_values` | The chart's infra values. `compositions/app` takes them as `infra_values`. |
+| `autoheal_values_yaml` | The same values as YAML. Save it as `values-infra.yaml` for a Helm or Flux install. |
+| `cluster` | The cluster name, resource group, endpoint and CA certificate. |
+| `required_role_assignments` | Grants your administrators must make. Empty when `create_role_assignments = true`. |
+| `required_dns_records` | DNS records a person must create. Empty when Terraform creates them. |
+| `network` | The VNet and subnet IDs and the address space, for peering, firewall rules or a VPN. |
+
+None of the outputs holds a secret.
+
+### Step 12: Install the chart
+
+The simplest path is Helm or Flux with `autoheal_values_yaml`:
+
+```bash
+helm upgrade --install autoheal oci://public.ecr.aws/e4h3h0d9/charts/autoheal \
+  --version 1.0.0 -n autoheal --create-namespace \
+  -f values-infra.yaml -f values-customer.yaml --atomic --wait --timeout 20m
+```
+
+`examples/azure/README.md` describes `values-customer.yaml`.
+
+You can also run `compositions/app` in a second workspace. It logs in to AKS
+with `kubelogin`, which the hosted workers do not have, so it needs a Terraform
+Enterprise agent with `kubelogin` installed. It also needs the `cluster` and
+`autoheal_values` outputs of the infra workspace as its `cluster` and
+`infra_values` inputs. This repository does not ship that wiring.
 
 ---
 
-## Add another environment (for example prod)
+## Add another environment (for example staging)
 
-Do Part B again with a new workspace name. An example is `autoheal-infra-prod`.
-Use the prod values. Do Step 4 again with the new workspace name. This makes OIDC
-work for the new workspace. The code is the same. The state is separate. The
-blast radius is separate.
+Do Part B again with a new workspace name. An example is
+`autoheal-infra-staging`. Use the staging values. Do Step 4 again with the new
+workspace name. This makes OIDC work for the new workspace. The code is the
+same. The state is separate. The blast radius is separate.
 
 ## Permissions summary
 
 The identity that Terraform Enterprise uses needs these rights:
 
-- **Create mode (`azure-byoc`).** On the subscription, the identity needs Owner.
-  As an alternative, it needs Contributor and User Access Administrator. The code
-  builds resources. For this, it needs Contributor. The code assigns roles. For
-  this, it needs User Access Administrator.
-- **Connect mode (`azure-byoc-connect`).** The composition does not build the
-  data services. Therefore the scope can be the resource group, not the full
-  subscription. The composition still needs Contributor. It uses Contributor to
-  make the two identities. It also needs User Access Administrator. It uses User
-  Access Administrator to assign the roles. It also needs Key Vault Secrets
-  Officer when `seed_secrets_enabled = true`. The composition can grant this role
-  to the deployer.
+- **`create_role_assignments = true` (the default).** Owner, or Contributor and
+  User Access Administrator. The scope is the subscription, or every resource
+  group the composition creates resources in or reads brought resources from.
+  The code builds resources with Contributor and assigns roles with User Access
+  Administrator.
+- **`create_role_assignments = false`.** Contributor on the same scope. The code
+  makes no role assignments. Your administrators make the grants in the
+  `required_role_assignments` output, and the apply checks the workload grants.
 
-Both modes make role assignments. Contributor cannot make role assignments. This
-is why User Access Administrator is necessary.
+With a brought Key Vault and `create_role_assignments = false`, the identity also
+needs Key Vault Secrets Officer on that vault to write the entries. The vault
+owner grants it.

@@ -1,0 +1,25 @@
+name: azure/secrets-identity
+title: Autoheal BYOC - Key Vault secrets identity
+description: |-
+  Entra identity the Key Vault CSI driver uses to read this install's vault on
+  AKS. Creates a user-assigned identity, federates it to each chart
+  ServiceAccount that mounts the SecretProviderClass, and grants it Key Vault
+  Secrets User on exactly this install's vault. The grant can be left to an
+  administrator with role_assignment_enabled = false.
+
+  It creates no in-cluster objects. The chart builds the SecretProviderClass from
+  global.infra.keyVault and this module's client_id.
+
+  Renamed from azure/external-secrets in 2.0.0. Naming and tags follow the
+  repo's null-label convention (see label.tf and docs/MODULE_STANDARD.md).
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: Key Vault (the vault this identity reads)
+    url: ../keyvault
+  - name: AKS (provides the OIDC issuer)
+    url: ../aks

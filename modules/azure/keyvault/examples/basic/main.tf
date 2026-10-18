@@ -1,4 +1,4 @@
-# Minimal Key Vault (RBAC mode) with no seed secrets. Doubles as the CI
+# Minimal Key Vault (RBAC mode). Doubles as the CI
 # plan/validate fixture. tenant_id / deployer_object_id are placeholders.
 
 terraform {
@@ -30,7 +30,7 @@ module "keyvault" {
 
   # This is an init/validate/plan fixture. The module keeps the firewall at its secure
   # Deny default, so `terraform apply` from an arbitrary host would 403 on the data plane
-  # (seeding secrets is a data-plane call). To make it appliable, give the apply host a
+  # (writing secrets is a data-plane call). To make it appliable, give the apply host a
   # path to the vault — either reach it over a private endpoint, or allow-list the host's
   # public IP without weakening the default:
   #   allowed_ip_ranges = ["203.0.113.10/32"] # replace with your apply host's IP/CIDR

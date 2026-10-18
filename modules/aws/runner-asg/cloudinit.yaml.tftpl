@@ -70,7 +70,9 @@ runcmd:
   # runner-go container runs as uid/gid 1000 (alpine adduser); the bind-mounted
   # state dir must be writable by it, and sandbox bind-mounts resolve on the HOST at
   # the same path (DooD), so keep paths identical container<->host.
-  - mkdir -p /var/lib/runner-go/{lambdas,datasources,sandboxes,agent-sessions}
+  # cloud-init runs these with /bin/sh. Each dir is listed in full so this does
+  # not depend on brace expansion, which dash (Ubuntu's /bin/sh) does not do.
+  - mkdir -p /var/lib/runner-go/lambdas /var/lib/runner-go/datasources /var/lib/runner-go/sandboxes /var/lib/runner-go/agent-sessions
   - chown -R 1000:1000 /var/lib/runner-go
   - systemctl enable --now docker
   # Substitute the host's real docker gid into the runner unit (only known now that

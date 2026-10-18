@@ -39,7 +39,7 @@ variable "kv_role_enabled" {
 variable "storage_account_id" {
   type        = string
   default     = ""
-  description = "Storage account to grant Storage Blob Data Contributor."
+  description = "Scope of the Storage Blob Data Contributor grant: a storage account ID, or a container's resource manager ID to limit the grant to one container."
 }
 
 variable "blob_role_enabled" {
@@ -51,5 +51,11 @@ variable "blob_role_enabled" {
 variable "acr_id" {
   type        = string
   default     = ""
-  description = "ACR to grant AcrPull. Empty skips (kubelet identity usually covers pulls; set only if the app itself pulls)."
+  description = "ACR to grant AcrPull when acr_pull_enabled is true (kubelet identity usually covers pulls; set only if the app itself pulls)."
+}
+
+variable "acr_pull_enabled" {
+  type        = bool
+  default     = false
+  description = "Assign AcrPull on var.acr_id. Plan-time bool: acr_id is often a computed id, so it cannot gate count directly."
 }

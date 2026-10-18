@@ -641,6 +641,29 @@ variable "llm_api_key" {
   description = "LLM provider API key. Stored in the vault as llm-api-key. Not needed for Bedrock or for Azure OpenAI with workload identity."
 }
 
+variable "llm_gateway_api_key" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Key of the customer's LLM gateway (global.llm.gateway in the chart), not a provider key. Stored in the vault as gateway-api-key, the chart's default for global.llm.gateway.apiKeyVaultEntry. For a gateway that ignores it, such as Portkey OSS, any value."
+}
+
+variable "llm_gateway_extra_headers" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Extra request headers for the LLM gateway, as a JSON object of strings. Stored in the vault as gateway-extra-headers, and global.llm.gateway.extraHeadersVaultEntry is suggested in autoheal_values. For Portkey OSS it holds the x-portkey-config header, which carries the provider keys."
+
+  validation {
+    condition = var.llm_gateway_extra_headers == "" || try(
+      length(keys(jsondecode(var.llm_gateway_extra_headers))) >= 0 &&
+      alltrue([for v in values(jsondecode(var.llm_gateway_extra_headers)) : jsonencode(v) == jsonencode(tostring(v))]),
+      false,
+    )
+    error_message = "llm_gateway_extra_headers must be a JSON object whose values are strings."
+  }
+}
+
 variable "sso_client_secret" {
   type        = string
   default     = ""

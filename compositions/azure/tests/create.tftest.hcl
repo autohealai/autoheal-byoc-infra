@@ -293,6 +293,11 @@ run "loadbalancer_defaults" {
   }
 
   assert {
+    condition     = !contains(keys(output.autoheal_values.global), "llm")
+    error_message = "Nothing under global.llm is suggested without llm_gateway_extra_headers."
+  }
+
+  assert {
     condition = (
       tolist(output.network.address_space) == tolist(["10.60.0.0/16"]) &&
       output.network.resource_group_name == "rg-acme-prod-autoheal" &&
@@ -360,7 +365,7 @@ run "loadbalancer_defaults" {
 }
 
 # Optional entries the chart reads when they are configured: the private CA of
-# the edge certificate and the GitHub App credentials.
+# the edge certificate, the GitHub App credentials and the LLM gateway.
 run "optional_vault_entries" {
   command = plan
 
@@ -374,11 +379,13 @@ run "optional_vault_entries" {
     github_app_webhook_secret = "webhook"
     llm_api_key               = "llm"
     sso_client_secret         = "sso"
+    llm_gateway_api_key       = "gateway"
+    llm_gateway_extra_headers = "{\"x-portkey-config\":\"{\\\"retry\\\":{\\\"attempts\\\":2}}\"}"
   }
 
   assert {
     condition = alltrue([
-      for e in ["tls-certificate", "tls-private-key", "edge-ca-certificate", "github-app-private-key", "github-app-webhook-secret", "llm-api-key", "sso-client-secret"] :
+      for e in ["tls-certificate", "tls-private-key", "edge-ca-certificate", "github-app-private-key", "github-app-webhook-secret", "llm-api-key", "sso-client-secret", "gateway-api-key", "gateway-extra-headers"] :
       contains(keys(azurerm_key_vault_secret.entry), e)
     ])
     error_message = "Each optional entry is written when its input is set."
@@ -393,6 +400,42 @@ run "optional_vault_entries" {
     condition     = output.autoheal_values.global.edge.tls.caVaultEntry == "edge-ca-certificate"
     error_message = "global.edge.tls.caVaultEntry is suggested when edge_ca_certificate is set."
   }
+
+  assert {
+    condition     = output.autoheal_values.global.llm == { gateway = { extraHeadersVaultEntry = "gateway-extra-headers" } }
+    error_message = "Only global.llm.gateway.extraHeadersVaultEntry is suggested when llm_gateway_extra_headers is set."
+  }
+}
+
+# The gateway headers must be a JSON object of strings, as agents-py reads them.
+run "gateway_headers_must_be_json" {
+  command = plan
+
+  variables {
+    llm_gateway_extra_headers = "x-portkey-config: {}"
+  }
+
+  expect_failures = [var.llm_gateway_extra_headers]
+}
+
+run "gateway_headers_must_be_an_object" {
+  command = plan
+
+  variables {
+    llm_gateway_extra_headers = "[\"x-portkey-config\"]"
+  }
+
+  expect_failures = [var.llm_gateway_extra_headers]
+}
+
+run "gateway_header_values_must_be_strings" {
+  command = plan
+
+  variables {
+    llm_gateway_extra_headers = "{\"x-portkey-config\":{\"retry\":{\"attempts\":2}}}"
+  }
+
+  expect_failures = [var.llm_gateway_extra_headers]
 }
 
 run "github_key_must_be_pem" {

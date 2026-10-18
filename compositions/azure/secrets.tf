@@ -109,6 +109,8 @@ locals {
     ],
     local.redis_enabled ? ["redis-access-key", "api-server-redis-url"] : [],
     nonsensitive(var.llm_api_key != "") ? ["llm-api-key"] : [],
+    nonsensitive(var.llm_gateway_api_key != "") ? ["gateway-api-key"] : [],
+    nonsensitive(var.llm_gateway_extra_headers != "") ? ["gateway-extra-headers"] : [],
     nonsensitive(var.sso_client_secret != "") ? ["sso-client-secret"] : [],
     nonsensitive(var.tls_certificate != null) ? ["tls-certificate", "tls-private-key"] : [],
     var.edge_ca_certificate != "" ? ["edge-ca-certificate"] : [],
@@ -133,6 +135,8 @@ locals {
     "redis-access-key"            = local.redis_access_key
     "api-server-redis-url"        = local.api_server_redis_url
     "llm-api-key"                 = var.llm_api_key
+    "gateway-api-key"             = var.llm_gateway_api_key
+    "gateway-extra-headers"       = var.llm_gateway_extra_headers
     "sso-client-secret"           = var.sso_client_secret
     "tls-certificate"             = try(var.tls_certificate.certificate, "")
     "tls-private-key"             = try(var.tls_certificate.private_key, "")

@@ -4,7 +4,7 @@
 # and addresses, never secrets.
 #
 #   global.infra   facts: what Terraform built. Only Terraform sets these.
-#   global.addons, global.secrets, global.edge
+#   global.addons, global.secrets, global.edge, global.llm
 #                  suggestions that follow from what was built. The customer's
 #                  values file may override them.
 #   global.imageRegistry
@@ -86,6 +86,9 @@ locals {
       )
       },
       { for k, v in { imageRegistry = local.image_registry } : k => v if local.image_registry != "" },
+      # Only the gateway headers entry, when llm_gateway_extra_headers is set.
+      # The rest of global.llm, the gateway switch included, is the customer's.
+      { for k, v in { llm = { gateway = { extraHeadersVaultEntry = "gateway-extra-headers" } } } : k => v if nonsensitive(var.llm_gateway_extra_headers != "") },
     )
 
     temporal = merge(

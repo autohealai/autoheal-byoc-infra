@@ -217,6 +217,8 @@ These variables are secrets. Tick **Sensitive** for each:
 | `tls_certificate` | `tls-certificate`, `tls-private-key` | When the edge serves your own certificate. HCL: `{ certificate = "<PEM chain>", private_key = "<PEM>" }` |
 | `github_app_private_key` | `github-app-private-key` | When you connect a GitHub App. Paste the PEM; Terraform stores it base64-encoded. |
 | `github_app_webhook_secret` | `github-app-webhook-secret` | When you connect a GitHub App |
+| `llm_gateway_api_key` | `gateway-api-key` | When the model calls go through an LLM gateway that takes a key |
+| `llm_gateway_extra_headers` | `gateway-extra-headers` | When the gateway needs extra headers. A JSON object of strings, for example `{"x-portkey-config":"<config JSON>"}`. |
 
 When a private CA signed your certificate, also set `edge_ca_certificate` (not
 sensitive) to the CA's PEM certificate. It is stored as `edge-ca-certificate`.

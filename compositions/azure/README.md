@@ -114,6 +114,8 @@ through the Key Vault CSI driver. No service pod mounts the vault, so
 | `tool-response-server-secret` | Generated: 64 letters and digits |
 | `redis-access-key`, `api-server-redis-url` | Read from Redis, when there is one. The URL is `rediss://:<key>@<host>:<port>/0`. |
 | `llm-api-key` | `llm_api_key`, when set |
+| `gateway-api-key` | `llm_gateway_api_key`, when set. The key of the customer's LLM gateway (`global.llm.gateway` in the chart). |
+| `gateway-extra-headers` | `llm_gateway_extra_headers`, a JSON object of header strings, when set. `autoheal_values` then suggests `global.llm.gateway.extraHeadersVaultEntry`. |
 | `sso-client-secret` | `sso_client_secret`, when set |
 | `tls-certificate`, `tls-private-key` | `tls_certificate`, when set |
 | `edge-ca-certificate` | `edge_ca_certificate`, when set. `autoheal_values` then suggests `global.edge.tls.caVaultEntry`. |
@@ -211,6 +213,7 @@ global.addons.install                         suggestion: true when we created t
 global.secrets.mode                           suggestion: keyvault-csi
 global.edge.mode                              suggestion: edge_mode
 global.edge.tls.caVaultEntry                  suggestion: edge-ca-certificate, when edge_ca_certificate is set
+global.llm.gateway.extraHeadersVaultEntry     suggestion: gateway-extra-headers, when llm_gateway_extra_headers is set
 temporal.server.config.persistence.{default,visibility}.sql.host   copy of the database host
 zitadel.zitadel.configmapConfig.ExternalDomain                     copy of hosts.auth
 zitadel.zitadel.configmapConfig.Database.Postgres.Host             copy of the database host

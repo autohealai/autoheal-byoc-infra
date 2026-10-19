@@ -6,11 +6,19 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-10-19
+
+Docs and examples only. The modules and compositions are the same as 2.1.0, so
+an install moving from 2.1.0 plans no changes.
+
 ### Fixed
 - `examples/azure`: `prod/versions.hcl` pins chart `1.0.0-rc.7` instead of
   `1.0.0`, which is not published, so a copied example failed at the `prod/app`
   apply with "chart not found". The Helm commands in `examples/azure/README.md`
   and `docs/terraform-enterprise.md` use the same version.
+- `docs/getting-started.md`, `README.md`, `docs/terraform-enterprise.md` and
+  `examples/azure/prod/versions.hcl` point at `v2.1.1`, so the guide copies the
+  fixed example.
 
 ## [2.1.0] - 2026-10-18
 

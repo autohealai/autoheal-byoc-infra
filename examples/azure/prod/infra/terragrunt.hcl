@@ -17,7 +17,7 @@ inputs = {
   environment      = "prod"
   subscription_id  = "11111111-2222-3333-4444-555555555555"
   location         = "eastus2"
-  autoheal_version = local.v.chart_version # the runner VMs pull app/runner-go:chart-1.0.0
+  autoheal_version = local.v.chart_version # the runner VMs pull app/runner-go:chart-<chart_version>
 
   # We never create a DNS zone, only the records in it. If the zone is not in
   # Azure DNS (Cloudflare, Infoblox), remove this line and set

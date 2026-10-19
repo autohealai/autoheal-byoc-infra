@@ -104,7 +104,7 @@ az account set --subscription "<subscription-id>"   # az account show --query id
 Copy `examples/azure` from a released tag into a repository you own:
 
 ```bash
-git clone --branch v2.1.0 https://github.com/autohealai/autoheal-byoc-infra.git
+git clone --branch v2.1.1 https://github.com/autohealai/autoheal-byoc-infra.git
 mkdir acme-autoheal && cp -r autoheal-byoc-infra/examples/azure/. acme-autoheal/
 cd acme-autoheal
 ```
@@ -128,7 +128,9 @@ needs the same grant.
 
 ### Step 4: Fill in your settings
 
-- `prod/versions.hcl`: the infra tag and the chart version.
+- `prod/versions.hcl`: the infra tag and the chart version. Keep the two
+  numbers the example carries; they are a published, tested pair. Change them
+  only to upgrade.
 - `prod/infra/terragrunt.hcl`: `namespace` (your short name, e.g. `acme`; it
   starts every resource name), `environment` (e.g. `prod`; not the region),
   `subscription_id`, `location`, `hostname`, `edge_mode`, the `existing_*` IDs

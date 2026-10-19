@@ -6,6 +6,12 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+- `examples/azure`: `prod/versions.hcl` pins chart `1.0.0-rc.7` instead of
+  `1.0.0`, which is not published, so a copied example failed at the `prod/app`
+  apply with "chart not found". The Helm commands in `examples/azure/README.md`
+  and `docs/terraform-enterprise.md` use the same version.
+
 ## [2.1.0] - 2026-10-18
 
 Optional LLM gateway support on Azure. Installs that do not set the new inputs

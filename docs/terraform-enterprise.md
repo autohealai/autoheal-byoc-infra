@@ -192,7 +192,7 @@ These variables are necessary in every case:
 | `subscription_id` | your subscription GUID |
 | `location` | `eastus2` |
 | `hostname` | `autoheal.acme.example` |
-| `autoheal_version` | the Autoheal release, for example `1.0.0` |
+| `autoheal_version` | the Autoheal release, for example `1.0.0-rc.7` |
 
 These variables depend on your setup:
 
@@ -304,7 +304,7 @@ The simplest path is Helm or Flux with `autoheal_values_yaml`:
 
 ```bash
 helm upgrade --install autoheal oci://public.ecr.aws/e4h3h0d9/charts/autoheal \
-  --version 1.0.0 -n autoheal --create-namespace \
+  --version 1.0.0-rc.7 -n autoheal --create-namespace \
   -f values-infra.yaml -f values-customer.yaml --atomic --wait --timeout 20m
 ```
 

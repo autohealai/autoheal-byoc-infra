@@ -17,9 +17,18 @@ global:
 
   llm:
     provider: azure-openai
-    endpoint: https://acme-openai.openai.azure.com
+    endpoint: https://acme-openai.openai.azure.com/openai/v1/   # the v1 endpoint
     model: gpt-5-mini
     apiKeyVaultEntry: llm-api-key     # the name of the vault entry, not the key
+    # Embeddings use the deployment text-embedding-3-large on the same resource.
+    # embeddingModel: azure-openai:<deployment>   # another deployment, 1024 dimensions
+    # To send model calls through an LLM gateway you run, such as Portkey, see
+    # "Optional: an LLM gateway" in autoheal-byoc-infra's docs/getting-started.md.
+    # With the gateway on, endpoint and apiKeyVaultEntry are not read.
+    # gateway:
+    #   enabled: true
+    #   kind: portkey
+    #   baseUrl: http://portkey-gateway.llm-gateway.svc.cluster.local:8787/v1
 
   sso:
     enabled: true

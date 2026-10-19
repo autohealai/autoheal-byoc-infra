@@ -172,7 +172,7 @@ The Azure side is complete.
 - Connect to your copy of this repository (a fork or a mirror).
 - Set the **Terraform Working Directory** to `compositions/azure`.
 - Set the **VCS branch** to a branch of your copy that holds the release you
-  install, for example a branch made from the `v2.0.0` tag. To upgrade, move
+  install, for example a branch made from the `v2.1.0` tag. To upgrade, move
   that branch to the next tag.
 - Name the workspace `autoheal-infra-prod`. The name must be the same as
   `<WORKSPACE>` in Step 4.
@@ -211,7 +211,7 @@ These variables are secrets. Tick **Sensitive** for each:
 
 | Key | Vault entry | When |
 | --- | --- | --- |
-| `llm_api_key` | `llm-api-key` | When your LLM provider uses an API key |
+| `llm_api_key` | `llm-api-key` | When your LLM provider uses an API key and the chart's LLM gateway is off |
 | `postgres_admin_password` | `postgres-admin-password` | Only with `existing_postgres_id`. For a server the composition creates, it generates the password. |
 | `sso_client_secret` | `sso-client-secret` | When SSO is on |
 | `tls_certificate` | `tls-certificate`, `tls-private-key` | When the edge serves your own certificate. HCL: `{ certificate = "<PEM chain>", private_key = "<PEM>" }` |
@@ -308,7 +308,9 @@ helm upgrade --install autoheal oci://public.ecr.aws/e4h3h0d9/charts/autoheal \
   -f values-infra.yaml -f values-customer.yaml --atomic --wait --timeout 20m
 ```
 
-`examples/azure/README.md` describes `values-customer.yaml`.
+`examples/azure/README.md` describes `values-customer.yaml`. To send model
+calls through an LLM gateway, see "Optional: an LLM gateway" in
+[getting-started.md](getting-started.md#optional-an-llm-gateway).
 
 You can also run `compositions/app` in a second workspace. It logs in to AKS
 with `kubelogin`, which the hosted workers do not have, so it needs a Terraform

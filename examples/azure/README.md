@@ -61,7 +61,7 @@ variables from your pipeline's secret store; Terraform writes them to Key Vault:
 
 | Variable | Vault entry | When |
 |----------|-------------|------|
-| `TF_VAR_llm_api_key` | `llm-api-key` | When your LLM provider uses an API key |
+| `TF_VAR_llm_api_key` | `llm-api-key` | When your LLM provider uses an API key and the chart's LLM gateway is off |
 | `TF_VAR_postgres_admin_password` | `postgres-admin-password` | Only with `existing_postgres_id`; for a server we create, Terraform generates it |
 | `TF_VAR_sso_client_secret` | `sso-client-secret` | When SSO is on |
 | `TF_VAR_tls_certificate` | `tls-certificate`, `tls-private-key` | When the edge serves your own certificate; an HCL object `{ certificate = "<PEM chain>", private_key = "<PEM>" }` |
@@ -69,6 +69,11 @@ variables from your pipeline's secret store; Terraform writes them to Key Vault:
 | `TF_VAR_github_app_webhook_secret` | `github-app-webhook-secret` | When you connect a GitHub App |
 | `TF_VAR_llm_gateway_api_key` | `gateway-api-key` | When the chart's LLM gateway is on, with any kind except `custom`. For a gateway that ignores it, such as Portkey OSS, any value. |
 | `TF_VAR_llm_gateway_extra_headers` | `gateway-extra-headers` | When the gateway needs extra headers; a JSON object of strings, for example `{"x-portkey-config":"<config JSON>"}` |
+
+To send model calls through an LLM gateway you run, such as Portkey, see
+"Optional: an LLM gateway" in autoheal-byoc-infra's `docs/getting-started.md`.
+It lists the gateway secrets to set and the `global.llm.gateway` block for
+`values-customer.yaml`.
 
 Terraform generates and stores the rest (database passwords, the JWT key, the
 Zitadel master key, the first admin password, the OAuth keys and the tool

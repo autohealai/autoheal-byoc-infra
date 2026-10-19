@@ -43,13 +43,17 @@ cd prod/infra && terragrunt apply   # cloud resources, vault entries, DNS, runne
 cd ../app     && terragrunt apply   # the chart
 ```
 
+To send model calls through an LLM gateway you run, such as Portkey, see
+"Optional: an LLM gateway" in
+[docs/getting-started.md](docs/getting-started.md#optional-an-llm-gateway).
+
 ## Versioning
 
 One semver version for the whole repo. Pin a release tag; the examples read it
 from `versions.hcl`:
 
 ```hcl
-source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure?ref=v2.0.0"
+source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure?ref=v2.1.0"
 ```
 
 Upgrading from 1.x: see the upgrade notes in [CHANGELOG.md](CHANGELOG.md).

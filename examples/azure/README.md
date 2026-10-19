@@ -106,7 +106,7 @@ with them:
 ```bash
 cd prod/infra && terragrunt output -raw autoheal_values_yaml > values-infra.yaml
 helm upgrade --install autoheal oci://public.ecr.aws/e4h3h0d9/charts/autoheal \
-  --version 1.0.0-rc.7 -n autoheal --create-namespace \
+  --version 1.0.0-rc.8 -n autoheal --create-namespace \
   -f values-infra.yaml -f ../app/values-customer.yaml --atomic --wait --timeout 20m
 ```
 

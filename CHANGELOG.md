@@ -12,10 +12,16 @@ Docs and examples only. The modules and compositions are the same as 2.1.0, so
 an install moving from 2.1.0 plans no changes.
 
 ### Fixed
-- `examples/azure`: `prod/versions.hcl` pins chart `1.0.0-rc.7` instead of
+- `examples/azure`: `prod/versions.hcl` pins chart `1.0.0-rc.8` instead of
   `1.0.0`, which is not published, so a copied example failed at the `prod/app`
   apply with "chart not found". The Helm commands in `examples/azure/README.md`
   and `docs/terraform-enterprise.md` use the same version.
+- The pinned chart is `1.0.0-rc.8`, not `1.0.0-rc.7`. With rc.7, agents that
+  write artifacts (reports, RCA documents) failed with "create_artifact failed:
+  503 - durable object storage is not configured for this deployment". rc.8
+  stores them in a `<container>-artifacts` container in the same storage
+  account, which the app creates at startup. The existing role assignment
+  covers it, so the infra plan does not change.
 - `docs/getting-started.md`, `README.md`, `docs/terraform-enterprise.md` and
   `examples/azure/prod/versions.hcl` point at `v2.1.1`, so the guide copies the
   fixed example.

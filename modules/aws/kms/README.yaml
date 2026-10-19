@@ -1,0 +1,23 @@
+name: aws/kms
+title: Autoheal BYOC - AWS KMS key
+description: |-
+  One customer managed KMS key (symmetric, encrypt and decrypt) with an alias,
+  automatic rotation and a key policy built from plain inputs. The other AWS
+  modules take its ARN to encrypt Kubernetes Secrets, EBS volumes, Aurora,
+  ElastiCache, S3, Secrets Manager and CloudWatch log groups.
+
+  The key policy always starts with the root statement for the current account,
+  so IAM policies can grant use of the key and the account cannot lock itself
+  out. Optional statements add key administrators, key users (grants limited to
+  AWS resources), the CloudWatch Logs service for log groups in this account and
+  region, and any extra statements the caller passes.
+
+  The Azure analogue is a Key Vault key. Naming and tags follow the repo's
+  null-label convention (see label.tf and docs/MODULE_STANDARD.md).
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md

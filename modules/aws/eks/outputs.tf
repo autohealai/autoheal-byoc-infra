@@ -1,50 +1,64 @@
 output "cluster_name" {
-  description = "EKS cluster name. Maps to the cross-cloud output contract 'cluster_name'."
+  description = "Name of the EKS cluster."
   value       = aws_eks_cluster.this.name
 }
 
-output "cluster_id" {
-  description = "EKS cluster ID."
-  value       = aws_eks_cluster.this.id
+output "cluster_arn" {
+  description = "ARN of the EKS cluster."
+  value       = aws_eks_cluster.this.arn
 }
 
 output "cluster_endpoint" {
-  description = "Kubernetes API server endpoint."
+  description = "HTTPS endpoint of the Kubernetes API server."
   value       = aws_eks_cluster.this.endpoint
 }
 
 output "cluster_certificate_authority_data" {
-  description = "Base64 cluster CA data (for kubeconfig)."
+  description = "Base64 encoded cluster CA certificate, as AWS returns it. Public, not a secret."
   value       = aws_eks_cluster.this.certificate_authority[0].data
-  sensitive   = true
+}
+
+output "cluster_version" {
+  description = "Kubernetes version of the control plane."
+  value       = aws_eks_cluster.this.version
 }
 
 output "cluster_security_group_id" {
-  description = "Security group ID of the EKS control plane (the one this module creates)."
-  value       = aws_security_group.cluster.id
-}
-
-output "cluster_primary_security_group_id" {
-  description = "EKS-managed primary security group attached to pods/nodes via the VPC CNI. Use this as the source in data-tier (RDS/ElastiCache) ingress rules."
+  description = "ID of the security group EKS created for the cluster. The control plane and all nodes use it; allow it on data stores the pods reach."
   value       = aws_eks_cluster.this.vpc_config[0].cluster_security_group_id
 }
 
+output "cluster_role_arn" {
+  description = "ARN of the IAM role the control plane uses."
+  value       = aws_iam_role.cluster.arn
+}
+
 output "node_role_arn" {
-  description = "IAM role ARN assumed by node-group instances."
-  value       = aws_iam_role.node_group.arn
+  description = "ARN of the node IAM role."
+  value       = aws_iam_role.node.arn
 }
 
-output "oidc_provider_arn" {
-  description = "ARN of the cluster OIDC provider (feed to modules/aws/irsa)."
-  value       = aws_iam_openid_connect_provider.cluster.arn
+output "node_role_name" {
+  description = "Name of the node IAM role, for attaching more policies outside the module."
+  value       = aws_iam_role.node.name
 }
 
-output "oidc_provider_url" {
-  description = "URL of the cluster OIDC issuer (feed to modules/aws/irsa)."
+output "node_group_name" {
+  description = "Name of the managed node group."
+  value       = aws_eks_node_group.this.node_group_name
+}
+
+output "oidc_issuer_url" {
+  description = "OIDC issuer URL of the cluster. Not used for workload credentials here (Pod Identity is), but useful for external identity federation."
   value       = aws_eks_cluster.this.identity[0].oidc[0].issuer
 }
 
 output "ebs_csi_driver_role_arn" {
-  description = "IAM role ARN used by the EBS CSI driver."
-  value       = aws_iam_role.ebs_csi.arn
+  description = "ARN of the IAM role the EBS CSI driver uses through Pod Identity. Empty when aws-ebs-csi-driver is not in addons."
+  value       = join("", aws_iam_role.ebs_csi[*].arn)
+}
+
+output "cloudwatch_log_group_name" {
+  description = "Name of the CloudWatch log group that receives control plane logs."
+  value       = aws_cloudwatch_log_group.cluster.name
 }

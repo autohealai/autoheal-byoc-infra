@@ -1,60 +1,74 @@
 # Module-specific inputs. Naming/tagging inputs (namespace, environment, name,
 # attributes, tags, ...) are declared in label.tf and feed modules/_shared/label.
+# The repository creation role is named <id>-ecr-template (cut to 64 characters
+# with a hash suffix when longer).
 
-variable "repository_names" {
-  type        = list(string)
-  default     = []
-  description = "ECR repository names to create (relative to the account registry), e.g. ['release/api-server-go', 'release/runner-go']."
-}
-
-variable "image_tag_mutability" {
+variable "repository_prefix" {
   type        = string
-  default     = "MUTABLE"
-  description = "IMMUTABLE forbids overwriting a tag; MUTABLE allows floating tags like 'latest'."
+  description = "ECR repository prefix for the pull through cache rule, e.g. autoheal. Images are pulled as <registry_host>/<repository_prefix>/<upstream path>. 2 to 30 characters, lowercase."
 
   validation {
-    condition     = contains(["MUTABLE", "IMMUTABLE"], var.image_tag_mutability)
-    error_message = "image_tag_mutability must be MUTABLE or IMMUTABLE."
+    condition     = length(var.repository_prefix) >= 2 && length(var.repository_prefix) <= 30
+    error_message = "repository_prefix must be 2 to 30 characters long."
+  }
+
+  validation {
+    condition     = can(regex("^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$", var.repository_prefix)) && var.repository_prefix != "ROOT"
+    error_message = "repository_prefix must be lowercase letters, digits and . _ - / separators, start and end with a letter or digit, and not be ROOT."
   }
 }
 
-variable "scan_on_push" {
-  type        = bool
-  default     = true
-  description = "Run the basic image vulnerability scan on push."
-}
-
-variable "encryption_type" {
+variable "upstream_registry_url" {
   type        = string
-  default     = "AES256"
-  description = "AES256 (S3-managed) or KMS. kms_key_arn is used only when KMS."
+  default     = "public.ecr.aws"
+  description = "Registry host the cache pulls from, without a scheme. The default is ECR Public, which needs no credentials."
 
   validation {
-    condition     = contains(["AES256", "KMS"], var.encryption_type)
-    error_message = "encryption_type must be AES256 or KMS."
+    condition     = can(regex("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]+)?$", var.upstream_registry_url))
+    error_message = "upstream_registry_url must be a registry host name such as public.ecr.aws, without https:// or a path."
+  }
+}
+
+variable "upstream_namespace" {
+  type        = string
+  default     = "e4h3h0d9"
+  description = "Path under the upstream registry that holds the chart images (app/<name> and external/<name>). It becomes part of image_registry. Empty when the images sit at the registry root."
+
+  validation {
+    condition     = var.upstream_namespace == "" || can(regex("^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$", var.upstream_namespace))
+    error_message = "upstream_namespace must be empty or a lowercase repository path without leading or trailing slashes."
   }
 }
 
 variable "kms_key_arn" {
   type        = string
   default     = ""
-  description = "KMS key ARN when encryption_type is KMS. Empty uses the AWS-managed ECR key."
+  description = "KMS key ARN for the cached repositories. Empty uses AES256 (ECR managed keys). The key policy must let IAM policies in the account grant use of the key (modules/aws/kms always does)."
+
+  validation {
+    condition     = var.kms_key_arn == "" || can(regex("^arn:aws[a-zA-Z-]*:kms:[a-z0-9-]+:[0-9]{12}:key/[a-zA-Z0-9-]+$", var.kms_key_arn))
+    error_message = "kms_key_arn must be empty or a KMS key ARN (arn:<partition>:kms:<region>:<account>:key/<id>)."
+  }
 }
 
-variable "max_image_count" {
-  type        = number
-  default     = 100
-  description = "Keep at most this many tagged images per repository; older ones expire."
+variable "image_tag_mutability" {
+  type        = string
+  default     = "IMMUTABLE"
+  description = "Tag mutability of the cached repositories. With IMMUTABLE, ECR does not update a cached tag when upstream moves it, which suits the pinned chart-<version> tags. Use MUTABLE to follow moving tags."
+
+  validation {
+    condition     = contains(["IMMUTABLE", "MUTABLE"], var.image_tag_mutability)
+    error_message = "image_tag_mutability must be IMMUTABLE or MUTABLE."
+  }
 }
 
-variable "tag_prefix_list" {
-  type        = list(string)
-  default     = ["v", "release", "main"]
-  description = "Only tags starting with one of these count toward max_image_count."
-}
-
-variable "untagged_image_days" {
+variable "untagged_expiry_days" {
   type        = number
   default     = 14
-  description = "Expire untagged images older than this many days."
+  description = "Days after which untagged images in the cached repositories expire. Images referenced by a tagged multi-architecture index are not expired while the index exists."
+
+  validation {
+    condition     = var.untagged_expiry_days >= 1 && floor(var.untagged_expiry_days) == var.untagged_expiry_days
+    error_message = "untagged_expiry_days must be a whole number of at least 1."
+  }
 }

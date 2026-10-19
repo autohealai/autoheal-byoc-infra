@@ -1,11 +1,14 @@
 name: aws/secrets-manager
-title: Autoheal BYOC — AWS Secrets Manager
+title: "Autoheal BYOC: AWS Secrets Manager"
 description: |-
-  Secrets Manager storage for a BYOC-on-EKS Autoheal install. Creates one secret
-  per entry under a shared prefix (tenants/<tenant>/<key>). The app reads them via
-  its IRSA role (modules/aws/irsa); this module stores, it does not grant read.
+  Secrets Manager entries for a BYOC-on-EKS Autoheal install: one secret per
+  entry in secret_names, named <name_prefix><entry> and encrypted with the
+  caller's KMS key, with optional replicas in other regions. The app reads them
+  through an EKS Pod Identity role granted GetSecretValue on arn_pattern; this
+  module grants no access itself.
 
-  Azure analogue: modules/azure/keyvault. Naming/tags via the null-label base.
+  The Azure analogue is modules/azure/keyvault. Tags follow the repo's null-label
+  convention (see label.tf and docs/MODULE_STANDARD.md).
 
 usage: |-
   See examples/basic for a runnable configuration.
@@ -13,5 +16,7 @@ usage: |-
 related:
   - name: Module standard
     url: ../../../docs/MODULE_STANDARD.md
-  - name: AWS IRSA module
-    url: ../irsa
+  - name: AWS KMS module (provides the key)
+    url: ../kms
+  - name: AWS Pod Identity module (grants pods access)
+    url: ../pod-identity

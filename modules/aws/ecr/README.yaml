@@ -1,11 +1,21 @@
 name: aws/ecr
-title: Autoheal BYOC — AWS ECR
+title: Autoheal BYOC - AWS ECR pull through cache
 description: |-
-  ECR repositories for a BYOC-on-EKS Autoheal install. ECR is an account-level
-  registry; this module creates the per-service repositories and a lifecycle policy
-  that prunes old images. The registry endpoint is exposed as registry_url.
+  Private mirror of the public Autoheal registry through an ECR pull through
+  cache rule. Nothing is pushed: the first pull of an image under
+  <registry_host>/<repository_prefix>/ makes ECR create the repository, copy the
+  image from upstream_registry_url, and check upstream again at most once a day.
+  A repository creation template for the same prefix gives those repositories
+  encryption (the KMS key when set), tag mutability, a lifecycle policy that
+  expires untagged images, and the module tags. ECR creates them with a role
+  this module owns, limited to repositories under the prefix.
 
-  Azure analogue: modules/azure/acr. Naming/tags via the null-label base.
+  image_registry is the chart's global.imageRegistry. pull_policy_json is the
+  IAM policy a puller needs (nodes, the runner): it includes
+  ecr:BatchImportUpstreamImage and ecr:CreateRepository, which the first pull of
+  each image uses. That first pull needs a route from ECR to the upstream
+  registry. The Azure analogue is modules/azure/acr. Naming and tags follow the
+  repo's null-label convention (see label.tf and docs/MODULE_STANDARD.md).
 
 usage: |-
   See examples/basic for a runnable configuration.
@@ -13,5 +23,7 @@ usage: |-
 related:
   - name: Module standard
     url: ../../../docs/MODULE_STANDARD.md
-  - name: AWS EKS module
-    url: ../eks
+  - name: KMS (key for the cached repositories)
+    url: ../kms
+  - name: Runner ASG (pulls through the cache)
+    url: ../runner-asg

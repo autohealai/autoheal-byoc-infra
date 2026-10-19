@@ -1,0 +1,20 @@
+name: aws/route53
+title: Autoheal BYOC - Route 53 records
+description: |-
+  DNS records for the Autoheal hostnames in a Route 53 hosted zone the customer
+  already has, public or private. The module never creates the zone. Each
+  record is an A record with addresses, an A alias for a load balancer, or a
+  CNAME, keyed by a stable key so alias targets created in the same apply can be
+  passed in. Record names are relative to the zone (empty for the apex) or fully
+  qualified. The Azure analogue is modules/azure/dns. Naming follows the repo's
+  null-label convention (see label.tf and docs/MODULE_STANDARD.md); Route 53
+  records take no tags.
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: NLB (alias target)
+    url: ../nlb

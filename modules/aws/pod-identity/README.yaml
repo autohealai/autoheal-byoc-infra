@@ -1,0 +1,26 @@
+name: aws/pod-identity
+title: Autoheal BYOC - AWS EKS Pod Identity role
+description: |-
+  One IAM role for EKS Pod Identity plus the associations that bind it to
+  Kubernetes service accounts. Replaces the 1.x IRSA module: no IAM OIDC
+  provider and no service account annotations.
+
+  The trust policy lets only the EKS Pod Identity service assume the role, and
+  only for the named cluster in this account (aws:SourceAccount and
+  aws:SourceArn). Permissions come from inline policies and managed policy
+  attachments, each keyed by a fixed name so plans work when the documents and
+  ARNs come from the same apply. Associations can be turned off for a deployer
+  that may create roles but not associations.
+
+  The Azure analogue is workload identity with a user-assigned managed
+  identity. Naming and tags follow the repo's null-label convention (see
+  label.tf and docs/MODULE_STANDARD.md).
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: AWS EKS module (installs the Pod Identity agent)
+    url: ../eks

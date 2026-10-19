@@ -1,17 +1,19 @@
 # Installing Autoheal on your own cloud, step by step
 
-A guide to installing Autoheal inside your own Azure subscription (BYOC, "bring
-your own cloud"): the cloud resources first, then the application. No prior
-Terraform experience is assumed. AWS still uses the 1.x flow, at the end.
+A guide to installing Autoheal inside your own Azure subscription or AWS account
+(BYOC, "bring your own cloud"): the cloud resources first, then the application.
+No prior Terraform experience is assumed. The general steps come first, then the
+Azure steps, then the AWS steps.
 
 ## What you end up with
 
 Two folders in a repository you own, each with its own state:
 
 - `prod/infra` creates the cloud resources, or reads the ones you already have:
-  network, AKS cluster, PostgreSQL, Redis, storage, Key Vault, workload
-  identities, the runner VMs, DNS records, and every secret the application
-  reads, written to Key Vault.
+  network, Kubernetes cluster (AKS or EKS), PostgreSQL, Redis, storage, the
+  secret store (Key Vault or Secrets Manager), workload identities, the runner
+  VMs, DNS records, and every secret the application reads, written to the
+  secret store.
 - `prod/app` installs the Autoheal chart into the cluster with the values the
   infra folder outputs and your own `values-customer.yaml`.
 
@@ -28,8 +30,12 @@ laptop for a first try or from a pipeline for a real install.
 |------|----------------|---------|
 | Terraform (1.7 or later) | creates the infrastructure | https://developer.hashicorp.com/terraform/install |
 | Terragrunt | runs each folder with its backend and inputs | https://terragrunt.gruntwork.io/docs/getting-started/install/ |
-| `az` CLI | signs in to Azure | https://learn.microsoft.com/cli/azure/install-azure-cli |
-| `kubelogin` | logs in to AKS with Entra ID for the chart install | https://azure.github.io/kubelogin/install.html |
+| `az` CLI (Azure) | signs in to Azure | https://learn.microsoft.com/cli/azure/install-azure-cli |
+| `kubelogin` (Azure) | logs in to AKS with Entra ID for the chart install | https://azure.github.io/kubelogin/install.html |
+| `aws` CLI (AWS) | signs in to AWS and logs in to EKS for the chart install | https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html |
+
+On AWS, use Terraform or OpenTofu 1.10 or later: `examples/aws/root.hcl` locks
+state with an S3 lock file.
 
 Terraform is the tested CLI. OpenTofu also works; it resolves providers from the
 OpenTofu registry and regenerates `.terraform.lock.hcl` on `init`.
@@ -37,13 +43,15 @@ OpenTofu registry and regenerates `.terraform.lock.hcl` on `init`.
 ```bash
 terraform version     # 1.7 or later
 terragrunt --version
-az version
-kubelogin --version
+az version            # Azure
+kubelogin --version   # Azure
+aws --version         # AWS
 ```
 
-### 2. Check your permissions
+### 2. Check your permissions (Azure)
 
-A missing role fails the apply part way through, so check first.
+A missing role fails the apply part way through, so check first. The AWS
+permissions are in the AWS steps.
 
 - With `create_role_assignments = true` (the default) Terraform makes every
   role grant itself, which needs `Microsoft.Authorization/roleAssignments/write`.
@@ -53,7 +61,7 @@ A missing role fails the apply part way through, so check first.
   Contributor is then enough. The `required_role_assignments` output lists the
   grants to make, and the apply stops until they exist.
 
-### 3. One-time subscription setup
+### 3. One-time subscription setup (Azure)
 
 Register the resource providers (harmless to re-run):
 
@@ -94,6 +102,10 @@ endpoints on a cluster you already have,
 We never create a DNS zone. Set `existing_dns_zone_id` to the Azure DNS zone that
 holds your hostname, or set `create_dns_records = false` and create the records
 listed in the `required_dns_records` output yourself.
+
+On AWS the building blocks and their `existing_*` ARNs are in the table in
+`examples/aws/README.md`, and `existing_dns_zone_id` is a Route 53 hosted zone
+ID.
 
 ---
 
@@ -353,51 +365,138 @@ downloads the chart with its docs.
 
 ---
 
-## AWS / EKS (1.x)
+## AWS / EKS
 
-AWS still uses the 1.x composition `aws-byoc`, which creates the cluster and
-data tier and outputs the 1.x contract. Pin a 1.x tag for it.
+The same two folders as on Azure, from `examples/aws`. The infra folder creates
+the VPC, EKS, Aurora PostgreSQL, ElastiCache, the S3 buckets, the KMS keys, the
+Secrets Manager entries, the Pod Identity roles, the NLBs, the runner instances
+and the Route 53 records, or reads the ones you bring.
 
 ### Step 1: Sign in to AWS
 
 ```bash
-aws sso login --profile <profile>     # or: aws configure
+aws sso login --profile <profile>     # or any other way to get credentials
 export AWS_PROFILE=<profile>
+aws sts get-caller-identity           # check it is the install account
 ```
 
-### Step 2: Get the repo and pin a release
+The identity that runs Terraform needs AdministratorAccess, or PowerUserAccess
+plus the IAM rights to create roles, policies and instance profiles. When your
+account requires a permissions boundary on new roles, set
+`iam_permissions_boundary_arn`. With `create_pod_identity_associations = false`
+an administrator creates the Pod Identity associations listed in the
+`required_role_assignments` output instead.
+
+Pick a region where EKS, Aurora PostgreSQL and ElastiCache are all offered, and
+check the On-Demand vCPU quota for the node group (default three `m7i.xlarge`)
+and the runner instances (one `m7i.xlarge`). A first apply takes roughly 30
+minutes; EKS and Aurora are the slow parts.
+
+### Step 2: Copy the example into your repository
 
 ```bash
-git clone https://github.com/autohealai/autoheal-byoc-infra.git
-cd autoheal-byoc-infra
-git checkout v1.4.0   # the last 1.x release
+git clone --branch v3.0.0 https://github.com/autohealai/autoheal-byoc-infra.git
+mkdir acme-autoheal && cp -r autoheal-byoc-infra/examples/aws/. acme-autoheal/
+cd acme-autoheal
 ```
 
-### Step 3: Make your own copy of the example
+### Step 3: Create the state bucket (one time)
+
+Edit `root.hcl`: pick the bucket name (globally unique) and region. Then create
+it:
 
 ```bash
-cp -r examples/aws-byoc examples/aws-byoc-mine
-cd examples/aws-byoc-mine
+../autoheal-byoc-infra/scripts/bootstrap-state-aws.sh \
+  --bucket acme-autoheal-tfstate \
+  --region us-west-2
 ```
+
+The script is idempotent. It turns on versioning, default encryption and
+TLS-only access, and blocks public access. `root.hcl` locks state with a lock
+file in the bucket (`use_lockfile`), which needs Terraform or OpenTofu 1.10 or
+later; no DynamoDB table is needed.
 
 ### Step 4: Fill in your settings
 
-Open `terragrunt.hcl` and edit the `EDIT`-marked values: `namespace`,
-`environment`, `region`, `availability_zones` (match them to the region), and the
-`remote_state` block (an S3 bucket and a DynamoDB lock table).
+- `prod/versions.hcl`: the infra tag and the chart version.
+- `prod/infra/terragrunt.hcl`: `namespace`, `environment`, `account_id`,
+  `region`, `hostname`, `existing_dns_zone_id` (the Route 53 hosted zone that
+  holds the hostname), `edge_mode` and `edge_exposure`, the `existing_*` ARNs
+  (the table in `examples/aws/README.md`), sizing, and who reaches the cluster
+  API: `cluster_admin_principal_arns`, and `api_server_authorized_ip_ranges` set
+  to the public egress address of the machine that runs Terraform (or
+  `private_cluster_enabled = true` when it runs inside the VPC).
+- Secrets, as environment variables, never in a file:
 
-Create the state bucket and lock table once (or have your platform team do it), and
-put their names in the `remote_state` block. Unlike Azure, there is no bootstrap
-script; a bucket and a DynamoDB table are all that is needed.
+  ```bash
+  export TF_VAR_llm_api_key="..."               # if your LLM provider uses a key; not with Bedrock or an LLM gateway
+  export TF_VAR_postgres_admin_password="..."   # only with existing_postgres_arn
+  export TF_VAR_redis_auth_token="..."          # only with an existing_redis_arn that has AUTH on
+  export TF_VAR_llm_gateway_api_key="..."       # only with an LLM gateway; see "Optional: an LLM gateway"
+  ```
 
-### Step 5: Init, plan, apply, save outputs
+**Backup, high availability and encryption.** The defaults are production
+settings: a NAT gateway per zone, Aurora with a writer and a reader in different
+zones, 30-day backups and deletion protection, ElastiCache with a replica and
+automatic failover, customer managed KMS keys with rotation on (one each for
+EKS secrets, the data stores, S3, Secrets Manager and logs), and 365-day log
+retention. For a throwaway install, turn off
+`postgres_deletion_protection_enabled` and set `postgres_skip_final_snapshot`
+and `s3_force_destroy`, so `destroy` can remove everything.
+
+### Step 5: Plan and apply the infra folder
 
 ```bash
-terragrunt init
-terragrunt plan      # review; nothing created yet
-terragrunt apply     # type yes
-terragrunt output -json > autoheal-infra-outputs.json
+cd prod/infra
+terragrunt plan
+terragrunt apply
 ```
+
+If the plan stops with an error, it names the input to change (a brought
+cluster in another VPC, a database older than PostgreSQL 15, a hostname outside
+the hosted zone, and so on).
+
+### Step 6: Check the outputs
+
+```bash
+terragrunt output required_role_assignments   # empty when Terraform made the associations
+terragrunt output required_dns_records        # empty when Terraform made the records
+terragrunt output -raw autoheal_values_yaml   # what the chart receives; no secrets
+```
+
+### Step 7: Install the application
+
+Edit `prod/app/values-customer.yaml` (admin email, LLM, SSO, sizing). Do not set
+`global.infra`; those values come from the infra folder.
+
+With `provider: bedrock`, agents-py calls Bedrock as its Pod Identity role
+(`bedrock_access_enabled = true` in the infra folder), so there is no key. The
+model must be enabled for the account in the Bedrock console first. Then:
+
+```bash
+cd ../app
+terragrunt plan
+terragrunt apply
+```
+
+The app folder logs in to EKS with `aws eks get-token`, so your AWS identity
+must be a cluster admin. It installs the AWS Load Balancer Controller first,
+which registers the pods in the NLB target groups, then the chart. On a brought
+cluster that already runs a controller, remove `aws_load_balancer_controller`
+from `prod/app/terragrunt.hcl`.
+
+To install with Helm or Flux instead of the app folder, see
+`examples/aws/README.md`.
+
+### Step 8: Check the cluster (optional)
+
+```bash
+aws eks update-kubeconfig --region <region> --name <name>
+kubectl get pods -n autoheal
+kubectl get targetgroupbindings -n autoheal
+```
+
+`<region>` and `<name>` are in `terragrunt output cluster` in `prod/infra`.
 
 ---
 
@@ -405,7 +504,8 @@ terragrunt output -json > autoheal-infra-outputs.json
 
 Change the two numbers in `prod/versions.hcl`, then plan and apply `prod/infra`
 and `prod/app` again. Read `CHANGELOG.md` first; upgrading from 1.x has its own
-notes there.
+notes there. An AWS install on the 1.x `aws-byoc` composition is not upgraded in
+place: install 3.x next to it and move the data.
 
 ---
 
@@ -454,6 +554,11 @@ brought vault.
 | with Portkey OSS the pods run but every chat fails | the `x-portkey-config` header is missing, so Portkey has no provider to call | set `TF_VAR_llm_gateway_extra_headers`, then apply `prod/infra` and `prod/app` |
 | `prod/app` stops with "global.llm.embeddingModel ... would skip the gateway" | with the gateway on, the embedding model does not start with `azure-openai:` | set `global.llm.embeddingModel` to `azure-openai:<model the gateway routes>` |
 | the agents-py logs say "AZURE_OPENAI_BASE_URL must target the Azure OpenAI v1 GA API" | `global.llm.endpoint` does not end in `/openai/v1/` | add `/openai/v1/` to the endpoint and apply `prod/app` again |
+| AWS: `terragrunt init` fails with `NoSuchBucket` or `AccessDenied` | the state bucket does not exist, its name or region does not match `root.hcl`, or you cannot read it | run Step 3 of the AWS steps |
+| AWS: `init` rejects `use_lockfile` | Terraform or OpenTofu older than 1.10 | upgrade, or replace `use_lockfile` with a `dynamodb_table` in `root.hcl` |
+| AWS: the app folder cannot log in to the cluster | the `aws` CLI is missing, or your identity has no EKS access entry | install the CLI; add the identity to `cluster_admin_principal_arns` and apply `prod/infra` |
+| AWS: the `autoheal-secrets-sync` Job or a pod fails to mount secrets with `AccessDeniedException` | the Pod Identity associations do not exist yet | run the commands in `required_role_assignments`, or set `create_pod_identity_associations = true` |
+| AWS: `prod/app` times out and `kubectl get targetgroupbindings -n autoheal` shows errors | no AWS Load Balancer Controller, or its role cannot register targets in the target groups | keep `aws_load_balancer_controller = { enabled = true }`, or allow `RegisterTargets` on the target groups for the cluster's own controller |
 
 ---
 

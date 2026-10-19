@@ -1,11 +1,13 @@
-# Minimal registry with two repositories. Doubles as the CI plan/validate fixture.
+# Pull through cache for the public Autoheal registry, with an IAM policy for
+# the pullers. Doubles as the CI validate fixture. Set kms_key_arn to encrypt the
+# cached repositories with a customer managed key.
 
 terraform {
-  required_version = ">= 1.6"
+  required_version = ">= 1.7"
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 6.0"
     }
   }
 }
@@ -21,12 +23,20 @@ module "ecr" {
   environment = "play"
   name        = "autoheal"
 
-  repository_names = [
-    "release/api-server-go",
-    "release/runner-go",
-  ]
+  repository_prefix = "acme-autoheal"
 }
 
-output "registry_url" {
-  value = module.ecr.registry_url
+resource "aws_iam_policy" "ecr_pull" {
+  name   = "acme-play-autoheal-ecr-pull"
+  policy = module.ecr.pull_policy_json
+}
+
+output "image_registry" {
+  description = "Value for the chart's global.imageRegistry."
+  value       = module.ecr.image_registry
+}
+
+output "ecr_pull_policy_arn" {
+  description = "Policy to attach to the node and runner roles."
+  value       = aws_iam_policy.ecr_pull.arn
 }

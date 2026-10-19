@@ -1,0 +1,27 @@
+name: aws/aurora-postgres
+title: "Autoheal BYOC: AWS Aurora PostgreSQL"
+description: |-
+  Aurora PostgreSQL cluster for a BYOC-on-EKS Autoheal install: one writer plus
+  readers in the data subnets, no public access, storage and Performance
+  Insights encrypted with the caller's KMS key, and TLS required through
+  rds.force_ssl in the cluster parameter group.
+
+  The module creates its own security group (ingress on the database port only
+  from the allowed security groups and CIDRs), the DB subnet group, the cluster
+  parameter group (family from the major version), the Enhanced Monitoring role
+  and the CloudWatch log groups for exported logs. Deletion protection and a
+  final snapshot are on by default.
+
+  The Azure analogue is modules/azure/postgres-flexible. Naming and tags follow
+  the repo's null-label convention (see label.tf and docs/MODULE_STANDARD.md).
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: AWS KMS module (provides the key)
+    url: ../kms
+  - name: AWS VPC module (provides the data subnets)
+    url: ../vpc

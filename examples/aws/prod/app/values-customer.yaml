@@ -1,0 +1,52 @@
+# The settings you choose. It must not contain global.infra: those values come
+# from the infra folder, and the chart rejects a file that sets them. Shared
+# settings sit under global. A block named after a service sets that service's
+# size.
+global:
+  # -- First admin. Zitadel creates this user with the password in the vault
+  # entry first-admin-password and asks for a new one at first login.
+  adminEmail: platform-admin@acme.example
+
+  tenant:
+    # -- Tenant display name. The slug is derived from it.
+    name: acme
+
+  edge:
+    # -- Must match edge_mode in infra/terragrunt.hcl. loadbalancer uses the
+    # edge NLB that the infra folder creates.
+    mode: loadbalancer
+    tls:
+      # -- Secret the proxy serves, synced from the vault entries
+      # tls-certificate and tls-private-key.
+      secretName: autoheal-tls
+
+  llm:
+    # -- azure-openai, anthropic-foundry or bedrock.
+    provider: bedrock
+    # -- Bedrock model or inference profile ID. agents-py calls Bedrock as
+    # the agents-py Pod Identity role, so no endpoint or key is needed. An ID
+    # that holds a colon, such as one ending in -v1:0, must start with
+    # bedrock:.
+    model: us.anthropic.claude-sonnet-4-6
+    # -- Model names the agent editor offers. Each must be in the platform
+    # model catalogue; see the chart's docs/prerequisites.md.
+    offeredModels: claude-sonnet-4-6
+    # -- Bedrock needs no API key.
+    apiKeyVaultEntry: ""
+
+  sso:
+    # -- Single sign-on through the customer's OIDC provider. This chart
+    # version does not configure Zitadel for it; see the chart's docs/prerequisites.md.
+    enabled: false
+
+  # -- Empty pulls from the public Autoheal registry. Set it to a mirror that
+  # holds the same paths.
+  imageRegistry: ""
+
+# -- Per service: size only. The chart defaults suit production; this adds
+# workers for the expected load.
+agents-py-worker:
+  replicaCount: 3
+  resources:
+    requests: { cpu: "1", memory: 2Gi }
+    limits: { memory: 4Gi }

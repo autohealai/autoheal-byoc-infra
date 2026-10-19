@@ -1,12 +1,17 @@
-# Minimal node-based ElastiCache Redis wired to a vpc module. Doubles as the CI
-# plan/validate fixture.
+# Minimal Valkey replication group: a primary and one replica in two availability
+# zones, reachable from the EKS cluster security group. Doubles as the CI validate
+# fixture. The IDs and ARNs below are placeholders; the composition passes the
+# vpc, eks and kms module outputs instead.
+#
+# attributes = ["cache"] gives the group a distinct name (acme-play-autoheal-cache)
+# from the other components sharing the same namespace/environment/name.
 
 terraform {
-  required_version = ">= 1.6"
+  required_version = ">= 1.7"
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = ">= 6.58, < 7.0"
     }
   }
 }
@@ -15,33 +20,37 @@ provider "aws" {
   region = "us-west-2"
 }
 
-module "vpc" {
-  source = "../../../vpc"
-
-  namespace          = "acme"
-  environment        = "play"
-  name               = "autoheal"
-  vpc_cidr           = "10.60.0.0/16"
-  availability_zones = ["us-west-2a", "us-west-2b"]
-  cluster_name       = "acme-play-autoheal"
-}
-
-module "redis" {
+module "cache" {
   source = "../../"
 
+  # null-label (environment = lifecycle, not region); "cache" distinguishes the name
   namespace   = "acme"
   environment = "play"
   name        = "autoheal"
-  attributes  = ["redis"]
+  attributes  = ["cache"]
 
-  vpc_id         = module.vpc.vpc_id
-  vpc_cidr_block = module.vpc.vpc_cidr
-  subnet_ids     = module.vpc.private_subnet_ids
+  vpc_id                     = "vpc-0123456789abcdef0"
+  subnet_ids                 = ["subnet-0123456789abcdef0", "subnet-0123456789abcdef1"]
+  allowed_security_group_ids = ["sg-0123456789abcdef0"]
 
-  node_type          = "cache.t4g.small"
-  num_cache_clusters = 2
+  kms_key_arn     = "arn:aws:kms:us-west-2:111122223333:key/00000000-0000-0000-0000-000000000000"
+  log_kms_key_arn = "arn:aws:kms:us-west-2:111122223333:key/00000000-0000-0000-0000-000000000000"
+
+  # The composition generates this and stores it in Secrets Manager; placeholder for the fixture.
+  auth_token = "REPLACE-ME-IN-composition" # pragma: allowlist secret
 }
 
-output "redis_endpoint" {
-  value = module.redis.endpoint
+output "primary_endpoint_address" {
+  description = "Primary endpoint."
+  value       = module.cache.primary_endpoint_address
+}
+
+output "reader_endpoint_address" {
+  description = "Reader endpoint."
+  value       = module.cache.reader_endpoint_address
+}
+
+output "security_group_id" {
+  description = "Cache security group."
+  value       = module.cache.security_group_id
 }

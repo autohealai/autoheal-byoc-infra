@@ -1,13 +1,19 @@
 name: aws/s3
-title: Autoheal BYOC — AWS S3 (attachments)
+title: "Autoheal BYOC: AWS S3 bucket"
 description: |-
-  S3 bucket for attachments / knowledge base for a BYOC-on-EKS Autoheal install.
-  Versioned, SSE-S3 encrypted, all public access blocked, noncurrent versions expired
-  after 90 days. The app reaches it via an IRSA role (modules/aws/irsa), so no static
-  keys are stored.
+  One S3 bucket for Autoheal data (attachments, artifacts, the Git Registry) in a
+  BYOC-on-EKS install. Pods reach it through an EKS Pod Identity role, so no
+  access keys are stored.
 
-  The Azure analogue is modules/azure/blob. Naming and tags follow the repo's
-  null-label convention (see label.tf and docs/MODULE_STANDARD.md).
+  Always on: bucket owner enforced (ACLs off), all four public access blocks, and
+  a bucket policy that denies requests not made over TLS, merged with any
+  additional policy from the caller. Default encryption is SSE-KMS with an S3
+  Bucket Key when kms_key_arn is set, SSE-S3 otherwise. Versioning, CORS rules,
+  lifecycle rules and server access logging are configurable.
+
+  The Azure analogue is modules/azure/blob. Tags follow the repo's null-label
+  convention (see label.tf and docs/MODULE_STANDARD.md); the bucket name is
+  passed in full because bucket names are global.
 
 usage: |-
   See examples/basic for a runnable configuration.
@@ -15,5 +21,7 @@ usage: |-
 related:
   - name: Module standard
     url: ../../../docs/MODULE_STANDARD.md
-  - name: AWS IRSA module
-    url: ../irsa
+  - name: AWS KMS module (provides the key)
+    url: ../kms
+  - name: AWS Pod Identity module (grants pods access)
+    url: ../pod-identity

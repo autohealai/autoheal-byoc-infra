@@ -1,14 +1,11 @@
 terraform {
-  required_version = ">= 1.6"
+  required_version = ">= 1.7"
 
   required_providers {
     aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-    tls = {
-      source  = "hashicorp/tls"
-      version = "~> 4.0"
+      source = "hashicorp/aws"
+      # 6.9.0 added aws_eks_cluster.deletion_protection.
+      version = "~> 6.9"
     }
   }
 }

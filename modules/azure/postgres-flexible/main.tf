@@ -1,5 +1,5 @@
 # PostgreSQL Flexible Server, provisioned + private (VNet-integrated). The AWS
-# analogue is modules/aws/rds-cluster (Aurora). BYOC data-tier policy is
+# analogue is modules/aws/aurora-postgres (Aurora). BYOC data-tier policy is
 # PROVISIONED, never serverless/burstable, for a real install.
 #
 # Private DNS + delegated subnet = no public endpoint; the server is only

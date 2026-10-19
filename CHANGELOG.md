@@ -6,6 +6,117 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+AWS moves to the 2.x shape: `compositions/aws` replaces the 1.x
+`compositions/aws-byoc`, with the same two-folder layout, `existing_*` inputs
+and outputs as `compositions/azure`. Azure installs see no change: the plan is
+the same as on 2.2.1, and the Azure `global.infra` keeps contract version
+2.0.0. Major version because `compositions/aws-byoc`, `examples/aws-byoc` and
+the 1.x AWS modules' interfaces are gone.
+
+Needs, on AWS: an autoheal chart that accepts `global.infra.cloud: aws`
+(contract 2.1.0; 1.0.0-rc.5 or later), and an api-server-go image that reads
+`TENANT_BUCKET_PREFIX` and `SECRET_MANAGER_AWS_SECRET_PREFIX`. Older images
+name tenant buckets and runtime secrets outside what the IAM roles allow.
+
+### Added
+- `compositions/aws`: one AWS composition for every case. Each building block
+  (network, EKS cluster, Postgres, Redis, the attachments and artifacts
+  buckets, the KMS key, the registry) takes an optional `existing_*` input:
+  empty means we create it, set means we read it with a data source and never
+  change it. Impossible mixes and unsuitable brought resources (a cluster in
+  another VPC, PostgreSQL older than 15, ElastiCache in cluster mode, a bucket
+  in another region, an asymmetric key, ARNs in another account or region) stop
+  the plan with plain messages (`validation.tf`).
+- `compositions/aws`: a VPC over two to four zones (three by default) with
+  public, private, data and runner subnets, a NAT gateway per zone (or one, or
+  none with `private_endpoints_enabled`), VPC flow logs, an S3 gateway endpoint
+  and optional interface endpoints.
+- `compositions/aws`: EKS with a managed node group, access entries for
+  `cluster_admin_principal_arns`, envelope encryption of Kubernetes secrets,
+  control plane logs, and the managed add-ons the chart needs
+  (`eks-pod-identity-agent`, `aws-secrets-store-csi-driver-provider`,
+  `aws-ebs-csi-driver`, plus the defaults). `api_server_authorized_ip_ranges`
+  or `private_cluster_enabled` limit who reaches the API.
+- `compositions/aws`: Aurora PostgreSQL (provisioned or Serverless v2) with a
+  writer and a reader, 30-day backups, deletion protection and TLS only;
+  ElastiCache (Valkey) with a replica, Multi-AZ failover, TLS and a generated
+  AUTH token, or `redis_enabled = false`.
+- `compositions/aws`: S3 buckets for attachments and artifacts, and for the
+  tenant Git Registry `<tenant_bucket_prefix><tenant id>` (`tenant_id`,
+  `create_tenant_bucket`), versioned, TLS only, with optional access logs.
+- `compositions/aws`: customer managed KMS keys with rotation, one each for EKS
+  secrets, the data stores, S3, Secrets Manager and logs, or one brought key
+  for all (`existing_kms_key_arn`).
+- `compositions/aws`: every secret the chart reads, generated or passed in and
+  written to Secrets Manager under `secrets_name_prefix`, with the entry names
+  of the Azure composition plus `redis_auth_token` for a brought Redis with
+  AUTH. Runtime secrets go under `runtime_secrets_name_prefix`, which only the
+  api-server role may manage; the two prefixes may not overlap.
+- `compositions/aws`: one IAM role per chart role (secrets, api-server,
+  agents-worker) bound to the chart's service accounts with EKS Pod Identity,
+  and a role for the AWS Load Balancer Controller limited to registering
+  targets in our target groups. `create_pod_identity_associations = false`
+  lists the associations in `required_role_assignments` instead.
+  `iam_permissions_boundary_arn` applies to every role. `bedrock_access_enabled`
+  lets the agents and api-server roles call Bedrock.
+- `compositions/aws`: NLBs with ip target groups for the edge (443 and 80, in
+  `loadbalancer` mode, internal or internet-facing with
+  `edge_allowed_cidr_blocks`), Temporal (7233) and the tool response listener
+  (8083). `autoheal_values` passes their target group ARNs to the chart, which
+  binds its Services with `TargetGroupBinding`.
+- `compositions/aws`: Route 53 records for the three hostnames in an existing
+  hosted zone (`existing_dns_zone_id`), or `required_dns_records`.
+- `compositions/aws`: an ECR pull-through cache of the public Autoheal registry
+  (`create_registry`), or `existing_registry_url`.
+- `compositions/aws`: the runner instances (`modules/aws/runner-asg`) in the
+  same apply, pulling `app/runner-go:chart-<autoheal_version>`.
+- `compositions/aws`: outputs `autoheal_values`, `autoheal_values_yaml`,
+  `cluster` (with `region` and `vpc_id`), `required_role_assignments`,
+  `required_dns_records` and `network`, as on Azure. `global.infra` is contract
+  version 2.1.0, which adds the AWS keys.
+- `compositions/app`: `aws_load_balancer_controller` installs the AWS Load
+  Balancer Controller (chart 3.6.0) in `kube-system` before the Autoheal chart,
+  on EKS only. `cluster.vpc_id` is a new optional input for it.
+- `examples/aws`: the deployment repository to copy, like `examples/azure`.
+- `scripts/bootstrap-state-aws.sh`: creates the S3 state bucket (versioning,
+  encryption, TLS only, public access blocked). `examples/aws/root.hcl` locks
+  state with `use_lockfile`, so no DynamoDB table.
+- `modules/aws/aurora-postgres`, `modules/aws/kms`, `modules/aws/nlb`,
+  `modules/aws/pod-identity` and `modules/aws/route53`.
+- Tests for `compositions/aws` (`create`, `bring` and `validation`, against
+  mocked providers).
+
+### Changed
+- `modules/aws/vpc`: `cidr_block` replaces `vpc_cidr`. Adds data and runner
+  subnet tiers, `nat_gateway_mode`, flow logs and VPC endpoints.
+- `modules/aws/eks`: `subnet_ids` replaces `private_subnet_ids` and
+  `public_subnet_ids`; `secrets_kms_key_arn` replaces `kms_key_arn`;
+  `enabled_log_types` replaces `enabled_cluster_log_types`; the name comes from
+  the label instead of `cluster_name`. Adds access entries, an `addons` map,
+  node disk, AMI and repair settings, and upgrade support type. No IAM OIDC
+  provider: workloads use Pod Identity.
+- `modules/aws/elasticache`: `allowed_security_group_ids` and
+  `allowed_cidr_blocks` replace `allowed_sg_ids` and `vpc_cidr_block`. Adds
+  `engine`, AUTH, a CMK, Multi-AZ failover, logs and parameters.
+- `modules/aws/s3`: `bucket` replaces `bucket_name_override`; `cors_rules` and
+  `lifecycle_rules` replace the CORS and expiry inputs. Adds a CMK, access logs,
+  `force_destroy` and an extra policy document.
+- `modules/aws/secrets-manager`: `name_prefix`, `secret_names` and
+  `secret_values` replace `secret_prefix` and `secrets`. Adds a CMK and replica
+  regions.
+- `modules/aws/ecr`: a pull-through cache rule (`upstream_registry_url`,
+  `upstream_namespace`, `repository_prefix`) replaces per-service repositories.
+- `modules/aws/runner-asg`: `ecr_registry_host` replaces `ecr_registry`; the
+  group size is `instance_count` only (`min_size` and `max_size` are gone). Adds
+  `tool_response_callback_url`, `architecture`, root volume settings, a
+  permissions boundary and instance refresh settings. No SSH key.
+
+### Removed
+- `compositions/aws-byoc` and `examples/aws-byoc`. An install on them is not
+  upgraded in place: install `compositions/aws` next to it and move the data.
+- `modules/aws/irsa` (replaced by `modules/aws/pod-identity`) and
+  `modules/aws/rds-cluster` (replaced by `modules/aws/aurora-postgres`).
+
 ## [2.2.1] - 2026-10-20
 
 Docs and examples only. The modules and compositions are the same as 2.2.0, so

@@ -6,6 +6,10 @@ description: |-
   identity (Storage Blob Data Contributor, granted in
   modules/azure/workload-identity); no account key is stored anywhere.
 
+  The firewall takes IP ranges (allowed_ip_ranges) and subnets
+  (allowed_subnet_ids). Azure Storage ignores IP rules for clients in its own
+  region, so let those in by subnet.
+
   The AWS analogue is modules/aws/s3. Account names reject dashes and cap at 24
   characters, so the module derives a sanitized name from the label id (override
   available). Naming and tags follow the repo's null-label convention (see

@@ -111,6 +111,9 @@ resource "azurerm_storage_account" "this" {
     default_action = var.network_default_action
     bypass         = ["AzureServices"]
     ip_rules       = distinct([for r in var.allowed_ip_ranges : trimsuffix(r, "/32")])
+    # IP rules do not apply to clients in the account's region, which reach it
+    # over Azure's network. Those clients come in through a subnet rule.
+    virtual_network_subnet_ids = var.allowed_subnet_ids
   }
 
   lifecycle {

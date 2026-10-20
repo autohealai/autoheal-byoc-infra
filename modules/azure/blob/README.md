@@ -5,6 +5,10 @@ BYOC-on-AKS Autoheal install. The app reaches it keyless via the app workload
 identity (Storage Blob Data Contributor, granted in
 `modules/azure/workload-identity`); no account key is stored anywhere.
 
+The firewall takes IP ranges (`allowed_ip_ranges`) and subnets
+(`allowed_subnet_ids`). Azure Storage ignores IP rules for clients in its own
+region, so let those in by subnet.
+
 The AWS analogue is `modules/aws/s3`. Account names reject dashes and cap at 24
 characters, so the module derives a sanitized name from the label id (override
 available). Naming and tags follow the repo's null-label convention (see
@@ -50,6 +54,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_account_replication_type"></a> [account\_replication\_type](#input\_account\_replication\_type) | Replication: LRS, ZRS, GRS, ... | `string` | `"LRS"` | no |
 | <a name="input_account_tier"></a> [account\_tier](#input\_account\_tier) | Storage account tier. | `string` | `"Standard"` | no |
 | <a name="input_allowed_ip_ranges"></a> [allowed\_ip\_ranges](#input\_allowed\_ip\_ranges) | Public IPs/CIDRs allowed through the storage firewall when default\_action=Deny (e.g. the Terraform apply host, which creates the container over the data plane). A /32 range is written as the bare address; /31 is not accepted by Azure Storage. | `list(string)` | `[]` | no |
+| <a name="input_allowed_subnet_ids"></a> [allowed\_subnet\_ids](#input\_allowed\_subnet\_ids) | Subnets allowed through the storage firewall when default\_action=Deny, for clients in the account's region, where IP rules have no effect. Each subnet needs the Microsoft.Storage service endpoint, and the deployer needs Microsoft.Network/virtualNetworks/subnets/joinViaServiceEndpoint/action on it. The subnet may be in another subscription. | `list(string)` | `[]` | no |
 | <a name="input_attributes"></a> [attributes](#input\_attributes) | ID element. Extra qualifiers appended to id, e.g. ['db']. | `list(string)` | `[]` | no |
 | <a name="input_blob_restore_days"></a> [blob\_restore\_days](#input\_blob\_restore\_days) | How far back point-in-time restore can rewind, in days. Must be LESS than blob\_soft\_delete\_retention\_days. Ignored when pitr\_enabled = false. | `number` | `6` | no |
 | <a name="input_blob_soft_delete_retention_days"></a> [blob\_soft\_delete\_retention\_days](#input\_blob\_soft\_delete\_retention\_days) | Blob soft-delete retention in days (1-365). 0 = soft delete off. | `number` | `7` | no |

@@ -17,7 +17,7 @@ locals {
 resource "helm_release" "autoheal" {
   name             = var.release_name
   namespace        = var.namespace
-  create_namespace = true
+  create_namespace = var.create_namespace
 
   repository = local.chart_is_local ? null : var.chart_repository
   chart      = local.chart_is_local ? var.chart_repository : "autoheal"

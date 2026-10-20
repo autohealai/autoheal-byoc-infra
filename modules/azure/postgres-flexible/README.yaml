@@ -4,7 +4,10 @@ description: |-
   Provisioned, private (VNet-integrated) PostgreSQL Flexible Server for a
   BYOC-on-AKS Autoheal install. No public endpoint: it attaches to the
   PG-delegated subnet and the private DNS zone created by modules/azure/vnet, so
-  it is reachable only from inside the VNet (AKS pods).
+  it is reachable only from inside the VNet (AKS pods). With
+  public_network_access_enabled = true it has a public endpoint instead, with a
+  firewall rule for each allowed_ip_ranges entry; Azure fixes the choice at
+  create time.
 
   Sets the azure.extensions server configuration so CREATE EXTENSION (pgvector,
   btree_gin, pg_trgm, ...) succeeds. Azure Flexible rejects any extension not

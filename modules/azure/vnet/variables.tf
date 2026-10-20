@@ -20,19 +20,19 @@ variable "address_space" {
 variable "subnet_aks_prefix" {
   type        = string
   default     = "10.60.0.0/20"
-  description = "Subnet for AKS nodes/pods (overlay CNI, so this only sizes nodes)."
+  description = "Subnet for AKS nodes/pods (overlay CNI, so this only sizes nodes). Empty creates no AKS subnet and no NSG, for a VNet that holds only the runner, Postgres and private endpoints of a cluster in another VNet."
 }
 
 variable "subnet_db_prefix" {
   type        = string
   default     = "10.60.16.0/24"
-  description = "Subnet delegated to PostgreSQL Flexible Server."
+  description = "Subnet delegated to PostgreSQL Flexible Server. Empty creates none, for a Postgres server with public access."
 }
 
 variable "subnet_pe_prefix" {
   type        = string
   default     = "10.60.17.0/24"
-  description = "Subnet for private endpoints (KV/Blob/Foundry when private)."
+  description = "Subnet for private endpoints (KV/Blob/Foundry when private). Empty creates none, when every service uses its public endpoint."
 }
 
 variable "subnet_runner_prefix" {
@@ -44,7 +44,7 @@ variable "subnet_runner_prefix" {
 variable "temporal_ip" {
   type        = string
   default     = ""
-  description = "Reserved internal address of the Temporal load balancer in the AKS subnet. The chart also puts the api-server-go internal listener (port 8083) on it. When set, an NSG on the AKS subnet lets only the runner subnet reach this address on ports 7233 and 8083. Empty creates no NSG."
+  description = "Reserved internal address of the Temporal load balancer in the AKS subnet. The chart also puts the api-server-go internal listener (port 8083) on it. When set with an AKS subnet, an NSG on the AKS subnet lets only the runner subnet reach this address on ports 7233 and 8083. Empty creates no NSG."
 
   validation {
     condition     = var.temporal_ip == "" || can(cidrhost("${var.temporal_ip}/32", 0))

@@ -1,9 +1,13 @@
 # Azure network substrate for a BYOC-on-AKS install. The AWS analogue is
 # modules/aws/vpc. Provides:
 #   - VNet + four subnets: AKS nodes, PG-delegated, private endpoints, runner.
+#     Each of the first three is skipped when its prefix is empty: no AKS subnet
+#     for a VNet beside a cluster that runs in another VNet, and only the runner
+#     subnet when Postgres and the other services use public endpoints.
 #   - A NAT gateway for the runner subnet (runner VMSS has no public IP).
-#   - When temporal_ip is set, an NSG on the AKS subnet that lets only the runner
-#     subnet reach that address on 7233 (Temporal) and 8083 (tool results).
+#   - When temporal_ip is set and there is an AKS subnet, an NSG on the AKS subnet
+#     that lets only the runner subnet reach that address on 7233 (Temporal) and
+#     8083 (tool results).
 #   - PostgreSQL Flexible Server private DNS zone (pre-created + VNet-linked;
 #     inline creation trips a "server name + zone suffix" validation).
 #   - Optional privatelink DNS zones for Blob / Key Vault / AI Foundry.
@@ -21,13 +25,24 @@ resource "azurerm_virtual_network" "this" {
 }
 
 resource "azurerm_subnet" "aks" {
+  count                = var.subnet_aks_prefix == "" ? 0 : 1
   name                 = "snet-aks"
   resource_group_name  = var.resource_group_name
   virtual_network_name = azurerm_virtual_network.this.name
   address_prefixes     = [var.subnet_aks_prefix]
 }
 
+moved {
+  from = azurerm_subnet.aks
+  to   = azurerm_subnet.aks[0]
+}
+
+locals {
+  aks_nsg_enabled = var.subnet_aks_prefix != "" && var.temporal_ip != ""
+}
+
 resource "azurerm_subnet" "db" {
+  count                = var.subnet_db_prefix == "" ? 0 : 1
   name                 = "snet-db"
   resource_group_name  = var.resource_group_name
   virtual_network_name = azurerm_virtual_network.this.name
@@ -49,12 +64,23 @@ resource "azurerm_subnet" "db" {
   }
 }
 
+moved {
+  from = azurerm_subnet.db
+  to   = azurerm_subnet.db[0]
+}
+
 resource "azurerm_subnet" "pe" {
+  count                             = var.subnet_pe_prefix == "" ? 0 : 1
   name                              = "snet-pe"
   resource_group_name               = var.resource_group_name
   virtual_network_name              = azurerm_virtual_network.this.name
   address_prefixes                  = [var.subnet_pe_prefix]
   private_endpoint_network_policies = "Disabled"
+}
+
+moved {
+  from = azurerm_subnet.pe
+  to   = azurerm_subnet.pe[0]
 }
 
 # Dedicated subnet for the runner VMSS (Docker-out-of-Docker job runners). Kept
@@ -77,7 +103,7 @@ resource "azurerm_subnet" "runner" {
 # subnet keeps the default rules (VNet and Azure load balancer allowed). In-
 # cluster callers use the Kubernetes services and do not cross this NSG.
 resource "azurerm_network_security_group" "aks" {
-  count               = var.temporal_ip == "" ? 0 : 1
+  count               = local.aks_nsg_enabled ? 1 : 0
   name                = "${module.this.id}-aks-nsg"
   resource_group_name = var.resource_group_name
   location            = var.location
@@ -109,8 +135,8 @@ resource "azurerm_network_security_group" "aks" {
 }
 
 resource "azurerm_subnet_network_security_group_association" "aks" {
-  count                     = var.temporal_ip == "" ? 0 : 1
-  subnet_id                 = azurerm_subnet.aks.id
+  count                     = local.aks_nsg_enabled ? 1 : 0
+  subnet_id                 = azurerm_subnet.aks[0].id
   network_security_group_id = azurerm_network_security_group.aks[0].id
 }
 

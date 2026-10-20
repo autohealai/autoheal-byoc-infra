@@ -17,29 +17,6 @@ mock_provider "azurerm" {
   }
 
   # The platform team's resources, as the data sources read them.
-  mock_data "azurerm_subnet" {
-    defaults = { address_prefixes = ["10.50.4.0/22"] }
-  }
-  mock_data "azurerm_kubernetes_cluster" {
-    defaults = {
-      oidc_issuer_enabled        = true
-      oidc_issuer_url            = "https://westeurope.oic.prod-aks.azure.com/66666666-7777-8888-9999-000000000000/aks-platform-weu/"
-      key_vault_secrets_provider = [{ secret_rotation_enabled = false, secret_rotation_interval = "2m", secret_identity = [] }]
-      kubelet_identity = [{
-        client_id                 = "77777777-0000-0000-0000-000000000001"
-        object_id                 = "77777777-0000-0000-0000-000000000002"
-        user_assigned_identity_id = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/MC_rg-platform/providers/Microsoft.ManagedIdentity/userAssignedIdentities/aks-platform-weu-agentpool"
-      }]
-      kube_config = [{
-        host                   = "https://aks-platform-weu.hcp.westeurope.azmk8s.io:443"
-        cluster_ca_certificate = "Y2EtY2VydA=="
-        client_certificate     = ""
-        client_key             = ""
-        password               = ""
-        username               = ""
-      }]
-    }
-  }
   mock_data "azurerm_postgresql_flexible_server" {
     defaults = {
       fqdn                = "psql-platform-weu.postgres.database.azure.com"
@@ -136,6 +113,36 @@ mock_provider "azurerm" {
   }
   mock_resource "azurerm_postgresql_flexible_server" {
     defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-eu-prod-autoheal/providers/Microsoft.DBforPostgreSQL/flexibleServers/psql-acme" }
+  }
+}
+
+# The cluster's subscription (providers.tf), here the same as subscription_id.
+# The brought cluster and its AKS subnet are read through it.
+mock_provider "azurerm" {
+  alias = "cluster"
+
+  mock_data "azurerm_subnet" {
+    defaults = { address_prefixes = ["10.50.4.0/22"] }
+  }
+  mock_data "azurerm_kubernetes_cluster" {
+    defaults = {
+      oidc_issuer_enabled        = true
+      oidc_issuer_url            = "https://westeurope.oic.prod-aks.azure.com/66666666-7777-8888-9999-000000000000/aks-platform-weu/"
+      key_vault_secrets_provider = [{ secret_rotation_enabled = false, secret_rotation_interval = "2m", secret_identity = [] }]
+      kubelet_identity = [{
+        client_id                 = "77777777-0000-0000-0000-000000000001"
+        object_id                 = "77777777-0000-0000-0000-000000000002"
+        user_assigned_identity_id = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/MC_rg-platform/providers/Microsoft.ManagedIdentity/userAssignedIdentities/aks-platform-weu-agentpool"
+      }]
+      kube_config = [{
+        host                   = "https://aks-platform-weu.hcp.westeurope.azmk8s.io:443"
+        cluster_ca_certificate = "Y2EtY2VydA=="
+        client_certificate     = ""
+        client_key             = ""
+        password               = ""
+        username               = ""
+      }]
+    }
   }
 }
 

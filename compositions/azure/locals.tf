@@ -23,6 +23,18 @@ locals {
   redis_enabled = var.redis_enabled || var.existing_redis_id != ""
   acr_enabled   = local.create_registry || var.existing_acr_id != ""
 
+  # --- Subscriptions --------------------------------------------------------
+
+  # Everything we create goes in subscription_id. A brought cluster may sit in
+  # another subscription of the same tenant; it and its AKS subnet are then only
+  # read there, through the azurerm.cluster provider (providers.tf).
+  cluster_subscription_id       = local.create_cluster ? var.subscription_id : split("/", var.existing_aks_cluster_id)[2]
+  cluster_in_other_subscription = lower(local.cluster_subscription_id) != lower(var.subscription_id)
+
+  # Public endpoints instead of a VNet connection to the cluster's subscription
+  # (validation.tf allows it only for a cluster in another subscription).
+  public_path = var.cluster_network_path == "public"
+
   # A brought Redis is either Azure Managed Redis or Azure Cache for Redis.
   brought_redis_kind = var.existing_redis_id == "" ? "" : (
     lower(split("/", var.existing_redis_id)[7]) == "redisenterprise" ? "managed" : "cache"
@@ -98,21 +110,48 @@ locals {
   proxy_ip = var.edge_mode != "loadbalancer" ? "" : (
     local.create_network ? cidrhost(local.created_subnets.aks, -2) : try(var.existing_network.proxy_ip, "")
   )
+  # A public proxy listens on a static public IP in the node resource group,
+  # which may also be the public Temporal address.
+  public_edge              = var.edge_mode == "loadbalancer" && var.edge_exposure == "public"
+  proxy_shares_temporal_ip = local.public_edge && local.public_path && local.proxy_ip == local.temporal_ip
 
   # VNet ID of a brought network, from the AKS subnet ID.
   brought_vnet_id = local.create_network ? "" : join("/", slice(split("/", var.existing_network.aks_subnet_id), 0, 9))
 
+  # A cluster in another subscription keeps only its AKS subnet there. The
+  # runner, Postgres and private endpoint subnets must be in subscription_id,
+  # since Azure puts a private endpoint, a delegated subnet and a VM's network
+  # interface in the subscription of their VNet. When none of them is given we
+  # create a VNet for them from network_cidr, without an AKS subnet.
+  brought_workload_subnets = local.create_network ? false : anytrue([
+    for id in [var.existing_network.runner_subnet_id, var.existing_network.postgres_subnet_id, var.existing_network.endpoint_subnet_id] : id != ""
+  ])
+  create_workload_network = !local.create_network && local.cluster_in_other_subscription && !local.brought_workload_subnets
+  create_vnet             = local.create_network || local.create_workload_network
+
+  # The VNet of the runner, Postgres and private endpoints: the one we create, or
+  # the VNet of the given subnets for a cluster in another subscription (they
+  # share one VNet), or the AKS subnet's VNet. The private DNS zones we create
+  # are linked to it.
+  workload_vnet_id = local.create_vnet ? module.vnet[0].vnet_id : (
+    local.cluster_in_other_subscription ? try(join("/", slice(split("/", coalesce(
+      var.existing_network.runner_subnet_id, var.existing_network.endpoint_subnet_id, var.existing_network.postgres_subnet_id,
+    )), 0, 9)), "") : local.brought_vnet_id
+  )
+
   aks_subnet_id      = local.create_network ? module.vnet[0].subnet_aks_id : var.existing_network.aks_subnet_id
-  runner_subnet_id   = local.create_network ? module.vnet[0].subnet_runner_id : var.existing_network.runner_subnet_id
-  postgres_subnet_id = local.create_network ? module.vnet[0].subnet_db_id : var.existing_network.postgres_subnet_id
-  endpoint_subnet_id = local.create_network ? module.vnet[0].subnet_pe_id : var.existing_network.endpoint_subnet_id
+  runner_subnet_id   = local.create_vnet ? module.vnet[0].subnet_runner_id : var.existing_network.runner_subnet_id
+  postgres_subnet_id = local.create_vnet ? module.vnet[0].subnet_db_id : var.existing_network.postgres_subnet_id
+  endpoint_subnet_id = local.create_vnet ? module.vnet[0].subnet_pe_id : var.existing_network.endpoint_subnet_id
 
   # --- Private endpoints ----------------------------------------------------
 
-  pe_blob_enabled  = var.private_endpoints_enabled && local.create_storage
-  pe_vault_enabled = var.private_endpoints_enabled && local.create_key_vault
+  # None on the public path, where nothing connects the cluster to the VNet.
+  pe_blob_enabled  = var.private_endpoints_enabled && local.create_storage && !local.public_path
+  pe_vault_enabled = var.private_endpoints_enabled && local.create_key_vault && !local.public_path
   # The runtime vault uses the same privatelink zone as the install vault.
-  pe_runtime_vault_enabled = var.private_endpoints_enabled && local.create_runtime_key_vault
+  pe_runtime_vault_enabled = var.private_endpoints_enabled && local.create_runtime_key_vault && !local.public_path
+  pe_redis_enabled         = local.create_redis && !local.public_path
 
   # privatelink zones a brought network needs from us: one per private endpoint we
   # create whose zone the customer did not pass in existing_network.
@@ -124,7 +163,7 @@ locals {
   pe_zones_needed = toset(compact([
     local.pe_blob_enabled ? "blob" : "",
     local.pe_vault_enabled || local.pe_runtime_vault_enabled ? "vault" : "",
-    local.create_redis ? "redis" : "",
+    local.pe_redis_enabled ? "redis" : "",
   ]))
   brought_network_zones = local.create_network ? toset([]) : toset([
     for k in local.pe_zones_needed : k if !contains(keys(var.existing_network.private_dns_zone_ids), k)

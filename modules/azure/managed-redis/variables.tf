@@ -56,3 +56,9 @@ variable "eviction_policy" {
   default     = "VolatileLRU"
   description = "Eviction policy for the default database."
 }
+
+variable "public_network_access_enabled" {
+  type        = bool
+  default     = false
+  description = "Open the public endpoint. Azure Managed Redis has no IP firewall, so any address can then reach it; the access key and TLS still apply. Off: reach it through a private endpoint."
+}

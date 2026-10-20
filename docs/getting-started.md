@@ -84,6 +84,13 @@ you already have, set its `existing_*` ID in `prod/infra/terragrunt.hcl`:
 | Your network | `existing_network`: the AKS, runner, Postgres and private endpoint subnet IDs, and two free addresses in the AKS subnet (`temporal_ip`, and `proxy_ip` in `loadbalancer` mode) |
 | Your cluster, database, cache, storage or vaults | `existing_aks_cluster_id`, `existing_postgres_id`, `existing_redis_id`, `existing_storage_account_id`, `existing_key_vault_id`, `existing_runtime_key_vault_id` |
 
+Is your AKS cluster in a subscription where Autoheal may only use one
+namespace? Read [Choosing a subscription layout](azure-subscription-options.md).
+Start from `examples/azure/split` (connected VNets) or
+`examples/azure/split-public` (public endpoints) instead of `prod`. For public
+endpoints on a cluster you already have,
+[the runbook](azure-two-subscriptions-public-runbook.md) gives every command.
+
 We never create a DNS zone. Set `existing_dns_zone_id` to the Azure DNS zone that
 holds your hostname, or set `create_dns_records = false` and create the records
 listed in the `required_dns_records` output yourself.
@@ -104,7 +111,7 @@ az account set --subscription "<subscription-id>"   # az account show --query id
 Copy `examples/azure` from a released tag into a repository you own:
 
 ```bash
-git clone --branch v2.1.1 https://github.com/autohealai/autoheal-byoc-infra.git
+git clone --branch v2.2.0 https://github.com/autohealai/autoheal-byoc-infra.git
 mkdir acme-autoheal && cp -r autoheal-byoc-infra/examples/azure/. acme-autoheal/
 cd acme-autoheal
 ```

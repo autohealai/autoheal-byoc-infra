@@ -4,6 +4,14 @@
 # we create, an NSG on the AKS subnet lets only the runner subnet reach the
 # Temporal address on 7233 and 8083. A brought network needs the same rule from
 # its owner (see the README).
+#
+# A brought cluster in another subscription keeps its AKS subnet there, and we
+# create nothing in that subscription. The runner, Postgres and private endpoints
+# then go in a VNet of subscription_id: the customer's subnets, or a VNet we
+# create from network_cidr without an AKS subnet. The customer connects the two
+# VNets (required_cluster_owner_actions). On the public path
+# (cluster_network_path = public) nothing connects them: that VNet has only the
+# runner subnet and its NAT gateway, and the other services use public endpoints.
 
 resource "azurerm_resource_group" "this" {
   count    = local.create_resource_group ? 1 : 0
@@ -20,7 +28,7 @@ locals {
 
 module "vnet" {
   source = "../../modules/azure/vnet"
-  count  = local.create_network ? 1 : 0
+  count  = local.create_vnet ? 1 : 0
 
   namespace   = var.namespace
   environment = var.environment
@@ -30,9 +38,9 @@ module "vnet" {
   resource_group_name  = local.rg
   location             = var.location
   address_space        = [var.network_cidr]
-  subnet_aks_prefix    = local.created_subnets.aks
-  subnet_db_prefix     = local.created_subnets.postgres
-  subnet_pe_prefix     = local.created_subnets.endpoint
+  subnet_aks_prefix    = local.create_network ? local.created_subnets.aks : ""
+  subnet_db_prefix     = local.public_path ? "" : local.created_subnets.postgres
+  subnet_pe_prefix     = local.public_path ? "" : local.created_subnets.endpoint
   subnet_runner_prefix = local.created_subnets.runner
 
   # NSG on the AKS subnet: only the runner subnet reaches the reserved Temporal
@@ -41,9 +49,11 @@ module "vnet" {
 
   # The Postgres private DNS zone (only when we create Postgres) and the
   # privatelink zones for the private endpoints we create, all linked to this VNet.
-  pg_private_dns_zone_name       = local.create_postgres ? local.pg_dns_zone_name : ""
-  private_endpoints_enabled      = var.private_endpoints_enabled
-  redis_private_endpoint_enabled = local.create_redis
+  # A VNet without an AKS subnet gets its zones from the brought-network
+  # resources below, which also take the customer's zones.
+  pg_private_dns_zone_name       = local.create_network && local.create_postgres ? local.pg_dns_zone_name : ""
+  private_endpoints_enabled      = local.create_network && var.private_endpoints_enabled
+  redis_private_endpoint_enabled = local.create_network && local.create_redis
 }
 
 locals {
@@ -55,7 +65,9 @@ locals {
 # --- Brought network --------------------------------------------------------
 
 # Read the AKS subnet so validation.tf can check the reserved addresses sit in it.
+# It is in the cluster's subscription.
 data "azurerm_subnet" "aks" {
+  provider             = azurerm.cluster
   count                = local.create_network ? 0 : 1
   name                 = split("/", var.existing_network.aks_subnet_id)[10]
   virtual_network_name = split("/", var.existing_network.aks_subnet_id)[8]
@@ -63,10 +75,10 @@ data "azurerm_subnet" "aks" {
 }
 
 # A Postgres server we create in a brought network needs a private DNS zone linked
-# to that VNet. Use the customer's zone when given, otherwise create one in our
+# to its VNet. Use the customer's zone when given, otherwise create one in our
 # resource group and link it.
 resource "azurerm_private_dns_zone" "postgres" {
-  count               = !local.create_network && local.create_postgres && try(var.existing_network.postgres_private_dns_zone_id, "") == "" ? 1 : 0
+  count               = !local.create_network && local.create_postgres && !local.public_path && try(var.existing_network.postgres_private_dns_zone_id, "") == "" ? 1 : 0
   name                = local.pg_dns_zone_name
   resource_group_name = local.rg
   tags                = var.tags
@@ -77,7 +89,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "postgres" {
   name                  = "${local.id}-pg-dnslink"
   resource_group_name   = local.rg
   private_dns_zone_name = azurerm_private_dns_zone.postgres[0].name
-  virtual_network_id    = local.brought_vnet_id
+  virtual_network_id    = local.workload_vnet_id
   registration_enabled  = false
   tags                  = var.tags
 }
@@ -99,13 +111,42 @@ resource "azurerm_private_dns_zone_virtual_network_link" "brought" {
   name                  = "${local.id}-${each.key}-dnslink"
   resource_group_name   = local.rg
   private_dns_zone_name = azurerm_private_dns_zone.brought[each.key].name
+  virtual_network_id    = local.workload_vnet_id
+  registration_enabled  = false
+  tags                  = var.tags
+}
+
+# For a cluster in another subscription, cluster_vnet_dns_link_enabled also links
+# the zones we create to the cluster's VNet, so pods resolve Postgres and the
+# private endpoints. The links are in our resource group; Azure checks that the
+# deployer may join the cluster's VNet. Without it, the cluster owner resolves the
+# zones (required_cluster_owner_actions).
+locals {
+  cluster_vnet_dns_link = var.cluster_vnet_dns_link_enabled && local.cluster_in_other_subscription && !local.public_path
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "postgres_cluster_vnet" {
+  count                 = local.cluster_vnet_dns_link ? length(azurerm_private_dns_zone.postgres) : 0
+  name                  = "${local.id}-pg-cluster-dnslink"
+  resource_group_name   = local.rg
+  private_dns_zone_name = azurerm_private_dns_zone.postgres[0].name
+  virtual_network_id    = local.brought_vnet_id
+  registration_enabled  = false
+  tags                  = var.tags
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "cluster_vnet" {
+  for_each              = local.cluster_vnet_dns_link ? local.brought_network_zones : toset([])
+  name                  = "${local.id}-${each.key}-cluster-dnslink"
+  resource_group_name   = local.rg
+  private_dns_zone_name = azurerm_private_dns_zone.brought[each.key].name
   virtual_network_id    = local.brought_vnet_id
   registration_enabled  = false
   tags                  = var.tags
 }
 
 locals {
-  postgres_private_dns_zone_id = !local.create_postgres ? "" : (
+  postgres_private_dns_zone_id = !local.create_postgres || local.public_path ? "" : (
     local.create_network ? module.vnet[0].pg_private_dns_zone_id : (
       try(var.existing_network.postgres_private_dns_zone_id, "") != ""
       ? var.existing_network.postgres_private_dns_zone_id

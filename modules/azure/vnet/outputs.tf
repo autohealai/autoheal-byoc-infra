@@ -9,18 +9,18 @@ output "vnet_name" {
 }
 
 output "subnet_aks_id" {
-  description = "Subnet ID for AKS nodes/pods."
-  value       = azurerm_subnet.aks.id
+  description = "Subnet ID for AKS nodes/pods, or empty when subnet_aks_prefix is empty."
+  value       = var.subnet_aks_prefix == "" ? "" : azurerm_subnet.aks[0].id
 }
 
 output "subnet_db_id" {
-  description = "Subnet ID delegated to PostgreSQL Flexible Server."
-  value       = azurerm_subnet.db.id
+  description = "Subnet ID delegated to PostgreSQL Flexible Server, or empty when subnet_db_prefix is empty."
+  value       = var.subnet_db_prefix == "" ? "" : azurerm_subnet.db[0].id
 }
 
 output "subnet_pe_id" {
-  description = "Subnet ID for private endpoints."
-  value       = azurerm_subnet.pe.id
+  description = "Subnet ID for private endpoints, or empty when subnet_pe_prefix is empty."
+  value       = var.subnet_pe_prefix == "" ? "" : azurerm_subnet.pe[0].id
 }
 
 output "subnet_runner_id" {
@@ -29,13 +29,13 @@ output "subnet_runner_id" {
 }
 
 output "aks_nsg_id" {
-  description = "Resource ID of the AKS subnet NSG, or empty when temporal_ip is not set."
-  value       = var.temporal_ip == "" ? "" : azurerm_network_security_group.aks[0].id
+  description = "Resource ID of the AKS subnet NSG, or empty when temporal_ip or subnet_aks_prefix is not set."
+  value       = local.aks_nsg_enabled ? azurerm_network_security_group.aks[0].id : ""
 }
 
 output "aks_nsg_name" {
-  description = "Name of the AKS subnet NSG, or empty when temporal_ip is not set."
-  value       = var.temporal_ip == "" ? "" : azurerm_network_security_group.aks[0].name
+  description = "Name of the AKS subnet NSG, or empty when temporal_ip or subnet_aks_prefix is not set."
+  value       = local.aks_nsg_enabled ? azurerm_network_security_group.aks[0].name : ""
 }
 
 output "runner_nat_public_ip" {

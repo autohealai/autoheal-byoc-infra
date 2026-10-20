@@ -1,6 +1,9 @@
 # Redis (optional): the Azure Managed Redis we create, reached only through a
 # private endpoint, or the customer's Azure Managed Redis or Azure Cache for Redis
 # read through a data source. The access key goes into the vault (secrets.tf).
+#
+# On the public path the one we create has a public endpoint instead. Azure
+# Managed Redis has no IP firewall, so the access key and TLS protect it.
 
 module "redis" {
   source = "../../modules/azure/managed-redis"
@@ -16,6 +19,8 @@ module "redis" {
   location                  = var.location
   sku_name                  = var.redis_sku
   high_availability_enabled = var.redis_high_availability_enabled
+
+  public_network_access_enabled = local.public_path
 }
 
 data "azurerm_managed_redis" "existing" {

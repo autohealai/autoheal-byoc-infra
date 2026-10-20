@@ -11,7 +11,7 @@ global:
 
   edge:
     mode: loadbalancer                # matches edge_mode in infra/terragrunt.hcl
-    exposure: internal                # reachable only from your network
+    # exposure comes from edge_exposure in infra/terragrunt.hcl
     tls:
       secretName: autoheal-tls        # your certificate, synced from Key Vault
 

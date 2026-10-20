@@ -11,6 +11,10 @@
 #                  suggestion, only when there is a registry (create_registry or
 #                  existing_acr_id): its login server. The chart then pulls
 #                  <registry>/app/<name> and <registry>/external/<name>.
+#   temporalFrontendLoadBalancer, toolResponseLoadBalancer
+#                  suggestion, only on the public path: both off, because
+#                  compositions/app creates public load balancers for them
+#                  (temporal_public_endpoint output).
 #   temporal, zitadel
 #                  copies of the database host and the login hostname at the
 #                  paths those upstream charts read, and with a registry the
@@ -28,7 +32,7 @@ locals {
   # left out when it is "", so the chart's default public registry applies.
   image_registry = local.acr_login_server
 
-  autoheal_values = {
+  autoheal_values = merge({
     global = merge({
       infra = merge(
         {
@@ -79,9 +83,12 @@ locals {
       secrets = {
         mode = "keyvault-csi"
       }
-      # The CA entry is suggested only when edge_ca_certificate is set.
+      # The CA entry is suggested only when edge_ca_certificate is set. The
+      # exposure goes with the proxy address, so it comes from here, not from
+      # values-customer.yaml.
       edge = merge(
         { mode = var.edge_mode },
+        { for k, v in { exposure = var.edge_exposure } : k => v if var.edge_mode == "loadbalancer" },
         { for k, v in { tls = { caVaultEntry = "edge-ca-certificate" } } : k => v if var.edge_ca_certificate != "" },
       )
       },
@@ -138,5 +145,12 @@ locals {
       { for k, v in { login = { image = { repository = "${local.image_registry}/external/zitadel-login" } } } : k => v if local.image_registry != "" },
       { for k, v in { imageRegistry = local.image_registry } : k => v if local.image_registry != "" },
     )
-  }
+    },
+    # The chart's internal load balancers cannot serve runners that reach the
+    # cluster over the internet.
+    local.public_path ? {
+      temporalFrontendLoadBalancer = { enabled = false }
+      toolResponseLoadBalancer     = { enabled = false }
+    } : {},
+  )
 }

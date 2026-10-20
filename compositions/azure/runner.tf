@@ -23,7 +23,9 @@ module "runner" {
 
   resource_group_name = local.rg
   location            = var.location
-  subnet_id           = local.runner_subnet_id
+  # null rather than "" when the subnet is missing, so the plan stops on the plain
+  # message in validation.tf instead of the provider's ID parse error.
+  subnet_id = local.runner_subnet_id != "" ? local.runner_subnet_id : null
 
   temporal_host              = "${local.temporal_ip}:7233"
   tool_response_callback_url = local.tool_response_callback_url

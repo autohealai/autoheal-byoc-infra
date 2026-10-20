@@ -647,6 +647,12 @@ echo "$DEPLOYER_IPS"
 
 ### 8b. Write the inputs
 
+Make sure that the values from steps 4 to 8a are set. This must show nothing:
+
+```bash
+check_values AKS_ID AKS_SUBNET_ID TEMPORAL_IP PROXY_IP EGRESS_IPS DEPLOYER_IPS
+```
+
 This writes the inputs into `$WORK_DIR/inputs.hcl`:
 
 ```bash

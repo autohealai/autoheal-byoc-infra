@@ -1193,6 +1193,7 @@ Users then sign in to `https://$AUTOHEAL_HOSTNAME` with your identity provider.
 | Step 4b shows `Error from server (Forbidden)` | You have no Kubernetes rights in the cluster | See [You cannot make the namespace](#you-cannot-make-the-namespace) |
 | Step 4a or step 11b times out with `dial tcp <address>:443: i/o timeout` | Your machine cannot reach the API server | See [Your machine cannot reach the API server](#your-machine-cannot-reach-the-api-server) |
 | Step 8d shows `Set TF_VAR_tls_certificate` | `jq` did not find the certificate files | Check `TLS_CERT_FILE` and `TLS_KEY_FILE` in step 1b. See [Get a TLS certificate](#get-a-tls-certificate) |
+| Step 9a fails with `registering resource provider ... connection may have been reset` | A network break while Terraform registered the resource providers | Run the command again |
 | Step 9a stops on "workload_egress_ip_ranges" or "temporal_ip" | An input from step 8b is missing or private | Set it as the message says |
 | Step 9a fails with 403 on Key Vault entries | `deployer_ip_ranges` is not the address of the apply host | Find the address again (step 8a) and update the input |
 | Step 9a fails to add the subnet to the storage account | No service endpoint, or no Network Contributor on the subnet | Do step 4d, or the last grant of step 6b |

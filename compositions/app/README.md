@@ -16,6 +16,17 @@ Terraform install and a Helm or Flux install of the same files render the same
 manifests. The release is `atomic` with `wait` and a 1200 second timeout: a
 failed upgrade rolls back on its own.
 
+On the public path of `compositions/azure` (`cluster_network_path = "public"`)
+the runner VMs reach the cluster over the internet. Pass its
+`temporal_public_endpoint` output as `temporal_public_endpoint`, and
+`public-temporal.tf` creates two public load balancers on that static IP:
+Temporal on 7233 and the api-server-go tool-response listener on 8083. Both let
+in only the runner's NAT address (`loadBalancerSourceRanges`, with
+`externalTrafficPolicy: Local` to keep the client address), and a network
+policy for each admits that address only. The infra values turn off the
+chart's internal load balancers for the same two services. See
+`examples/azure/split-public/app`.
+
 This is the only composition with the `helm` and `kubernetes` providers. Keeping
 them out of the cloud compositions means the cluster does not have to exist when
 the infra folder is planned.
@@ -34,7 +45,16 @@ On AKS the identity running the apply needs a Kubernetes role on the cluster,
 for example Azure Kubernetes Service RBAC Cluster Admin. When
 `compositions/azure` creates the cluster it grants that role to the deployer, or
 lists it in `required_role_assignments` with `create_role_assignments = false`.
-On a brought cluster, get the role from the cluster's owner.
+On a brought cluster, get the role from the cluster's owner
+(`required_cluster_owner_actions`).
+
+A namespace-only install works too, for a cluster owner who gives the deployer
+one namespace and nothing else. The owner creates the namespace and grants
+Azure Kubernetes Service RBAC Admin scoped to it
+(`<cluster ID>/namespaces/autoheal`); set `create_namespace = false`. RBAC
+Writer is not enough: the chart creates Roles and RoleBindings in its
+namespace. The chart creates no CRDs, ClusterRoles or other cluster-scoped
+objects, so it needs no more than that. See `examples/azure/split/app`.
 
 ## Where the chart comes from
 
@@ -74,7 +94,9 @@ inputs = {
 | `customer_values` | string | `""` | Contents of `values-customer.yaml`. Merged after `infra_values`. |
 | `chart_version` | string | required | Chart version, e.g. `1.0.0`. Keep it equal to `autoheal_version` in the infra folder. |
 | `chart_repository` | string | `oci://public.ecr.aws/e4h3h0d9/charts` | OCI or HTTPS chart repository, or a local chart path. |
-| `namespace` | string | `autoheal` | Namespace for the release, created when missing. Must match `service_accounts.namespace` in the infra folder. |
+| `namespace` | string | `autoheal` | Namespace for the release, created when missing unless `create_namespace = false`. Must match `service_accounts.namespace` in the infra folder. |
+| `create_namespace` | bool | `true` | Create the namespace when missing. Set `false` when the deployer has rights in that namespace only. |
+| `temporal_public_endpoint` | object | `null` | The infra composition's `temporal_public_endpoint` output (`ip`, `allowed_source_ranges`), set only on its public path. Creates the public Temporal and tool-response load balancers and their network policies. |
 | `release_name` | string | `autoheal` | Helm release name. |
 | `kubelogin_login_mode` | string | `azurecli` | `kubelogin --login` mode on AKS: `azurecli`, `workloadidentity`, `spn`, `msi`, `devicecode` or `interactive`. Ignored on AWS. |
 | `timeout` | number | `1200` | Seconds Helm waits for the release before it rolls back. |
@@ -96,5 +118,6 @@ terraform test
 ```
 
 `tests/app.tftest.hcl` plans against mocked `helm` and `kubernetes` providers:
-the login command per cloud, OCI, HTTPS and local charts, the values order, and
-the input checks.
+the login command per cloud, OCI, HTTPS and local charts, the values order, a
+namespace-only install, the public Temporal load balancers, and the input
+checks.

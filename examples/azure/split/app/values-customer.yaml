@@ -1,0 +1,46 @@
+# The settings you choose. It must not contain global.infra: those values come
+# from the infra folder, and the chart rejects a file that sets them. Shared
+# settings sit under global. A block named after a service sets that service's
+# size.
+
+global:
+  adminEmail: platform-admin@acme.example
+
+  tenant:
+    name: acme
+
+  edge:
+    mode: loadbalancer                # matches edge_mode in infra/terragrunt.hcl
+    exposure: internal                # reachable only from your network
+    tls:
+      secretName: autoheal-tls        # your certificate, synced from Key Vault
+
+  llm:
+    provider: azure-openai
+    endpoint: https://acme-openai.openai.azure.com/openai/v1/   # the v1 endpoint
+    model: gpt-5-mini
+    apiKeyVaultEntry: llm-api-key     # the name of the vault entry, not the key
+    # Embeddings use the deployment text-embedding-3-large on the same resource.
+    # embeddingModel: azure-openai:<deployment>   # another deployment, 1024 dimensions
+    # To send model calls through an LLM gateway you run, such as Portkey, see
+    # "Optional: an LLM gateway" in autoheal-byoc-infra's docs/getting-started.md.
+    # With the gateway on, endpoint and apiKeyVaultEntry are not read.
+    # gateway:
+    #   enabled: true
+    #   kind: portkey
+    #   baseUrl: http://portkey-gateway.llm-gateway.svc.cluster.local:8787/v1
+
+  sso:
+    enabled: true
+    issuer: https://login.microsoftonline.com/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/v2.0
+    clientId: "abcdabcd-1234-5678-9abc-def012345678"
+    clientSecretVaultEntry: sso-client-secret   # pass TF_VAR_sso_client_secret to the infra folder
+
+  imageRegistry: ""                   # empty means pull from the public registry
+
+# Per service: size only. The chart defaults suit production; these add workers.
+agents-py-worker:
+  replicaCount: 3
+  resources:
+    requests: { cpu: "1", memory: 2Gi }
+    limits: { memory: 4Gi }

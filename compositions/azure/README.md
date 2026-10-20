@@ -16,8 +16,8 @@ One file per building block.
 
 | File | Creates, or reads when brought |
 |------|--------------------------------|
-| `network.tf` | Resource group, VNet with AKS, Postgres, private endpoint and runner subnets, the runner's NAT gateway, an NSG on the AKS subnet for the Temporal address, Postgres private DNS zone. Brought: `existing_resource_group_id`, `existing_network`. |
-| `cluster.tf` | AKS with the OIDC issuer, workload identity, Entra ID RBAC and the Key Vault CSI driver add-on. Brought: `existing_aks_cluster_id`. |
+| `network.tf` | Resource group, VNet with AKS, Postgres, private endpoint and runner subnets, the runner's NAT gateway, an NSG on the AKS subnet for the Temporal address, Postgres private DNS zone. For a cluster in another subscription, a VNet without the AKS subnet and NSG, and on the public path with the runner subnet only. Brought: `existing_resource_group_id`, `existing_network`. |
+| `cluster.tf` | AKS with the OIDC issuer, workload identity, Entra ID RBAC and the Key Vault CSI driver add-on. Brought: `existing_aks_cluster_id`, possibly in another subscription, and the `required_cluster_owner_actions` list. |
 | `postgres.tf` | PostgreSQL Flexible Server and its admin password. Brought: `existing_postgres_id`. |
 | `redis.tf` | Azure Managed Redis. Brought: `existing_redis_id` (Managed Redis or Azure Cache for Redis). |
 | `storage.tf` | Storage account and the blob container. Brought: `existing_storage_account_id`. |
@@ -39,12 +39,81 @@ One file per building block.
 |------|--------|
 | 1. We create everything | `network_cidr`, `existing_dns_zone_id` (or `create_dns_records = false`) |
 | 2a. You bring everything, our Terraform runs | `existing_network` and every `existing_*` ID, usually `create_role_assignments = false` |
+| 2b. Your cluster in another subscription, everything else in `subscription_id`, connected VNets | `existing_aks_cluster_id` in the other subscription, `existing_network` with only `aks_subnet_id`, `temporal_ip` and `proxy_ip`, and `network_cidr` for the VNet we create beside it. See below. |
+| 2c. As 2b, with public endpoints instead of connected VNets | As 2b, plus `cluster_network_path = "public"`, `workload_egress_ip_ranges`, and `temporal_ip` set to a static public IP. See below. |
 | 3. Mixed | `existing_network` and `existing_dns_zone_id`; we create the rest |
 
 Impossible mixes stop the plan with a message saying what to change, for example
 a brought cluster without `existing_network`, a vault on access policies, a
 storage account with hierarchical namespace, a Postgres server older than 15, a
 reserved address outside the AKS subnet, or records with no zone.
+
+## Cluster in another subscription
+
+Case 2b, for a cluster owner who gives us one namespace and lets us create
+nothing in the cluster's subscription. `docs/azure-two-subscriptions.md` is the
+one-pager for the customer; `examples/azure/split` is the deployment.
+
+- The second `azurerm` provider, `azurerm.cluster`, points at the subscription
+  in `existing_aks_cluster_id` and registers no resource providers. Only two
+  data sources use it: the cluster and its AKS subnet. Every resource uses the
+  default provider, so nothing can be created in the cluster's subscription.
+- The runner, Postgres and private endpoints need a VNet in `subscription_id`:
+  Azure puts a private endpoint, a delegated subnet and a VM network interface
+  in the subscription of their VNet. With `runner_subnet_id`,
+  `postgres_subnet_id` and `endpoint_subnet_id` all empty we create that VNet
+  from `network_cidr`, without an AKS subnet or NSG. Given subnets must be in
+  `subscription_id` and share one VNet.
+- The private DNS zones we create (Postgres and privatelink) are linked to that
+  VNet. `cluster_vnet_dns_link_enabled = true` also links them to the cluster's
+  VNet; the links are in our resource group, and the deployer needs
+  `Microsoft.Network/virtualNetworks/join/action` on the cluster's VNet.
+  Without it, or with the customer's zones in `existing_network`, the cluster's
+  VNet must resolve them some other way.
+- We create no peering. `required_cluster_owner_actions` lists what the
+  cluster owner does: the deployer's roles (Cluster User Role on the cluster,
+  Reader on the AKS subnet, RBAC Admin on the namespace), the namespace, the
+  cluster features, the NSG rule for the Temporal address, the network path
+  between the two VNets, the user path to the proxy, DNS, and the kubelet's
+  AcrPull with a registry.
+- `compositions/app` installs with `create_namespace = false`, since a
+  namespace-scoped role cannot create a namespace.
+- `validation.tf` checks that the AKS subnet is in the cluster's subscription
+  and that every other brought ID is in `subscription_id`, and, when we create
+  DNS records, the zone too.
+
+## Public endpoints instead of connected VNets
+
+Case 2c, `cluster_network_path = "public"`, for a cluster in another
+subscription whose VNet nobody connects to ours.
+`docs/azure-two-subscriptions-public.md` is the one-pager for the customer,
+`docs/azure-subscription-options.md` compares it with the other layouts, and
+`examples/azure/split-public` is the deployment.
+
+- Our VNet has only the runner subnet and its NAT gateway. No private endpoint,
+  private DNS zone or zone link is created; `private_endpoints_enabled` and
+  `cluster_vnet_dns_link_enabled` are ignored.
+- Postgres is created with public access and one firewall rule per
+  `workload_egress_ip_ranges` entry. Azure fixes the network mode at create
+  time, so moving between 2b and 2c replaces the server.
+- The Key Vaults keep their IP firewall (`deployer_ip_ranges` and
+  `workload_egress_ip_ranges`). The storage account also lets in the cluster's
+  AKS subnet: Azure Storage ignores IP rules for clients in its own region. The
+  cluster owner turns on the `Microsoft.Storage` service endpoint on that subnet
+  and lets the deployer join it.
+- Azure Managed Redis has no IP firewall, so the Redis we create has a public
+  endpoint protected by its access key and TLS only.
+- `existing_network.temporal_ip` is a Standard static public IP that the
+  cluster owner creates in the node resource group. `autoheal_values` turns off
+  the chart's internal Temporal and tool-response load balancers
+  (`temporalFrontendLoadBalancer`, `toolResponseLoadBalancer`), and the
+  `temporal_public_endpoint` output gives `compositions/app` the IP and the
+  runner's NAT address. The app creates two public load balancers on that IP,
+  open only to the NAT address, and a network policy for each. Temporal and the
+  tool results are not encrypted on that path.
+- `validation.tf` checks that the cluster is in another subscription, that
+  `workload_egress_ip_ranges` is set, that no runner, Postgres or endpoint
+  subnet is given, and that `temporal_ip` is not a private address.
 
 ## Reserved addresses
 
@@ -189,10 +258,12 @@ disk the first chat waits on those writes.
 |--------|----------|
 | `autoheal_values` | The chart's infra values (below). Pass to `compositions/app` as `infra_values`. |
 | `autoheal_values_yaml` | The same as YAML, for a Helm or Flux install. |
-| `cluster` | `cloud`, `name`, `resource_group`, `endpoint`, base64 `ca_certificate`. No credential. |
+| `cluster` | `cloud`, `name`, `resource_group`, `subscription_id` (the cluster's), `endpoint`, base64 `ca_certificate`. No credential. |
 | `required_role_assignments` | Grants for an administrator, filled when `create_role_assignments = false`. |
 | `required_dns_records` | Records for a person to create (`name`, `type`, `value`), filled when we do not create them. |
-| `network` | `vnet_id`, `vnet_name`, `resource_group_name`, `address_space`, `aks_subnet_id`, `runner_subnet_id`, `private_endpoint_subnet_id`. For a brought network the VNet is not read, so `address_space` is empty. |
+| `required_cluster_owner_actions` | What the owner of a brought cluster does, as readable lines. Filled when `existing_aks_cluster_id` is set; the network path and DNS lines only for a cluster in another subscription, and the static IP, service endpoint and outbound address lines only on the public path. |
+| `temporal_public_endpoint` | Public path only, else null: `ip` (the static public IP for Temporal) and `allowed_source_ranges` (the runner's NAT address). Pass to `compositions/app`. |
+| `network` | `vnet_id`, `vnet_name`, `resource_group_name`, `address_space` (the VNet of the runner and private endpoints), `cluster_vnet_id` (the AKS subnet's VNet, the same VNet unless the cluster is in another subscription), `aks_subnet_id`, `runner_subnet_id`, `private_endpoint_subnet_id`. For a brought VNet the VNet is not read, so `address_space` is empty. |
 
 `autoheal_values` keys:
 
@@ -209,6 +280,8 @@ global.infra.objectStore.{kind,account,container}
 global.infra.edge.internalIP                  loadbalancer mode only
 global.infra.temporal.internalIP
 global.imageRegistry                          suggestion: the registry login server, with a registry
+temporalFrontendLoadBalancer.enabled          suggestion: false, on the public path
+toolResponseLoadBalancer.enabled              suggestion: false, on the public path
 global.addons.install                         suggestion: true when we created the cluster
 global.secrets.mode                           suggestion: keyvault-csi
 global.edge.mode                              suggestion: edge_mode
@@ -240,7 +313,9 @@ terraform test
 ```
 
 `tests/` plans each case against mocked providers: `create.tftest.hcl` (case 1
-and each edge mode), `bring.tftest.hcl` (case 2a), `hybrid.tftest.hcl` (case 3),
+and each edge mode), `bring.tftest.hcl` (case 2a), `split.tftest.hcl` (case 2b),
+`public.tftest.hcl` (case 2c),
+`hybrid.tftest.hcl` (case 3),
 `reachability.tftest.hcl` (network paths to storage and the vaults) and
 `aks.tftest.hcl` (case 1 with the real cluster module, which the others
 override). They pass on Terraform 1.9 and OpenTofu 1.11.

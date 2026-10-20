@@ -2,7 +2,9 @@
 
 Azure Managed Redis (`Microsoft.Cache/redisEnterprise`) with public network
 access off. The composition reaches it through a private endpoint. Clients use
-TLS on port 10000.
+TLS on port 10000. `public_network_access_enabled = true` opens the public
+endpoint instead; Azure Managed Redis has no IP firewall, so the access key and
+TLS then protect it.
 
 The defaults fit test subscriptions: SKU `Balanced_B0`, no high availability,
 `EnterpriseCluster` clustering, `Encrypted` client protocol and access-key
@@ -57,6 +59,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_location"></a> [location](#input\_location) | Azure region. | `string` | n/a | yes |
 | <a name="input_name"></a> [name](#input\_name) | ID element. Component name, e.g. 'autoheal'. | `string` | `null` | no |
 | <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'acme'. | `string` | `null` | no |
+| <a name="input_public_network_access_enabled"></a> [public\_network\_access\_enabled](#input\_public\_network\_access\_enabled) | Open the public endpoint. Azure Managed Redis has no IP firewall, so any address can then reach it; the access key and TLS still apply. Off: reach it through a private endpoint. | `bool` | `false` | no |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Resource group the cache lands in. | `string` | n/a | yes |
 | <a name="input_sku_name"></a> [sku\_name](#input\_sku\_name) | Managed Redis SKU, e.g. Balanced\_B0, Balanced\_B1, MemoryOptimized\_M10. Balanced\_B0 is the smallest and the one test subscriptions allow. | `string` | `"Balanced_B0"` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Additional tags, merged into the generated tag set. | `map(string)` | `{}` | no |

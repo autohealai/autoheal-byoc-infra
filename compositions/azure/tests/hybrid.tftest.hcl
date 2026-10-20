@@ -12,11 +12,6 @@ mock_provider "azurerm" {
     }
   }
 
-  # acme's network: the AKS subnet the reserved addresses must sit in.
-  mock_data "azurerm_subnet" {
-    defaults = { address_prefixes = ["10.20.4.0/22"] }
-  }
-
   # OpenTofu fills computed attributes with random strings at plan time, and the
   # provider rejects them where it parses an Azure ID. These defaults give each
   # created resource a well-formed ID. Terraform keeps them unknown until apply.
@@ -72,6 +67,17 @@ mock_provider "azurerm" {
   }
   mock_resource "azurerm_postgresql_flexible_server" {
     defaults = { id = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.DBforPostgreSQL/flexibleServers/psql-acme" }
+  }
+}
+
+# The cluster's subscription (providers.tf), here subscription_id since we create
+# the cluster. acme's AKS subnet is read through it: the subnet the reserved
+# addresses must sit in.
+mock_provider "azurerm" {
+  alias = "cluster"
+
+  mock_data "azurerm_subnet" {
+    defaults = { address_prefixes = ["10.20.4.0/22"] }
   }
 }
 

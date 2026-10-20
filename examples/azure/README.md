@@ -10,10 +10,22 @@ prod/
   infra/terragrunt.hcl       cloud resources (compositions/azure)
   app/terragrunt.hcl         the chart (compositions/app)
   app/values-customer.yaml   your chart settings
+split/                       the same, for an AKS cluster in another subscription, connected VNets
+split-public/                the same, with public endpoints instead of connected VNets
+cop-standin/                 internal test stand-in for that cluster; not for customers
 ```
 
 Each folder has its own state file (`autoheal/prod/infra`, `autoheal/prod/app`).
 For a second environment, copy `prod/` to `staging/` and change the inputs.
+
+`split/` and `split-public/` are for a cluster whose owner gives you one
+namespace and lets you create nothing in the cluster's subscription. Every
+Azure resource goes in a second subscription. With `split/` the two VNets are
+peered and everything stays private; with `split-public/` they are not
+connected, and the data services use public endpoints with firewalls.
+`docs/azure-subscription-options.md` in autoheal-byoc-infra compares the
+layouts; `docs/azure-two-subscriptions.md` and
+`docs/azure-two-subscriptions-public.md` explain each for the cluster owner.
 
 ## Which resources you bring
 
@@ -25,6 +37,8 @@ building block takes an `existing_*` ID; uncomment the ones you already have.
 | Nothing (we create the network, AKS, Postgres, Redis, storage, Key Vault) | `network_cidr` |
 | Your network | `existing_network` (subnet IDs and two free addresses in the AKS subnet). Allow ports 7233 and 8083 on the Temporal address from the runner subnet only. |
 | Your cluster, database, cache, storage or vaults | `existing_aks_cluster_id`, `existing_postgres_id`, `existing_redis_id`, `existing_storage_account_id`, `existing_key_vault_id`, `existing_runtime_key_vault_id` |
+| Only your cluster, in another subscription | Start from `split/`: `existing_aks_cluster_id`, `existing_network` with the AKS subnet and two free addresses in it, and `network_cidr` for the VNet we create in `subscription_id`. The cluster owner does what the `required_cluster_owner_actions` output lists. |
+| Only your cluster, in another subscription, with no VNet connection | Start from `split-public/`: as above, plus `cluster_network_path = "public"`, `workload_egress_ip_ranges` and a static public IP as `temporal_ip`. |
 | Role grants made by your administrators | `create_role_assignments = false`, then make the grants in the `required_role_assignments` output |
 | DNS outside Azure DNS | `create_dns_records = false`, then create the records in the `required_dns_records` output |
 

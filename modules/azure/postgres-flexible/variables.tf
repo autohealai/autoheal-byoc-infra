@@ -13,12 +13,31 @@ variable "location" {
 
 variable "delegated_subnet_id" {
   type        = string
-  description = "VNet subnet delegated to Microsoft.DBforPostgreSQL/flexibleServers (private, no public access). Use modules/azure/vnet output subnet_db_id."
+  default     = null
+  description = "VNet subnet delegated to Microsoft.DBforPostgreSQL/flexibleServers (private, no public access). Use modules/azure/vnet output subnet_db_id. Ignored with public_network_access_enabled = true."
 }
 
 variable "private_dns_zone_id" {
   type        = string
-  description = "Private DNS zone id for the server FQDN. Use modules/azure/vnet output pg_private_dns_zone_id."
+  default     = null
+  description = "Private DNS zone id for the server FQDN. Use modules/azure/vnet output pg_private_dns_zone_id. Ignored with public_network_access_enabled = true."
+}
+
+variable "public_network_access_enabled" {
+  type        = bool
+  default     = false
+  description = "Give the server a public endpoint instead of VNet integration, open only to allowed_ip_ranges. Fixed at create time: changing it replaces the server."
+}
+
+variable "allowed_ip_ranges" {
+  type        = list(string)
+  default     = []
+  description = "Public IPv4 addresses or CIDRs that may connect when public_network_access_enabled = true, one firewall rule each."
+
+  validation {
+    condition     = alltrue([for r in var.allowed_ip_ranges : can(cidrhost(strcontains(r, "/") ? r : "${r}/32", 0))])
+    error_message = "allowed_ip_ranges entries must be IPv4 addresses or CIDRs, such as 203.0.113.10 or 203.0.113.0/28."
+  }
 }
 
 variable "administrator_login" {

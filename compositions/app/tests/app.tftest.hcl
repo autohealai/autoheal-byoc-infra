@@ -202,6 +202,88 @@ run "no_customer_values" {
   }
 }
 
+# A cluster owner gave the deployer one namespace and nothing else, so the
+# release must not try to create it.
+run "namespace_only_deployer" {
+  command = plan
+
+  variables {
+    create_namespace = false
+  }
+
+  assert {
+    condition     = !helm_release.autoheal.create_namespace && helm_release.autoheal.namespace == "autoheal"
+    error_message = "create_namespace = false installs into the existing namespace without creating it."
+  }
+}
+
+# The public path of compositions/azure: Temporal and the tool-response listener
+# get public load balancers on the static IP, open to the runner's NAT address.
+run "public_temporal_endpoint" {
+  command = plan
+
+  variables {
+    create_namespace = false
+    temporal_public_endpoint = {
+      ip                    = "20.30.40.50"
+      allowed_source_ranges = ["198.51.100.7/32"]
+    }
+  }
+
+  assert {
+    condition     = length(kubernetes_service_v1.public) == 2 && length(kubernetes_network_policy_v1.public) == 2
+    error_message = "Two public load balancers, each with a network policy."
+  }
+  assert {
+    condition = alltrue([
+      for s in kubernetes_service_v1.public :
+      s.spec[0].type == "LoadBalancer" && s.spec[0].external_traffic_policy == "Local" &&
+      tolist(s.spec[0].load_balancer_source_ranges) == tolist(["198.51.100.7/32"]) &&
+      s.metadata[0].annotations["service.beta.kubernetes.io/azure-load-balancer-ipv4"] == "20.30.40.50" &&
+      s.metadata[0].namespace == "autoheal"
+    ])
+    error_message = "Both share the static IP, keep the client address and let in only the runner's address."
+  }
+  assert {
+    condition = (
+      kubernetes_service_v1.public["temporal-frontend-public"].spec[0].port[0].port == 7233 &&
+      kubernetes_service_v1.public["temporal-frontend-public"].spec[0].selector["app.kubernetes.io/component"] == "frontend" &&
+      kubernetes_service_v1.public["api-server-go-public"].spec[0].port[0].port == 8083 &&
+      kubernetes_service_v1.public["api-server-go-public"].spec[0].selector["app.kubernetes.io/name"] == "api-server-go"
+    )
+    error_message = "Temporal on 7233 and the tool-response listener on 8083, each selecting the chart's pods."
+  }
+  assert {
+    condition = (
+      kubernetes_network_policy_v1.public["temporal-frontend-public"].spec[0].ingress[0].from[0].ip_block[0].cidr == "198.51.100.7/32" &&
+      kubernetes_network_policy_v1.public["temporal-frontend-public"].spec[0].ingress[0].ports[0].port == "7233"
+    )
+    error_message = "The network policy admits the runner's address on the service port."
+  }
+}
+
+run "public_endpoint_needs_a_source" {
+  command = plan
+
+  variables {
+    temporal_public_endpoint = {
+      ip                    = "20.30.40.50"
+      allowed_source_ranges = []
+    }
+  }
+
+  expect_failures = [var.temporal_public_endpoint]
+}
+
+run "no_public_endpoint_by_default" {
+  command = plan
+
+  assert {
+    condition     = length(kubernetes_service_v1.public) == 0 && length(kubernetes_network_policy_v1.public) == 0
+    error_message = "Without temporal_public_endpoint no Service or policy is created."
+  }
+}
+
 run "unknown_cloud" {
   command = plan
 

@@ -8,6 +8,10 @@ and AI Foundry / Azure OpenAI. When `temporal_ip` is set, an NSG on the AKS
 subnet lets only the runner subnet reach that address on ports 7233 (Temporal)
 and 8083 (the api-server-go internal listener for tool results).
 
+With `subnet_aks_prefix = ""` there is no AKS subnet and no NSG: a VNet for the
+runner, Postgres and private endpoints of a cluster that runs in another VNet,
+such as one in another subscription.
+
 The AWS analogue is `modules/aws/vpc`. Naming and tags follow the repo's
 null-label convention (see `label.tf` and
 [docs/MODULE_STANDARD.md](../../../docs/MODULE_STANDARD.md)).
@@ -75,27 +79,27 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_redis_private_endpoint_enabled"></a> [redis\_private\_endpoint\_enabled](#input\_redis\_private\_endpoint\_enabled) | Create the privatelink DNS zone + VNet link for an Azure Managed Redis private endpoint (privatelink.redis.azure.net). | `bool` | `false` | no |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Resource group the network lands in (created by the composition). | `string` | n/a | yes |
 | <a name="input_runner_nat_enabled"></a> [runner\_nat\_enabled](#input\_runner\_nat\_enabled) | Create a NAT gateway for outbound egress on the runner subnet (the runner VMSS has no public IP). | `bool` | `true` | no |
-| <a name="input_subnet_aks_prefix"></a> [subnet\_aks\_prefix](#input\_subnet\_aks\_prefix) | Subnet for AKS nodes/pods (overlay CNI, so this only sizes nodes). | `string` | `"10.60.0.0/20"` | no |
-| <a name="input_subnet_db_prefix"></a> [subnet\_db\_prefix](#input\_subnet\_db\_prefix) | Subnet delegated to PostgreSQL Flexible Server. | `string` | `"10.60.16.0/24"` | no |
-| <a name="input_subnet_pe_prefix"></a> [subnet\_pe\_prefix](#input\_subnet\_pe\_prefix) | Subnet for private endpoints (KV/Blob/Foundry when private). | `string` | `"10.60.17.0/24"` | no |
+| <a name="input_subnet_aks_prefix"></a> [subnet\_aks\_prefix](#input\_subnet\_aks\_prefix) | Subnet for AKS nodes/pods (overlay CNI, so this only sizes nodes). Empty creates no AKS subnet and no NSG, for a VNet that holds only the runner, Postgres and private endpoints of a cluster in another VNet. | `string` | `"10.60.0.0/20"` | no |
+| <a name="input_subnet_db_prefix"></a> [subnet\_db\_prefix](#input\_subnet\_db\_prefix) | Subnet delegated to PostgreSQL Flexible Server. Empty creates none, for a Postgres server with public access. | `string` | `"10.60.16.0/24"` | no |
+| <a name="input_subnet_pe_prefix"></a> [subnet\_pe\_prefix](#input\_subnet\_pe\_prefix) | Subnet for private endpoints (KV/Blob/Foundry when private). Empty creates none, when every service uses its public endpoint. | `string` | `"10.60.17.0/24"` | no |
 | <a name="input_subnet_runner_prefix"></a> [subnet\_runner\_prefix](#input\_subnet\_runner\_prefix) | Dedicated subnet for the runner VMSS (DooD job runners), isolated from AKS nodes. | `string` | `"10.60.19.0/24"` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Additional tags, merged into the generated tag set. | `map(string)` | `{}` | no |
-| <a name="input_temporal_ip"></a> [temporal\_ip](#input\_temporal\_ip) | Reserved internal address of the Temporal load balancer in the AKS subnet. The chart also puts the api-server-go internal listener (port 8083) on it. When set, an NSG on the AKS subnet lets only the runner subnet reach this address on ports 7233 and 8083. Empty creates no NSG. | `string` | `""` | no |
+| <a name="input_temporal_ip"></a> [temporal\_ip](#input\_temporal\_ip) | Reserved internal address of the Temporal load balancer in the AKS subnet. The chart also puts the api-server-go internal listener (port 8083) on it. When set with an AKS subnet, an NSG on the AKS subnet lets only the runner subnet reach this address on ports 7233 and 8083. Empty creates no NSG. | `string` | `""` | no |
 
 ## Outputs
 
 | Name | Description |
 |------|-------------|
-| <a name="output_aks_nsg_id"></a> [aks\_nsg\_id](#output\_aks\_nsg\_id) | Resource ID of the AKS subnet NSG, or empty when temporal\_ip is not set. |
-| <a name="output_aks_nsg_name"></a> [aks\_nsg\_name](#output\_aks\_nsg\_name) | Name of the AKS subnet NSG, or empty when temporal\_ip is not set. |
+| <a name="output_aks_nsg_id"></a> [aks\_nsg\_id](#output\_aks\_nsg\_id) | Resource ID of the AKS subnet NSG, or empty when temporal\_ip or subnet\_aks\_prefix is not set. |
+| <a name="output_aks_nsg_name"></a> [aks\_nsg\_name](#output\_aks\_nsg\_name) | Name of the AKS subnet NSG, or empty when temporal\_ip or subnet\_aks\_prefix is not set. |
 | <a name="output_blob_private_dns_zone_id"></a> [blob\_private\_dns\_zone\_id](#output\_blob\_private\_dns\_zone\_id) | Privatelink DNS zone id for Blob, or empty when private endpoints are off. |
 | <a name="output_foundry_private_dns_zone_ids"></a> [foundry\_private\_dns\_zone\_ids](#output\_foundry\_private\_dns\_zone\_ids) | Privatelink DNS zone ids for AI Foundry / Azure OpenAI, or [] when the Foundry endpoint is off. |
 | <a name="output_pg_private_dns_zone_id"></a> [pg\_private\_dns\_zone\_id](#output\_pg\_private\_dns\_zone\_id) | Private DNS zone id for PG Flexible Server, or empty when no zone was created. |
 | <a name="output_redis_private_dns_zone_id"></a> [redis\_private\_dns\_zone\_id](#output\_redis\_private\_dns\_zone\_id) | Privatelink DNS zone id for Azure Managed Redis, or empty when the Redis endpoint is off. |
 | <a name="output_runner_nat_public_ip"></a> [runner\_nat\_public\_ip](#output\_runner\_nat\_public\_ip) | Static egress IP of the runner subnet's NAT gateway (for outbound allowlisting), or empty when NAT is off. |
-| <a name="output_subnet_aks_id"></a> [subnet\_aks\_id](#output\_subnet\_aks\_id) | Subnet ID for AKS nodes/pods. |
-| <a name="output_subnet_db_id"></a> [subnet\_db\_id](#output\_subnet\_db\_id) | Subnet ID delegated to PostgreSQL Flexible Server. |
-| <a name="output_subnet_pe_id"></a> [subnet\_pe\_id](#output\_subnet\_pe\_id) | Subnet ID for private endpoints. |
+| <a name="output_subnet_aks_id"></a> [subnet\_aks\_id](#output\_subnet\_aks\_id) | Subnet ID for AKS nodes/pods, or empty when subnet\_aks\_prefix is empty. |
+| <a name="output_subnet_db_id"></a> [subnet\_db\_id](#output\_subnet\_db\_id) | Subnet ID delegated to PostgreSQL Flexible Server, or empty when subnet\_db\_prefix is empty. |
+| <a name="output_subnet_pe_id"></a> [subnet\_pe\_id](#output\_subnet\_pe\_id) | Subnet ID for private endpoints, or empty when subnet\_pe\_prefix is empty. |
 | <a name="output_subnet_runner_id"></a> [subnet\_runner\_id](#output\_subnet\_runner\_id) | Subnet ID for the runner VMSS. |
 | <a name="output_vault_private_dns_zone_id"></a> [vault\_private\_dns\_zone\_id](#output\_vault\_private\_dns\_zone\_id) | Privatelink DNS zone id for Key Vault, or empty when private endpoints are off. |
 | <a name="output_vnet_id"></a> [vnet\_id](#output\_vnet\_id) | Resource ID of the VNet. |

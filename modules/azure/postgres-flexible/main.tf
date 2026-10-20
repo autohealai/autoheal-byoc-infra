@@ -6,6 +6,10 @@
 # reachable from the VNet (AKS pods). Both the delegated subnet and the private
 # DNS zone come from modules/azure/vnet (subnet_db_id, pg_private_dns_zone_id).
 #
+# With public_network_access_enabled = true instead, the server has no VNet and
+# a firewall rule per allowed_ip_ranges entry, for clients that reach it from
+# their public addresses. Azure fixes the choice when the server is created.
+#
 # The azure.extensions allow-list is set as a server configuration so
 # CREATE EXTENSION (pgvector, btree_gin, ...) succeeds. Azure Flexible rejects any
 # extension not pre-listed, a gap RDS did not have: every extension must appear
@@ -71,9 +75,9 @@ resource "azurerm_postgresql_flexible_server" "this" {
     }
   }
 
-  delegated_subnet_id           = var.delegated_subnet_id
-  private_dns_zone_id           = var.private_dns_zone_id
-  public_network_access_enabled = false
+  delegated_subnet_id           = var.public_network_access_enabled ? null : var.delegated_subnet_id
+  private_dns_zone_id           = var.public_network_access_enabled ? null : var.private_dns_zone_id
+  public_network_access_enabled = var.public_network_access_enabled
 
   tags = module.this.tags
 
@@ -114,6 +118,24 @@ resource "azurerm_management_lock" "no_delete" {
   scope      = azurerm_postgresql_flexible_server.this.id
   lock_level = "CanNotDelete"
   notes      = "Protects the system-of-record database from accidental deletion. Remove by setting delete_protection_enabled = false."
+}
+
+# One rule per allowed range. A bare address is a /32.
+locals {
+  firewall_rules = var.public_network_access_enabled ? {
+    for r in var.allowed_ip_ranges : "allow-${replace(replace(r, ".", "-"), "/", "-")}" => {
+      start = cidrhost(strcontains(r, "/") ? r : "${r}/32", 0)
+      end   = cidrhost(strcontains(r, "/") ? r : "${r}/32", -1)
+    }
+  } : {}
+}
+
+resource "azurerm_postgresql_flexible_server_firewall_rule" "allowed" {
+  for_each         = local.firewall_rules
+  name             = each.key
+  server_id        = azurerm_postgresql_flexible_server.this.id
+  start_ip_address = each.value.start
+  end_ip_address   = each.value.end
 }
 
 resource "azurerm_postgresql_flexible_server_configuration" "extensions" {

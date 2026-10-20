@@ -6,6 +6,95 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+An AKS cluster in another subscription, over connected VNets or over public
+endpoints, for 2.2.0. Installs that keep the cluster in `subscription_id`
+change no Azure resource: the plan adds only
+`terraform_data.validate_subscriptions`, a plan-time check, and the new output
+values. The subnets in `modules/azure/vnet` move to `[0]` addresses through
+`moved` blocks.
+
+### Added
+- `compositions/azure`: `existing_aks_cluster_id` may be in another
+  subscription of the same Entra tenant. The cluster and its AKS subnet are
+  read there through a second `azurerm` provider (`azurerm.cluster`) that only
+  data sources use and that registers no resource providers, so nothing is
+  created in that subscription. Every other resource goes in
+  `subscription_id`. When `existing_network` names only the AKS subnet and the
+  two reserved addresses, we create a VNet in `subscription_id` from
+  `network_cidr` for the runner, Postgres and private endpoints, without an AKS
+  subnet.
+- `compositions/azure`: `cluster_network_path` (default `private`). With
+  `public`, for a cluster in another subscription with no VNet connection: our
+  VNet has only the runner subnet and its NAT gateway; Postgres has public
+  access with a firewall rule per `workload_egress_ip_ranges` entry; the Key
+  Vaults keep their IP firewall; storage also lets in the cluster's AKS subnet,
+  since Azure Storage ignores IP rules from its own region; Redis has a public
+  endpoint (Azure Managed Redis has no IP firewall); and
+  `existing_network.temporal_ip` is a static public IP in the cluster's node
+  resource group. `autoheal_values` then turns off the chart's internal
+  Temporal and tool-response load balancers, and the new
+  `temporal_public_endpoint` output carries the IP and the runner's NAT
+  address. Temporal and tool results are not encrypted on that path.
+- `compositions/app`: `temporal_public_endpoint` (default null) creates public
+  load balancers for Temporal (7233) and the tool-response listener (8083) on
+  the static IP, open only to the runner's NAT address, with a network policy
+  for each.
+- `compositions/azure`: `cluster_vnet_dns_link_enabled` (default false) also
+  links the private DNS zones we create to the cluster's VNet in the other
+  subscription. The deployer needs join permission on that VNet.
+- `compositions/azure`: the `required_cluster_owner_actions` output, filled for
+  a brought cluster: the deployer's roles on the cluster (Cluster User Role,
+  Reader on the AKS subnet, RBAC Admin on the namespace), the namespace, the
+  cluster features, the NSG rule for the Temporal address and, for a cluster in
+  another subscription, the network path between the VNets, the user path to
+  the proxy and private DNS.
+- `compositions/azure`: `cluster.subscription_id` (the cluster's) and
+  `network.cluster_vnet_id` in the outputs.
+- `compositions/app`: `create_namespace` (default true). Set false when the
+  deployer has rights in the release namespace only.
+- `modules/azure/vnet`: `subnet_aks_prefix`, `subnet_db_prefix` and
+  `subnet_pe_prefix` may be empty, to skip that subnet (and, for the AKS
+  subnet, the NSG). The subnets move to `[0]` addresses with `moved` blocks,
+  so existing networks plan no changes.
+- `modules/azure/postgres-flexible`: `public_network_access_enabled` and
+  `allowed_ip_ranges` for a server with public access and a firewall rule per
+  range; the `firewall_rules` output.
+- `modules/azure/blob`: `allowed_subnet_ids`, subnets let through the storage
+  firewall.
+- `modules/azure/managed-redis`: `public_network_access_enabled`.
+- `examples/azure/split` (connected VNets) and `examples/azure/split-public`
+  (public endpoints): the deployments for a cluster in another subscription.
+  `examples/azure/cop-standin` is an internal stand-in for that cluster's
+  subscription, for testing both (not for customers).
+- `docs/azure-subscription-options.md`: one subscription, connected VNets and
+  public endpoints compared on security, maintenance and cost.
+  `docs/azure-two-subscriptions.md` and
+  `docs/azure-two-subscriptions-public.md`: a one-page explanation of each
+  two-subscription layout for the cluster owner.
+  `docs/azure-two-subscriptions-public-runbook.md`: every command to install
+  the public-endpoint layout on an existing AKS cluster, with Terragrunt and
+  state in Azure Blob, or with Terraform Enterprise and a Helm install. All
+  linked from `docs/getting-started.md`.
+
+### Changed
+- `compositions/azure`: the plan checks that the AKS subnet is in the
+  cluster's subscription, and that the other brought subnets and
+  `existing_resource_group_id`, `existing_postgres_id`, `existing_redis_id`,
+  `existing_storage_account_id`, `existing_key_vault_id`,
+  `existing_runtime_key_vault_id` and `existing_acr_id` are in
+  `subscription_id`, as is `existing_dns_zone_id` when we create records.
+  Before, the subscription in these IDs was ignored and the resource was looked
+  up in `subscription_id`.
+- `compositions/azure`: `existing_network.runner_subnet_id` is optional in the
+  type. It is still required, with a plain message, except for a cluster in
+  another subscription with no subnets given.
+- `modules/azure/postgres-flexible`: `delegated_subnet_id` and
+  `private_dns_zone_id` default to null.
+- `compositions/azure`: `network.vnet_id`, `vnet_name`, `resource_group_name`
+  and `address_space` describe the VNet of the runner and private endpoints.
+  That is the same VNet as before unless the cluster is in another
+  subscription.
+
 ## [2.1.1] - 2026-10-19
 
 Docs and examples only. The modules and compositions are the same as 2.1.0, so

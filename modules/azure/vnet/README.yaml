@@ -9,6 +9,10 @@ description: |-
   the AKS subnet lets only the runner subnet reach that address on ports 7233
   (Temporal) and 8083 (the api-server-go internal listener for tool results).
 
+  With subnet_aks_prefix = "" there is no AKS subnet and no NSG: a VNet for the
+  runner, Postgres and private endpoints of a cluster that runs in another VNet,
+  such as one in another subscription.
+
   The AWS analogue is modules/aws/vpc. Naming and tags follow the repo's
   null-label convention (see label.tf and docs/MODULE_STANDARD.md).
 

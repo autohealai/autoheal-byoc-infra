@@ -27,6 +27,11 @@ A brought resource must exist before the run. Mixes that cannot work (for
 example a brought cluster without its network) stop the plan with a message that
 says what to change. `compositions/azure/README.md` lists every case.
 
+For an AKS cluster in a different subscription, with public endpoints, follow
+the "With Terraform Enterprise" parts of
+[the runbook](azure-two-subscriptions-public-runbook.md). It uses this guide for
+the workspace and the sign-in, and adds the steps on the cluster.
+
 The Terraform Enterprise steps are the same whatever you bring. Only the inputs
 in Step 7 are different.
 

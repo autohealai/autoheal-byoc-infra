@@ -30,7 +30,7 @@ variable "tags" {
 
 variable "subscription_id" {
   type        = string
-  description = "Azure subscription to deploy into. Get it with: az account show --query id -o tsv"
+  description = "Azure subscription to deploy into. Everything we create goes here, also when existing_aks_cluster_id is in another subscription. Get it with: az account show --query id -o tsv"
 
   validation {
     condition     = can(regex("^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$", var.subscription_id))
@@ -179,7 +179,7 @@ variable "runner_sandbox_image" {
 variable "network_cidr" {
   type        = string
   default     = "10.60.0.0/16"
-  description = "Address space of the network we create. Subnets: AKS = first /4 split, Postgres, private endpoints and runner = /8 splits 16, 17 and 19. Ignored when existing_network is set."
+  description = "Address space of the network we create. Subnets: AKS = first /4 split, Postgres, private endpoints and runner = /8 splits 16, 17 and 19. Ignored when existing_network is set, except for a cluster in another subscription with no runner, Postgres or endpoint subnet given: we then create a VNet in subscription_id from this range with those three subnets and no AKS subnet. It must not overlap the cluster's VNet."
 
   validation {
     condition     = can(cidrhost(var.network_cidr, 0)) && tonumber(split("/", var.network_cidr)[1]) >= 8 && tonumber(split("/", var.network_cidr)[1]) <= 20
@@ -190,7 +190,7 @@ variable "network_cidr" {
 variable "existing_network" {
   type = object({
     aks_subnet_id      = string
-    runner_subnet_id   = string
+    runner_subnet_id   = optional(string, "")
     temporal_ip        = string
     proxy_ip           = optional(string, "")
     postgres_subnet_id = optional(string, "")
@@ -203,7 +203,7 @@ variable "existing_network" {
     private_dns_zone_ids = optional(map(string), {})
   })
   default     = null
-  description = "A network you already have. temporal_ip, and proxy_ip in loadbalancer mode, are free addresses in the AKS subnet that the chart pins its internal load balancers to. postgres_subnet_id is needed only when we create Postgres; endpoint_subnet_id only when we create Redis or private endpoints. Null means we create the network."
+  description = "A network you already have. temporal_ip, and proxy_ip in loadbalancer mode, are free addresses in the AKS subnet that the chart pins its internal load balancers to; with cluster_network_path = public, temporal_ip is instead a Standard static public IP in the cluster's node resource group. runner_subnet_id is required; postgres_subnet_id is needed only when we create Postgres; endpoint_subnet_id only when we create Redis or private endpoints. The AKS subnet is in the cluster's subscription; the other subnets must be in subscription_id. For a cluster in another subscription, leave the other three empty and we create a VNet for them from network_cidr. Null means we create the network."
 
   validation {
     condition = var.existing_network == null ? true : alltrue([
@@ -225,6 +225,23 @@ variable "existing_network" {
   }
 }
 
+variable "cluster_vnet_dns_link_enabled" {
+  type        = bool
+  default     = false
+  description = "For a cluster in another subscription: also link the private DNS zones we create (Postgres and privatelink) to the cluster's VNet, so pods resolve them. The links are created in our resource group; the deployer needs Microsoft.Network/virtualNetworks/join/action on the cluster's VNet. Leave false when the cluster's VNet resolves them through central DNS. Ignored otherwise."
+}
+
+variable "cluster_network_path" {
+  type        = string
+  default     = "private"
+  description = "For a cluster in another subscription: how pods and runner VMs reach each other's subscription. private: the customer connects the two VNets (peering or a hub) and every service is reached through private endpoints. public: no VNet connection; Postgres and the Key Vaults allow only workload_egress_ip_ranges, storage allows the cluster's AKS subnet, Redis is public with its access key and TLS, and compositions/app exposes Temporal and the tool-response listener on existing_network.temporal_ip (a static public IP) to the runner's NAT address only. Fixed at create time for Postgres."
+
+  validation {
+    condition     = contains(["private", "public"], var.cluster_network_path)
+    error_message = "cluster_network_path must be private or public."
+  }
+}
+
 variable "private_endpoints_enabled" {
   type        = bool
   default     = false
@@ -240,7 +257,7 @@ variable "deployer_ip_ranges" {
 variable "workload_egress_ip_ranges" {
   type        = list(string)
   default     = []
-  description = "Runtime path without private endpoints. Public outbound CIDRs of the AKS cluster, allowed through the Blob and Key Vault firewalls we create. Prefer private_endpoints_enabled = true."
+  description = "Runtime path without private endpoints. Public outbound CIDRs of the AKS cluster, allowed through the Blob and Key Vault firewalls we create, and through the Postgres firewall with cluster_network_path = public. Prefer private_endpoints_enabled = true."
 }
 
 variable "storage_network_default_action" {
@@ -272,7 +289,7 @@ variable "key_vault_network_default_action" {
 variable "existing_aks_cluster_id" {
   type        = string
   default     = ""
-  description = "Resource ID of an AKS cluster you already have. It must run the Key Vault secrets provider add-on and have the OIDC issuer on. Needs existing_network."
+  description = "Resource ID of an AKS cluster you already have. It must run the Key Vault secrets provider add-on and have the OIDC issuer on. Needs existing_network. It may be in another subscription of the same Entra tenant: we then only read it and its AKS subnet there, and create nothing in that subscription."
 
   validation {
     condition     = var.existing_aks_cluster_id == "" || can(regex("(?i)^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.ContainerService/managedClusters/[^/]+$", var.existing_aks_cluster_id))

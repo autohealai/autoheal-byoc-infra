@@ -1,6 +1,7 @@
 # PostgreSQL Flexible Server: the server we create (private access, VNet
-# integrated, private DNS zone linked to the VNet), or the customer's server read
-# through a data source.
+# integrated, private DNS zone linked to the VNet; or public access with a
+# firewall on the public path), or the customer's server read through a data
+# source.
 #
 # The admin password of a brought server cannot be read back, so the pipeline
 # passes it as TF_VAR_postgres_admin_password. For a server we create it is
@@ -35,7 +36,12 @@ module "postgres" {
   # null rather than "" when the subnet is missing, so the plan stops on the plain
   # message in validation.tf instead of the provider's ID parse error.
   delegated_subnet_id = local.postgres_subnet_id != "" ? local.postgres_subnet_id : null
-  private_dns_zone_id = local.postgres_private_dns_zone_id
+  private_dns_zone_id = local.postgres_private_dns_zone_id != "" ? local.postgres_private_dns_zone_id : null
+
+  # The public path: no VNet, and the firewall lets in the cluster's outbound
+  # addresses only.
+  public_network_access_enabled = local.public_path
+  allowed_ip_ranges             = local.public_path ? var.workload_egress_ip_ranges : []
 
   administrator_login    = var.postgres_admin_login
   administrator_password = local.postgres_admin_password

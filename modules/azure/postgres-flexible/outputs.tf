@@ -1,5 +1,5 @@
 output "host" {
-  description = "Server FQDN (resolves privately via the VNet-linked DNS zone). Maps to the cross-cloud output contract 'postgres_host'."
+  description = "Server FQDN (resolves privately via the VNet-linked DNS zone, or publicly with public access). Maps to the cross-cloud output contract 'postgres_host'."
   value       = azurerm_postgresql_flexible_server.this.fqdn
 }
 
@@ -21,4 +21,9 @@ output "server_id" {
 output "name" {
   description = "Server name."
   value       = azurerm_postgresql_flexible_server.this.name
+}
+
+output "firewall_rules" {
+  description = "Firewall rules of a server with public access, by name: start and end address. Empty for a VNet-integrated server."
+  value       = local.firewall_rules
 }

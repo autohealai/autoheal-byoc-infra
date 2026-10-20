@@ -3,7 +3,9 @@ title: Autoheal BYOC - Azure Managed Redis
 description: |-
   Azure Managed Redis (Microsoft.Cache/redisEnterprise) with public network
   access off. The composition reaches it through a private endpoint. Clients use
-  TLS on port 10000.
+  TLS on port 10000. public_network_access_enabled = true opens the public
+  endpoint instead; Azure Managed Redis has no IP firewall, so the access key
+  and TLS then protect it.
 
   The defaults fit test subscriptions: SKU Balanced_B0, no high availability,
   EnterpriseCluster clustering, Encrypted client protocol and access-key

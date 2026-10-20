@@ -88,6 +88,12 @@ mock_provider "azurerm" {
   }
 }
 
+# The cluster's subscription (providers.tf). Only the brought cluster and its AKS
+# subnet are read through it, and this case brings neither.
+mock_provider "azurerm" {
+  alias = "cluster"
+}
+
 mock_provider "random" {}
 
 mock_provider "tls" {

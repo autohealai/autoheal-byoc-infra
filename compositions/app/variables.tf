@@ -50,7 +50,27 @@ variable "chart_repository" {
 variable "namespace" {
   type        = string
   default     = "autoheal"
-  description = "Kubernetes namespace for the release. Created when missing. Must match service_accounts.namespace in the infra folder, where the workload identities are federated."
+  description = "Kubernetes namespace for the release. Created when missing, unless create_namespace = false. Must match service_accounts.namespace in the infra folder, where the workload identities are federated."
+}
+
+variable "create_namespace" {
+  type        = bool
+  default     = true
+  description = "Create the namespace when it is missing. Set false when the cluster owner created it and the deployer has rights in that namespace only (for example Azure Kubernetes Service RBAC Admin scoped to it): creating a namespace needs a cluster-wide right."
+}
+
+variable "temporal_public_endpoint" {
+  type = object({
+    ip                    = string
+    allowed_source_ranges = list(string)
+  })
+  default     = null
+  description = "The temporal_public_endpoint output of compositions/azure, set only with cluster_network_path = public. Creates public load balancers for Temporal (7233) and the tool-response listener (8083) on ip, open only to allowed_source_ranges, with network policies to match. Null creates nothing."
+
+  validation {
+    condition     = var.temporal_public_endpoint == null ? true : length(var.temporal_public_endpoint.allowed_source_ranges) > 0
+    error_message = "temporal_public_endpoint.allowed_source_ranges must name at least one address: an empty list would open the load balancers to everyone."
+  }
 }
 
 variable "release_name" {

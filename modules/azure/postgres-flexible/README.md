@@ -3,7 +3,10 @@
 Provisioned, private (VNet-integrated) PostgreSQL Flexible Server for a
 BYOC-on-AKS Autoheal install. No public endpoint: it attaches to the PG-delegated
 subnet and the private DNS zone created by `modules/azure/vnet`, so it is
-reachable only from inside the VNet (AKS pods).
+reachable only from inside the VNet (AKS pods). With
+`public_network_access_enabled = true` it has a public endpoint instead, with a
+firewall rule for each `allowed_ip_ranges` entry; Azure fixes the choice at
+create time.
 
 Sets the `azure.extensions` server configuration so `CREATE EXTENSION` (pgvector,
 btree_gin, pg_trgm, ...) succeeds. Azure Flexible rejects any extension not
@@ -45,6 +48,7 @@ See [examples/basic](examples/basic) for a runnable configuration wired to the
 | [azurerm_management_lock.no_delete](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/management_lock) | resource |
 | [azurerm_postgresql_flexible_server.this](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/postgresql_flexible_server) | resource |
 | [azurerm_postgresql_flexible_server_configuration.extensions](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/postgresql_flexible_server_configuration) | resource |
+| [azurerm_postgresql_flexible_server_firewall_rule.allowed](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/postgresql_flexible_server_firewall_rule) | resource |
 
 ## Inputs
 
@@ -52,13 +56,14 @@ See [examples/basic](examples/basic) for a runnable configuration wired to the
 |------|-------------|------|---------|:--------:|
 | <a name="input_administrator_login"></a> [administrator\_login](#input\_administrator\_login) | Server admin username. | `string` | `"pgadmin"` | no |
 | <a name="input_administrator_password"></a> [administrator\_password](#input\_administrator\_password) | Admin password. The composition generates one and also seeds it into Key Vault for ESO; never commit a real value. | `string` | n/a | yes |
+| <a name="input_allowed_ip_ranges"></a> [allowed\_ip\_ranges](#input\_allowed\_ip\_ranges) | Public IPv4 addresses or CIDRs that may connect when public\_network\_access\_enabled = true, one firewall rule each. | `list(string)` | `[]` | no |
 | <a name="input_attributes"></a> [attributes](#input\_attributes) | ID element. Extra qualifiers appended to id, e.g. ['db']. | `list(string)` | `[]` | no |
 | <a name="input_auto_grow_enabled"></a> [auto\_grow\_enabled](#input\_auto\_grow\_enabled) | Let the server expand its storage automatically before it fills up. Applied in place, no downtime. Default off to preserve existing behaviour; strongly recommended on for a real install (a full disk takes the database read-only). | `bool` | `false` | no |
 | <a name="input_backup_retention_days"></a> [backup\_retention\_days](#input\_backup\_retention\_days) | How many days of automatic backups to keep (1-35). Any point in this window can be restored. Recommended for production: 35. | `number` | `7` | no |
 | <a name="input_cmk_identity_id"></a> [cmk\_identity\_id](#input\_cmk\_identity\_id) | User-assigned identity id used to reach the CMK key. Required when cmk\_key\_vault\_key\_id is set. | `string` | `""` | no |
 | <a name="input_cmk_key_vault_key_id"></a> [cmk\_key\_vault\_key\_id](#input\_cmk\_key\_vault\_key\_id) | Key Vault key id for customer-managed encryption at rest. Empty = Microsoft-managed key (still encrypted). CREATE-TIME ONLY; the vault must have purge protection on. | `string` | `""` | no |
 | <a name="input_context"></a> [context](#input\_context) | Single object to set the entire naming/tagging context at once (inheritance from the composition). Individual non-null inputs below override it. | `any` | <pre>{<br/>  "additional_tag_map": {},<br/>  "attributes": [],<br/>  "delimiter": null,<br/>  "descriptor_formats": {},<br/>  "enabled": true,<br/>  "environment": null,<br/>  "id_length_limit": null,<br/>  "label_key_case": null,<br/>  "label_order": [],<br/>  "label_value_case": null,<br/>  "labels_as_tags": [<br/>    "unset"<br/>  ],<br/>  "name": null,<br/>  "namespace": null,<br/>  "regex_replace_chars": null,<br/>  "stage": null,<br/>  "tags": {},<br/>  "tenant": null<br/>}</pre> | no |
-| <a name="input_delegated_subnet_id"></a> [delegated\_subnet\_id](#input\_delegated\_subnet\_id) | VNet subnet delegated to Microsoft.DBforPostgreSQL/flexibleServers (private, no public access). Use modules/azure/vnet output subnet\_db\_id. | `string` | n/a | yes |
+| <a name="input_delegated_subnet_id"></a> [delegated\_subnet\_id](#input\_delegated\_subnet\_id) | VNet subnet delegated to Microsoft.DBforPostgreSQL/flexibleServers (private, no public access). Use modules/azure/vnet output subnet\_db\_id. Ignored with public\_network\_access\_enabled = true. | `string` | `null` | no |
 | <a name="input_delete_protection_enabled"></a> [delete\_protection\_enabled](#input\_delete\_protection\_enabled) | Place a resource lock that blocks deletion of the database (the Azure equivalent of AWS deletion protection; deleting a server also deletes its backups). Recommended for production: true. | `bool` | `false` | no |
 | <a name="input_enabled"></a> [enabled](#input\_enabled) | Set to false to prevent the module from creating any resources. | `bool` | `null` | no |
 | <a name="input_environment"></a> [environment](#input\_environment) | ID element. Lifecycle (stage/prod/play) in this repo — NOT region. | `string` | `null` | no |
@@ -70,7 +75,8 @@ See [examples/basic](examples/basic) for a runnable configuration wired to the
 | <a name="input_name"></a> [name](#input\_name) | ID element. Component name, e.g. 'autoheal'. | `string` | `null` | no |
 | <a name="input_namespace"></a> [namespace](#input\_namespace) | ID element. Customer/tenant, e.g. 'acme'. | `string` | `null` | no |
 | <a name="input_postgres_version"></a> [postgres\_version](#input\_postgres\_version) | Major PostgreSQL version. | `string` | `"16"` | no |
-| <a name="input_private_dns_zone_id"></a> [private\_dns\_zone\_id](#input\_private\_dns\_zone\_id) | Private DNS zone id for the server FQDN. Use modules/azure/vnet output pg\_private\_dns\_zone\_id. | `string` | n/a | yes |
+| <a name="input_private_dns_zone_id"></a> [private\_dns\_zone\_id](#input\_private\_dns\_zone\_id) | Private DNS zone id for the server FQDN. Use modules/azure/vnet output pg\_private\_dns\_zone\_id. Ignored with public\_network\_access\_enabled = true. | `string` | `null` | no |
+| <a name="input_public_network_access_enabled"></a> [public\_network\_access\_enabled](#input\_public\_network\_access\_enabled) | Give the server a public endpoint instead of VNet integration, open only to allowed\_ip\_ranges. Fixed at create time: changing it replaces the server. | `bool` | `false` | no |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Resource group the server lands in (created by the composition). | `string` | n/a | yes |
 | <a name="input_sku_name"></a> [sku\_name](#input\_sku\_name) | azurerm combined tier+size (e.g. GP\_Standard\_D2ds\_v5, MO\_Standard\_E2ds\_v5). BYOC policy = provisioned (GP\_/MO\_), never Burstable (B\_), for a real install. | `string` | `"GP_Standard_D2ds_v5"` | no |
 | <a name="input_storage_mb"></a> [storage\_mb](#input\_storage\_mb) | Storage size in MB. | `number` | `32768` | no |
@@ -81,7 +87,8 @@ See [examples/basic](examples/basic) for a runnable configuration wired to the
 | Name | Description |
 |------|-------------|
 | <a name="output_administrator_login"></a> [administrator\_login](#output\_administrator\_login) | Server admin username. |
-| <a name="output_host"></a> [host](#output\_host) | Server FQDN (resolves privately via the VNet-linked DNS zone). Maps to the cross-cloud output contract 'postgres\_host'. |
+| <a name="output_firewall_rules"></a> [firewall\_rules](#output\_firewall\_rules) | Firewall rules of a server with public access, by name: start and end address. Empty for a VNet-integrated server. |
+| <a name="output_host"></a> [host](#output\_host) | Server FQDN (resolves privately via the VNet-linked DNS zone, or publicly with public access). Maps to the cross-cloud output contract 'postgres\_host'. |
 | <a name="output_name"></a> [name](#output\_name) | Server name. |
 | <a name="output_port"></a> [port](#output\_port) | PostgreSQL port. |
 | <a name="output_server_id"></a> [server\_id](#output\_server\_id) | Resource ID of the Flexible Server. |

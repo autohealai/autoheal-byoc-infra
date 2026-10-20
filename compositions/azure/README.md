@@ -114,6 +114,8 @@ subscription whose VNet nobody connects to ours.
 - `validation.tf` checks that the cluster is in another subscription, that
   `workload_egress_ip_ranges` is set, that no runner, Postgres or endpoint
   subnet is given, and that `temporal_ip` is not a private address.
+- With `edge_exposure = "public"`, `proxy_ip` may be `temporal_ip`: one public
+  IP for the proxy (443, 80) and the runner's ports (7233, 8083).
 
 ## Reserved addresses
 
@@ -141,6 +143,16 @@ rule.
 | `loadbalancer` (default) | the reserved proxy address | `internalIP` |
 | `gateway-api`, `istio`, `ingress` | `edge_address`; listed in `required_dns_records` while it is empty | not set |
 | `none` | nothing; no records | not set |
+
+In `loadbalancer` mode, `edge_exposure` sets `global.edge.exposure`. With
+`internal` (the default) the proxy's load balancer is internal, on a private
+`proxy_ip` in the AKS subnet. With `public`, for a brought cluster, it is a
+public load balancer on `proxy_ip`, a Standard static public IP that the
+cluster owner creates in the node resource group, so that users and webhooks
+reach Autoheal from the internet. The chart opens the proxy to every source;
+the cluster owner's NSG rule decides who reaches 443 and 80, and
+`required_cluster_owner_actions` lists that rule. A private DNS zone in
+`existing_dns_zone_id` is refused with a public proxy.
 
 ## Role grants
 
@@ -285,6 +297,7 @@ toolResponseLoadBalancer.enabled              suggestion: false, on the public p
 global.addons.install                         suggestion: true when we created the cluster
 global.secrets.mode                           suggestion: keyvault-csi
 global.edge.mode                              suggestion: edge_mode
+global.edge.exposure                          suggestion: edge_exposure, in loadbalancer mode
 global.edge.tls.caVaultEntry                  suggestion: edge-ca-certificate, when edge_ca_certificate is set
 global.llm.gateway.extraHeadersVaultEntry     suggestion: gateway-extra-headers, when llm_gateway_extra_headers is set
 global.llm.gateway.apiKeyVaultEntry           suggestion: "", when llm_gateway_extra_headers is set and llm_gateway_api_key is not

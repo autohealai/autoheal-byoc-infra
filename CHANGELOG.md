@@ -39,6 +39,15 @@ values. The subnets in `modules/azure/vnet` move to `[0]` addresses through
   load balancers for Temporal (7233) and the tool-response listener (8083) on
   the static IP, open only to the runner's NAT address, with a network policy
   for each.
+- `compositions/azure`: `edge_exposure` (default `internal`). With `public`,
+  for a brought cluster in loadbalancer mode, `existing_network.proxy_ip` is a
+  Standard static public IP in the cluster's node resource group, so that users
+  and webhooks reach the proxy from the internet; on `cluster_network_path =
+  public` it may be `temporal_ip`, to use one IP for both. `autoheal_values` now
+  sets `global.edge.exposure` in loadbalancer mode, so `values-customer.yaml`
+  no longer sets it, and the DNS records point to the public IP.
+  `required_cluster_owner_actions` lists the proxy's static IP and its NSG rule
+  for TCP 443 and 80. `examples/azure/split-public` uses a public proxy.
 - `compositions/azure`: `cluster_vnet_dns_link_enabled` (default false) also
   links the private DNS zones we create to the cluster's VNet in the other
   subscription. The deployer needs join permission on that VNet.

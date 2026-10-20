@@ -36,6 +36,9 @@ known addresses.
 - The runner VMs are in the data subscription. They connect to Temporal in your
   cluster on a static public IP. That IP lets in only the outbound address of
   the runner VMs.
+- Users and webhooks from your integrations reach the Autoheal proxy over HTTPS
+  on a second static public IP. With only one public IP, the proxy and Temporal
+  share it: their ports do not overlap.
 - The pods sign in to the Key Vaults and the storage account with workload
   identity.
 
@@ -46,6 +49,7 @@ known addresses.
 | AKS cluster | Yes (yours) | |
 | The Autoheal namespace and the Autoheal pods | Yes | |
 | Static public IP for Temporal | Yes (you make it) | |
+| Static public IP for the Autoheal proxy, or the Temporal IP for both | Yes (you make it) | |
 | VNet for the runner VMs, with a NAT gateway | | Yes |
 | Runner VMs | | Yes |
 | PostgreSQL, Redis, storage account | | Yes |
@@ -76,19 +80,20 @@ resource group of your cluster, as for any Service of type LoadBalancer.
    AKS subnet to the firewall of our storage account.
 
 5. Turn on the `Microsoft.Storage` service endpoint on the AKS subnet.
-6. Make a Standard static public IP in the node resource group of the cluster
-   (`MC_...`). Temporal uses it.
-7. Pick one free IP address in the AKS subnet for the Autoheal proxy.
-8. Send us the cluster resource ID, the AKS subnet resource ID, the static
-   public IP, the proxy address, the public outbound addresses of the cluster
-   and the name of the namespace.
+6. Make two Standard static public IPs in the node resource group of the
+   cluster (`MC_...`): one for Temporal and one for the Autoheal proxy. With
+   only one IP, both use it.
+7. Send us the cluster resource ID, the AKS subnet resource ID, the static
+   public IPs, the public outbound addresses of the cluster and the name of the
+   namespace.
 
 After our first apply:
 
-9. Add an NSG rule on the AKS subnet. Let only the runner address (we send it
-   to you) reach the static public IP on TCP 7233 and 8083. Deny all other
-   sources to that IP on these ports.
-10. Let your users reach the proxy address on TCP 443.
+8. Add NSG rules on the AKS subnet. Let only the runner address (we send it to
+   you) reach the Temporal IP on TCP 7233 and 8083, and deny all other sources
+   to that IP on these ports.
+9. Let everyone reach the proxy IP on TCP 443 and 80, or only the sources that
+   you choose: your users and the webhook senders.
 
 Keep the outbound addresses of the cluster fixed. Tell us before they change.
 
@@ -100,16 +105,16 @@ real names, IDs and addresses.
 1. Give our deployer Owner (or Contributor and User Access Administrator) on
    the data subscription.
 2. Copy `examples/azure/split-public` into our deployment repository.
-3. Write your cluster ID, AKS subnet ID, static public IP, proxy address and
-   outbound addresses into `split-public/infra/terragrunt.hcl`, and the
-   namespace into both `terragrunt.hcl` files.
+3. Write your cluster ID, AKS subnet ID, static public IPs and outbound
+   addresses into `split-public/infra/terragrunt.hcl`, and the namespace into
+   both `terragrunt.hcl` files.
 4. Apply `split-public/infra`. It makes the resources in the data subscription
    only.
 5. Send you the runner address from the `temporal_public_endpoint` output, and
    the `required_cluster_owner_actions` output.
-6. Apply `split-public/app` after you add the NSG rule. It installs the Autoheal
-   chart in the Autoheal namespace, and the load balancers for Temporal on
-   the static public IP.
+6. Apply `split-public/app` after you add the NSG rules. It installs the
+   Autoheal chart in the Autoheal namespace, with the load balancers for the
+   proxy and for Temporal on the static public IPs.
 7. Make sure that all the pods are ready and that the runner VMs connect to
    Temporal.
 
@@ -117,9 +122,9 @@ real names, IDs and addresses.
 
 | Step | Who | Action |
 |------|-----|--------|
-| 1 | You | Do items 1 to 8 of "What you do". |
+| 1 | You | Do items 1 to 7 of "What you do". |
 | 2 | We | Do items 1 to 5 of "What we do". |
-| 3 | You | Do items 9 and 10 of "What you do". |
+| 3 | You | Do items 8 and 9 of "What you do". |
 | 4 | We | Do items 6 and 7 of "What we do". |
 
 For an upgrade, we do items 4 and 6 of "What we do" again. You do not have to
@@ -133,7 +138,10 @@ give new permissions.
 - Azure Managed Redis has no IP firewall. Its public endpoint accepts
   connections from all addresses. The access key and TLS protect it.
 - The runner VMs connect to Temporal and send tool results without encryption.
-  Only the runner address can reach the static public IP.
+  Only the runner address can reach the Temporal IP on those ports.
+- The Autoheal proxy is open to the internet on TCP 443 and 80, unless the NSG
+  lets in only some sources. TLS and the Autoheal login protect it. To keep it
+  on your network only, see "Keep Autoheal private" in the runbook.
 - The `Microsoft.Storage` service endpoint applies to all workloads on the AKS
   subnet. Make sure that your other workloads still reach their storage
   accounts.

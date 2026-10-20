@@ -27,8 +27,24 @@ resource "terraform_data" "validate_inputs" {
       error_message = "edge_mode is loadbalancer in a brought network, so existing_network.proxy_ip is required: a free address in the AKS subnet for the proxy's internal load balancer."
     }
     precondition {
-      condition     = local.proxy_ip == "" || local.proxy_ip != local.temporal_ip
-      error_message = "existing_network.temporal_ip and existing_network.proxy_ip must be different addresses."
+      condition     = local.proxy_ip == "" || local.proxy_ip != local.temporal_ip || local.proxy_shares_temporal_ip
+      error_message = "existing_network.temporal_ip and existing_network.proxy_ip must be different addresses. Only a public proxy (edge_exposure = public) on cluster_network_path = public may share the public Temporal address."
+    }
+    precondition {
+      condition     = var.edge_exposure == "internal" || var.edge_mode == "loadbalancer"
+      error_message = "edge_exposure = \"public\" applies to edge_mode = \"loadbalancer\" only. With ${var.edge_mode}, your own gateway or ingress decides where Autoheal is reachable."
+    }
+    precondition {
+      condition     = !local.public_edge || !local.create_cluster
+      error_message = "edge_exposure = \"public\" needs a brought cluster (existing_aks_cluster_id): existing_network.proxy_ip is a Standard static public IP that you make in the cluster's node resource group."
+    }
+    precondition {
+      condition     = !local.public_edge || local.proxy_ip == "" || !local.proxy_ip_private
+      error_message = "edge_exposure = \"public\": existing_network.proxy_ip (${local.proxy_ip}) must be a Standard static public IP in the cluster's node resource group, not a private address."
+    }
+    precondition {
+      condition     = !local.public_edge || !local.dns_records_created || !local.dns_zone_private
+      error_message = "edge_exposure = \"public\", but existing_dns_zone_id is a private DNS zone, so the internet cannot resolve ${var.hostname}. Use a public DNS zone, or set create_dns_records = false and make the records listed in required_dns_records."
     }
     precondition {
       condition     = local.create_vnet || local.public_path || !local.create_redis || try(var.existing_network.endpoint_subnet_id, "") != ""
@@ -117,10 +133,14 @@ resource "terraform_data" "validate_subscriptions" {
 # --- The public path ------------------------------------------------------------
 
 locals {
-  # RFC 1918 ranges, which cannot be the public Temporal address.
+  # RFC 1918 ranges, which cannot be the public Temporal or proxy address.
   temporal_ip_private = anytrue([
     for r in ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"] :
     cidrhost("${local.temporal_ip}/${split("/", r)[1]}", 0) == split("/", r)[0]
+  ])
+  proxy_ip_private = local.proxy_ip != "" && anytrue([
+    for r in ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"] :
+    cidrhost("${local.proxy_ip}/${split("/", r)[1]}", 0) == split("/", r)[0]
   ])
 }
 
@@ -159,7 +179,8 @@ locals {
   temporal_ip_in_subnet = local.brought_aks_prefix == "" || local.public_path ? true : (
     cidrhost(local.brought_aks_prefix, 0) == cidrhost("${local.temporal_ip}/${local.brought_aks_bits}", 0)
   )
-  proxy_ip_in_subnet = local.brought_aks_prefix == "" || local.proxy_ip == "" ? true : (
+  # A public proxy address is a public IP, not in the subnet.
+  proxy_ip_in_subnet = local.brought_aks_prefix == "" || local.proxy_ip == "" || local.public_edge ? true : (
     cidrhost(local.brought_aks_prefix, 0) == cidrhost("${local.proxy_ip}/${local.brought_aks_bits}", 0)
   )
 }

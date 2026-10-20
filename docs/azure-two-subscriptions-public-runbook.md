@@ -4,7 +4,7 @@ This runbook installs Autoheal end to end on an AKS cluster that you already
 have. The cluster stays in its subscription (the **cluster subscription**).
 All the other Autoheal resources go in a second subscription (the **data
 subscription**). The two VNets are not connected. The data services use public
-endpoints with firewalls. [The one-pager](azure-two-subscriptions-public.md)
+endpoints with firewalls. Users and webhooks reach Autoheal on a public IP. [The one-pager](azure-two-subscriptions-public.md)
 explains the layout, and [the comparison](azure-subscription-options.md) shows
 its limits.
 
@@ -31,9 +31,9 @@ The runbook has two roles. One person can do both:
   - [4b. Make the namespace](#4b-make-the-namespace)
   - [4c. Check that the namespace holds no other install](#4c-check-that-the-namespace-holds-no-other-install)
   - [4d. Add the storage service endpoint](#4d-add-the-storage-service-endpoint)
-- [Step 5: Reserve the two addresses](#step-5-reserve-the-two-addresses)
+- [Step 5: Make the public IPs](#step-5-make-the-public-ips)
   - [5a. Make the static public IP for Temporal](#5a-make-the-static-public-ip-for-temporal)
-  - [5b. Pick the proxy address](#5b-pick-the-proxy-address)
+  - [5b. Make the public IP for the proxy](#5b-make-the-public-ip-for-the-proxy): [Two public IPs](#5b-two-public-ips), [One public IP](#5b-one-public-ip)
 - [Step 6: Get the outbound addresses and give the deployer its roles](#step-6-get-the-outbound-addresses-and-give-the-deployer-its-roles)
   - [6a. Get the outbound addresses](#6a-get-the-outbound-addresses)
   - [6b. Give the deployer its roles](#6b-give-the-deployer-its-roles)
@@ -48,7 +48,7 @@ The runbook has two roles. One person can do both:
 - [Step 9: Apply the infra](#step-9-apply-the-infra)
   - [9a. Apply and keep the outputs](#9a-apply-and-keep-the-outputs): [Terragrunt](#9a-terragrunt), [Terraform Enterprise](#9a-terraform-enterprise)
   - [9b. Make the DNS records](#9b-make-the-dns-records): [Azure DNS in another subscription](#9b-azure-dns-in-another-subscription), [DNS outside Azure](#9b-dns-outside-azure)
-- [Step 10: Let the runner through the subnet NSG](#step-10-let-the-runner-through-the-subnet-nsg)
+- [Step 10: Open the subnet NSG for the runner and the proxy](#step-10-open-the-subnet-nsg-for-the-runner-and-the-proxy)
 - [Step 11: Install the application](#step-11-install-the-application)
   - [11a. Write your chart settings](#11a-write-your-chart-settings): [Azure OpenAI](#11a-azure-openai), [Portkey](#11a-portkey)
   - [11b. Install the chart](#11b-install-the-chart): [Terragrunt](#11b-terragrunt), [Terraform Enterprise](#11b-terraform-enterprise)
@@ -72,6 +72,7 @@ The runbook has two roles. One person can do both:
   - [Key Vault service endpoint on the subnet](#key-vault-service-endpoint-on-the-subnet)
   - [The namespace holds another install](#the-namespace-holds-another-install)
   - [Other outbound types](#other-outbound-types)
+  - [Keep Autoheal private](#keep-autoheal-private)
   - [A Portkey gateway](#a-portkey-gateway)
   - [Get a TLS certificate](#get-a-tls-certificate)
   - [A certificate from a private CA](#a-certificate-from-a-private-ca)
@@ -83,20 +84,20 @@ Make two choices before you start.
 
 **How you run Terraform:**
 
-| | Terragrunt | Terraform Enterprise |
-|---|---|---|
-| Where Terraform runs | Your machine or your pipeline | The Terraform Enterprise workers |
-| Where the state is | A storage account in the data subscription | The Terraform Enterprise workspace |
+|                                 | Terragrunt                                  | Terraform Enterprise                              |
+| ------------------------------- | ------------------------------------------- | ------------------------------------------------- |
+| Where Terraform runs            | Your machine or your pipeline               | The Terraform Enterprise workers                  |
+| Where the state is              | A storage account in the data subscription  | The Terraform Enterprise workspace                |
 | How Terraform signs in to Azure | Your `az login`, or the pipeline's identity | The workspace identity, with OIDC and no password |
-| How the chart is installed | The app folder, with Terragrunt | Helm, from your machine |
+| How the chart is installed      | The app folder, with Terragrunt             | Helm, from your machine                           |
 
 **How Autoheal reaches the model:**
 
-| | Azure OpenAI | Portkey |
-|---|---|---|
-| What Autoheal calls | Your Azure OpenAI resource, or the Azure OpenAI endpoint of an Azure AI Foundry resource | A Portkey gateway. The gateway calls the provider |
-| Where the provider key is | The install vault, from step 8d | The gateway |
-| What you need | A chat model deployment, and an embedding deployment named `text-embedding-3-large` | A gateway that the pods reach. See [A Portkey gateway](#a-portkey-gateway) |
+|                           | Azure OpenAI                                                                             | Portkey                                                                    |
+| ------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| What Autoheal calls       | Your Azure OpenAI resource, or the Azure OpenAI endpoint of an Azure AI Foundry resource | A Portkey gateway. The gateway calls the provider                          |
+| Where the provider key is | The install vault, from step 8d                                                          | The gateway                                                                |
+| What you need             | A chat model deployment, and an embedding deployment named `text-embedding-3-large`      | A gateway that the pods reach. See [A Portkey gateway](#a-portkey-gateway) |
 
 A sub-step that depends on a choice has one part for each option, for example
 **7b: Terragrunt** and **7b: Terraform Enterprise**. Do the part of your
@@ -104,15 +105,15 @@ option and skip the others. Sub-step 8d has one part for each pair of options.
 
 ## Time
 
-| Step | Hands-on | Waiting |
-|------|----------|---------|
-| 1 to 6: prepare the cluster | 30 min | 10 to 15 min for step 3; none when you skip it |
-| 7 to 8: state or workspace, settings | 30 min (Terraform Enterprise: 45 min) | |
-| 9: apply the infra | 5 min | 30 to 45 min |
-| 10: NSG rule | 5 min | |
-| 11: install the application | 10 min | 10 to 20 min |
-| 12: check | 10 min | |
-| 13 (optional): single sign-on | 20 min | |
+| Step                                 | Hands-on                              | Waiting                                        |
+| ------------------------------------ | ------------------------------------- | ---------------------------------------------- |
+| 1 to 6: prepare the cluster          | 30 min                                | 10 to 15 min for step 3; none when you skip it |
+| 7 to 8: state or workspace, settings | 30 min (Terraform Enterprise: 45 min) |                                                |
+| 9: apply the infra                   | 5 min                                 | 30 to 45 min                                   |
+| 10: NSG rule                         | 5 min                                 |                                                |
+| 11: install the application          | 10 min                                | 10 to 20 min                                   |
+| 12: check                            | 10 min                                |                                                |
+| 13 (optional): single sign-on        | 20 min                                |                                                |
 
 These times are estimates. Plan half a day for a first install.
 
@@ -125,6 +126,8 @@ You must have:
 - A path from your machine to the cluster's API server on TCP 443. Step 4 and
   step 11 use it. Step 2 shows how to check it.
 - A data subscription in the same Microsoft Entra tenant as the cluster.
+- One or two Standard static public IPs in the node resource group of the
+  cluster. Step 5 makes them.
 - Owner on the cluster subscription and Kubernetes admin rights in the
   cluster, or the cluster owner's help for steps 1 to 6 and step 10. Owner on
   the subscription does not give Kubernetes rights; step 4b shows how to get
@@ -142,14 +145,14 @@ You must have:
 
 Install these tools:
 
-| Tool | For | Install |
-|------|-----|---------|
-| `az` CLI | both | https://learn.microsoft.com/cli/azure/install-azure-cli |
-| `kubectl` and `kubelogin` | both | `az aks install-cli` installs both. It writes to `/usr/local/bin`, so it may need `sudo`: `sudo az aks install-cli`. On macOS, `brew install kubectl Azure/kubelogin/kubelogin` also works |
-| `git`, `curl`, `jq`, `python3` | both | any version |
-| Terraform 1.7 or later, or OpenTofu | Terragrunt | Terragrunt runs `tofu` from your PATH. To use Terraform, `export TG_TF_PATH=terraform` |
-| Terragrunt | Terragrunt | https://terragrunt.gruntwork.io/docs/getting-started/install/ |
-| Helm 3 | Terraform Enterprise | https://helm.sh/docs/intro/install/ |
+| Tool                                | For                  | Install                                                                                                                                                                                    |
+| ----------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `az` CLI                            | both                 | https://learn.microsoft.com/cli/azure/install-azure-cli                                                                                                                                    |
+| `kubectl` and `kubelogin`           | both                 | `az aks install-cli` installs both. It writes to `/usr/local/bin`, so it may need `sudo`: `sudo az aks install-cli`. On macOS, `brew install kubectl Azure/kubelogin/kubelogin` also works |
+| `git`, `curl`, `jq`, `python3`      | both                 | any version                                                                                                                                                                                |
+| Terraform 1.7 or later, or OpenTofu | Terragrunt           | Terragrunt runs `tofu` from your PATH. To use Terraform, `export TG_TF_PATH=terraform`                                                                                                     |
+| Terragrunt                          | Terragrunt           | https://terragrunt.gruntwork.io/docs/getting-started/install/                                                                                                                              |
+| Helm 3                              | Terraform Enterprise | https://helm.sh/docs/intro/install/                                                                                                                                                        |
 
 `kubectl` cannot sign in to a cluster with Entra ID by itself. It runs
 `kubelogin` to get a token for each request. The chart install in step 11 uses
@@ -444,7 +447,7 @@ az network vnet subnet update --ids "$AKS_SUBNET_ID" --service-endpoints \
 This change applies to all workloads on the subnet. They then reach Azure
 Storage in this region through the service endpoint.
 
-## Step 5: Reserve the two addresses
+## Step 5: Make the public IPs
 
 ### 5a. Make the static public IP for Temporal
 
@@ -457,35 +460,32 @@ export TEMPORAL_IP=$(az network public-ip create -g "$NODE_RG" -n pip-autoheal-t
 echo "$TEMPORAL_IP"
 ```
 
-### 5b. Pick the proxy address
+### 5b. Make the public IP for the proxy
 
-The proxy address is where users open Autoheal. The chart puts the Autoheal
-proxy, which serves the web app and the login over HTTPS, behind an internal
-load balancer on this address. The DNS records for `hostname`,
-`auth.<hostname>` and `auth-app.<hostname>` point to it. It is a private
-address, so only machines on the cluster's network reach it.
+Users and webhook senders reach Autoheal on this IP. The Autoheal proxy serves
+the web app, the login and the webhooks over HTTPS on it. The DNS records for
+`hostname`, `auth.<hostname>` and `auth-app.<hostname>` point to it.
 
-It must be a free address in the AKS subnet. AKS gives addresses to nodes and
-pods from the start of the subnet, so the address comes from the end. This
-command tries the addresses from the end of the subnet, and keeps the first one
-that Azure shows as free:
+#### 5b: Two public IPs
+
+A second IP, apart from the Temporal IP. The proxy and Temporal then have
+separate addresses and separate firewall rules:
 
 ```bash
-export SUBNET_PREFIX=$(az network vnet subnet show --ids "$AKS_SUBNET_ID" \
-  --query "addressPrefix || addressPrefixes[0]" -o tsv)
-unset PROXY_IP
-for n in $(seq 2 20); do
-  IP=$(python3 -c 'import ipaddress,sys; print(ipaddress.ip_network(sys.argv[1])[-int(sys.argv[2])])' "$SUBNET_PREFIX" "$n")
-  if [ "$(az network vnet check-ip-address -g "$(echo "$AKS_SUBNET_ID" | cut -d/ -f5)" \
-        -n "$(echo "$AKS_SUBNET_ID" | cut -d/ -f9)" --ip-address "$IP" --query available -o tsv)" = "true" ]; then
-    export PROXY_IP="$IP"; break
-  fi
-done
-echo "PROXY_IP=${PROXY_IP:-none found}"
+export PROXY_IP=$(az network public-ip create -g "$NODE_RG" -n pip-autoheal-proxy \
+  --location "$LOCATION" --sku Standard --allocation-method Static --query publicIp.ipAddress -o tsv)
+echo "$PROXY_IP"
 ```
 
-It must show an address. The last address of a subnet is Azure's, so the
-command starts one before it.
+#### 5b: One public IP
+
+When you get only one public IP, the proxy uses the Temporal IP. Their ports do
+not overlap: 443 and 80 for the proxy, 7233 and 8083 for the runner:
+
+```bash
+export PROXY_IP="$TEMPORAL_IP"
+echo "$PROXY_IP"
+```
 
 ## Step 6: Get the outbound addresses and give the deployer its roles
 
@@ -666,8 +666,9 @@ workload_egress_ip_ranges = [$(echo "$EGRESS_IPS" | tr ' ' '\n' | sed 's/.*/"&"/
 deployer_ip_ranges        = [$(echo "$DEPLOYER_IPS" | tr ' ' '\n' | sed 's/.*/"&"/' | paste -sd, -)]
 network_cidr              = "$RUNNER_CIDR"
 
-hostname  = "$AUTOHEAL_HOSTNAME"
-edge_mode = "loadbalancer"
+hostname      = "$AUTOHEAL_HOSTNAME"
+edge_mode     = "loadbalancer"
+edge_exposure = "public"
 $([ -n "$DNS_ZONE_ID" ] && echo "existing_dns_zone_id = \"$DNS_ZONE_ID\"" || echo "create_dns_records = false")
 EOF
 cat "$WORK_DIR/inputs.hcl"
@@ -763,10 +764,10 @@ check_values TF_VAR_tls_certificate TF_VAR_llm_gateway_api_key
 In the workspace **Variables**, add these as **Sensitive** variables of the
 category **Terraform**:
 
-| Key | HCL | Value |
-|-----|-----|-------|
-| `tls_certificate` | Yes | The output of the command below |
-| `llm_api_key` | No | The key of your Azure OpenAI resource |
+| Key               | HCL | Value                                 |
+| ----------------- | --- | ------------------------------------- |
+| `tls_certificate` | Yes | The output of the command below       |
+| `llm_api_key`     | No  | The key of your Azure OpenAI resource |
 
 ```bash
 jq -n --rawfile c "$TLS_CERT_FILE" --rawfile k "$TLS_KEY_FILE" '{certificate: $c, private_key: $k}'
@@ -777,11 +778,11 @@ jq -n --rawfile c "$TLS_CERT_FILE" --rawfile k "$TLS_KEY_FILE" '{certificate: $c
 In the workspace **Variables**, add these as **Sensitive** variables of the
 category **Terraform**:
 
-| Key | HCL | Value |
-|-----|-----|-------|
-| `tls_certificate` | Yes | The output of the first command below |
-| `llm_gateway_api_key` | No | The Portkey API key. Portkey OSS ignores it: any value, for example `unused` |
-| `llm_gateway_extra_headers` | No | Portkey OSS only: the output of the second command below |
+| Key                         | HCL | Value                                                                        |
+| --------------------------- | --- | ---------------------------------------------------------------------------- |
+| `tls_certificate`           | Yes | The output of the first command below                                        |
+| `llm_gateway_api_key`       | No  | The Portkey API key. Portkey OSS ignores it: any value, for example `unused` |
+| `llm_gateway_extra_headers` | No  | Portkey OSS only: the output of the second command below                     |
 
 ```bash
 jq -n --rawfile c "$TLS_CERT_FILE" --rawfile k "$TLS_KEY_FILE" '{certificate: $c, private_key: $k}'
@@ -873,8 +874,9 @@ done
 #### 9b: DNS outside Azure
 
 Make the three records by hand in your DNS provider. If the provider can proxy
-traffic, for example Cloudflare, turn that off for these records (DNS only),
-because the address is private. Then check that each name shows `$PROXY_IP`:
+traffic, for example Cloudflare, keep these records DNS only, so that users and
+webhooks reach the Autoheal proxy and its certificate directly. Then check that
+each name shows `$PROXY_IP`:
 
 ```bash
 for h in "$AUTOHEAL_HOSTNAME" "auth.$AUTOHEAL_HOSTNAME" "auth-app.$AUTOHEAL_HOSTNAME"; do
@@ -882,12 +884,17 @@ for h in "$AUTOHEAL_HOSTNAME" "auth.$AUTOHEAL_HOSTNAME" "auth-app.$AUTOHEAL_HOST
 done
 ```
 
-## Step 10: Let the runner through the subnet NSG
+## Step 10: Open the subnet NSG for the runner and the proxy
 
-When the AKS subnet has an NSG, add two rules to it: let only the runner reach
-the Temporal address on TCP 7233 and 8083, and deny all other sources. Without
-an NSG, AKS opens its own NSG for the load balancers, and the command does
-nothing. The rules take the first free priorities from 300:
+When the AKS subnet has an NSG, add three rules to it:
+
+- Let only the runner reach the Temporal IP on TCP 7233 and 8083.
+- Deny all other sources to the Temporal IP on these ports.
+- Let everyone reach the proxy IP on TCP 443 and 80. To let in only some
+  sources, put their ranges in place of `Internet`.
+
+Without an NSG, AKS opens its own NSG for the load balancers, and the command
+does nothing. The rules take the first free priorities from 300:
 
 ```bash
 az account set --subscription "$CLUSTER_SUB"
@@ -896,9 +903,10 @@ echo "NSG: ${NSG_ID:-none}"
 if [ -n "$NSG_ID" ]; then
   export NSG_RG=$(echo "$NSG_ID" | cut -d/ -f5) NSG_NAME=$(echo "$NSG_ID" | cut -d/ -f9)
   USED=$(az network nsg rule list -g "$NSG_RG" --nsg-name "$NSG_NAME" \
-    --query "[?name!='allow-autoheal-runner' && name!='deny-others-to-autoheal-temporal'].priority" -o tsv)
+    --query "[?name!='allow-autoheal-runner' && name!='deny-others-to-autoheal-temporal' && name!='allow-autoheal-proxy'].priority" -o tsv)
   ALLOW_PRIORITY=300; while echo "$USED" | grep -qx "$ALLOW_PRIORITY"; do ALLOW_PRIORITY=$((ALLOW_PRIORITY+1)); done
   DENY_PRIORITY=$((ALLOW_PRIORITY+1)); while echo "$USED" | grep -qx "$DENY_PRIORITY"; do DENY_PRIORITY=$((DENY_PRIORITY+1)); done
+  PROXY_PRIORITY=$((DENY_PRIORITY+1)); while echo "$USED" | grep -qx "$PROXY_PRIORITY"; do PROXY_PRIORITY=$((PROXY_PRIORITY+1)); done
   az network nsg rule create -g "$NSG_RG" --nsg-name "$NSG_NAME" -o none \
     -n allow-autoheal-runner --priority "$ALLOW_PRIORITY" --direction Inbound --access Allow --protocol Tcp \
     --source-address-prefixes "$RUNNER_IP" --destination-address-prefixes "$TEMPORAL_IP" \
@@ -907,7 +915,11 @@ if [ -n "$NSG_ID" ]; then
     -n deny-others-to-autoheal-temporal --priority "$DENY_PRIORITY" --direction Inbound --access Deny --protocol '*' \
     --source-address-prefixes '*' --destination-address-prefixes "$TEMPORAL_IP" \
     --destination-port-ranges 7233 8083
-  echo "Rules added at priorities $ALLOW_PRIORITY and $DENY_PRIORITY"
+  az network nsg rule create -g "$NSG_RG" --nsg-name "$NSG_NAME" -o none \
+    -n allow-autoheal-proxy --priority "$PROXY_PRIORITY" --direction Inbound --access Allow --protocol Tcp \
+    --source-address-prefixes Internet --destination-address-prefixes "$PROXY_IP" \
+    --destination-port-ranges 443 80
+  echo "Rules added at priorities $ALLOW_PRIORITY, $DENY_PRIORITY and $PROXY_PRIORITY"
 fi
 ```
 
@@ -916,7 +928,8 @@ fi
 ### 11a. Write your chart settings
 
 Your chart settings go in `$VALUES_FILE` (step 1c). Single sign-on stays off
-here; step 13 adds it after the install.
+here; step 13 adds it after the install. The public proxy setting comes from
+the infra, so the file does not set it.
 
 #### 11a: Azure OpenAI
 
@@ -931,7 +944,6 @@ global:
     name: $NAME_PREFIX
   edge:
     mode: loadbalancer
-    exposure: internal
     tls:
       secretName: autoheal-tls
   llm:
@@ -959,7 +971,6 @@ global:
     name: $NAME_PREFIX
   edge:
     mode: loadbalancer
-    exposure: internal
     tls:
       secretName: autoheal-tls
   llm:
@@ -1082,6 +1093,7 @@ EOF
 ```bash
 kubectl get pods -n "$K8S_NAMESPACE"      # all Running and ready
 kubectl get svc -n "$K8S_NAMESPACE" temporal-frontend-public api-server-go-public   # EXTERNAL-IP is $TEMPORAL_IP
+kubectl get svc -n "$K8S_NAMESPACE" autoheal-edge   # EXTERNAL-IP is $PROXY_IP
 kubectl get secrets -n "$K8S_NAMESPACE"   # the secrets synced from Key Vault
 ```
 
@@ -1107,10 +1119,11 @@ nc -vz -w 5 "$TEMPORAL_IP" 7233
 
 ### 12d. Open Autoheal
 
-Open this address from a machine on the cluster's network. The proxy address
-`$PROXY_IP` is private:
+From any machine, this command must show `200` or `302`. Then open the address
+it shows in a browser:
 
 ```bash
+curl -sS -o /dev/null -w '%{http_code}\n' "https://$AUTOHEAL_HOSTNAME"
 echo "https://$AUTOHEAL_HOSTNAME"
 ```
 
@@ -1188,25 +1201,28 @@ Users then sign in to `https://$AUTOHEAL_HOSTNAME` with your identity provider.
 
 ## Troubleshooting
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| Step 4b shows `Error from server (Forbidden)` | You have no Kubernetes rights in the cluster | See [You cannot make the namespace](#you-cannot-make-the-namespace) |
-| Step 4a or step 11b times out with `dial tcp <address>:443: i/o timeout` | Your machine cannot reach the API server | See [Your machine cannot reach the API server](#your-machine-cannot-reach-the-api-server) |
-| Step 8d shows `Set TF_VAR_tls_certificate` | `jq` did not find the certificate files | Check `TLS_CERT_FILE` and `TLS_KEY_FILE` in step 1b. See [Get a TLS certificate](#get-a-tls-certificate) |
-| Step 9a fails with `registering resource provider ... connection may have been reset` | A network break while Terraform registered the resource providers | Run the command again |
-| Step 9a stops on "workload_egress_ip_ranges" or "temporal_ip" | An input from step 8b is missing or private | Set it as the message says |
-| Step 9a fails with 403 on Key Vault entries | `deployer_ip_ranges` is not the address of the apply host | Find the address again (step 8a) and update the input |
-| Step 9a fails to add the subnet to the storage account | No service endpoint, or no Network Contributor on the subnet | Do step 4d, or the last grant of step 6b |
-| Step 9a fails to read the cluster or the subnet | Role grants not in effect yet, or given to another identity | Wait 10 minutes and apply again. With Terraform Enterprise: check that `DEPLOYER_ID` is the workspace identity |
-| With Terraform Enterprise: the run fails to sign in to Azure | The OIDC links of step 1c or the environment variables of step 7b | Check Step 4 of Part A and Step 8 of Part B in [terraform-enterprise.md](terraform-enterprise.md) |
-| Step 11b fails with Forbidden | The namespace role is missing or not in effect yet, or the namespace is not `$K8S_NAMESPACE` | Check step 6b and step 8c, wait, then try again |
-| The secrets-sync job fails to sign in to Key Vault | `service_accounts.namespace` is not `$K8S_NAMESPACE` | Fix it in step 8b and apply step 9a again |
-| The proxy pod waits for the Secret `autoheal-tls` | `tls_certificate` was not set in step 8d | Set it and apply step 9a again |
-| Step 13a shows `Forbidden` from Key Vault | The vault firewall does not let in this machine, or you have no read access | Run it on the machine of step 8a. With Terraform Enterprise, wait a few minutes for the role grant |
-| Pods wait for secrets, or show 403 from Key Vault | The cluster's outbound addresses changed or are wrong | Update `workload_egress_ip_ranges` and apply step 9a again |
-| Pods cannot reach Postgres | The same | The same |
-| `temporal-frontend-public` stays `<pending>` | The IP is not in the node resource group, or is not Standard and static | Do step 5a again |
-| The runner log shows no connection to Temporal | The NSG blocks the runner | Do step 10 |
+| Symptom                                                                               | Cause                                                                                        | Fix                                                                                                            |
+| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Step 4b shows `Error from server (Forbidden)`                                         | You have no Kubernetes rights in the cluster                                                 | See [You cannot make the namespace](#you-cannot-make-the-namespace)                                            |
+| Step 4a or step 11b times out with `dial tcp <address>:443: i/o timeout`              | Your machine cannot reach the API server                                                     | See [Your machine cannot reach the API server](#your-machine-cannot-reach-the-api-server)                      |
+| Step 8d shows `Set TF_VAR_tls_certificate`                                            | `jq` did not find the certificate files                                                      | Check `TLS_CERT_FILE` and `TLS_KEY_FILE` in step 1b. See [Get a TLS certificate](#get-a-tls-certificate)       |
+| Step 9a fails with `registering resource provider ... connection may have been reset` | A network break while Terraform registered the resource providers                            | Run the command again                                                                                          |
+| Step 9a stops on "workload_egress_ip_ranges" or "temporal_ip"                         | An input from step 8b is missing or private                                                  | Set it as the message says                                                                                     |
+| Step 9a fails with 403 on Key Vault entries                                           | `deployer_ip_ranges` is not the address of the apply host                                    | Find the address again (step 8a) and update the input                                                          |
+| Step 9a fails to add the subnet to the storage account                                | No service endpoint, or no Network Contributor on the subnet                                 | Do step 4d, or the last grant of step 6b                                                                       |
+| Step 9a fails to read the cluster or the subnet                                       | Role grants not in effect yet, or given to another identity                                  | Wait 10 minutes and apply again. With Terraform Enterprise: check that `DEPLOYER_ID` is the workspace identity |
+| With Terraform Enterprise: the run fails to sign in to Azure                          | The OIDC links of step 1c or the environment variables of step 7b                            | Check Step 4 of Part A and Step 8 of Part B in [terraform-enterprise.md](terraform-enterprise.md)              |
+| Step 11b fails with Forbidden                                                         | The namespace role is missing or not in effect yet, or the namespace is not `$K8S_NAMESPACE` | Check step 6b and step 8c, wait, then try again                                                                |
+| The secrets-sync job fails to sign in to Key Vault                                    | `service_accounts.namespace` is not `$K8S_NAMESPACE`                                         | Fix it in step 8b and apply step 9a again                                                                      |
+| The proxy pod waits for the Secret `autoheal-tls`                                     | `tls_certificate` was not set in step 8d                                                     | Set it and apply step 9a again                                                                                 |
+| Step 13a shows `Forbidden` from Key Vault                                             | The vault firewall does not let in this machine, or you have no read access                  | Run it on the machine of step 8a. With Terraform Enterprise, wait a few minutes for the role grant             |
+| Pods wait for secrets, or show 403 from Key Vault                                     | The cluster's outbound addresses changed or are wrong                                        | Update `workload_egress_ip_ranges` and apply step 9a again                                                     |
+| Pods cannot reach Postgres                                                            | The same                                                                                     | The same                                                                                                       |
+| `temporal-frontend-public` stays `<pending>`                                          | The IP is not in the node resource group, or is not Standard and static                      | Do step 5a again                                                                                               |
+| `autoheal-edge` stays `<pending>` | The proxy IP is not in the node resource group, or is not Standard and static | Do step 5b again |
+| Users or webhooks time out on `https://$AUTOHEAL_HOSTNAME` | The subnet NSG blocks TCP 443, or a DNS record points elsewhere | Do step 10, and check step 9b |
+| Step 9a stops on "edge_exposure" or "proxy_ip" | `PROXY_IP` is a private address, or the DNS zone is private | Do step 5b again, or see step 9b |
+| The runner log shows no connection to Temporal                                        | The NSG blocks the runner                                                                    | Do step 10                                                                                                     |
 
 ## Upgrade
 
@@ -1255,15 +1271,17 @@ Deletion**, **Queue destroy plan**.
 
 ### Remove the cluster owner's changes
 
-As the cluster owner, remove the static IP, the NSG rules and the deployer's
+As the cluster owner, remove the static IPs, the NSG rules and the deployer's
 roles:
 
 ```bash
 az account set --subscription "$CLUSTER_SUB"
 az network public-ip delete -g "$NODE_RG" -n pip-autoheal-temporal
+az network public-ip delete -g "$NODE_RG" -n pip-autoheal-proxy   # with two public IPs
 if [ -n "$NSG_ID" ]; then
   az network nsg rule delete -g "$NSG_RG" --nsg-name "$NSG_NAME" -n allow-autoheal-runner
   az network nsg rule delete -g "$NSG_RG" --nsg-name "$NSG_NAME" -n deny-others-to-autoheal-temporal
+  az network nsg rule delete -g "$NSG_RG" --nsg-name "$NSG_NAME" -n allow-autoheal-proxy
 fi
 for grant in \
   "Azure Kubernetes Service Cluster User Role|$AKS_ID" \
@@ -1421,6 +1439,33 @@ firewalls of Postgres and the Key Vaults let them in too.
 
 - [Outbound types in AKS](https://learn.microsoft.com/azure/aks/egress-outboundtype)
 
+### Keep Autoheal private
+
+For a proxy that only your network reaches, use a free private address in the
+AKS subnet instead of the public IP of step 5b. Webhooks from outside your
+network then cannot reach Autoheal. This command tries the addresses from the
+end of the subnet, where AKS does not give out addresses, and keeps the first
+one that Azure shows as free:
+
+```bash
+export SUBNET_PREFIX=$(az network vnet subnet show --ids "$AKS_SUBNET_ID" \
+  --query "addressPrefix || addressPrefixes[0]" -o tsv)
+unset PROXY_IP
+for n in $(seq 2 20); do
+  IP=$(python3 -c 'import ipaddress,sys; print(ipaddress.ip_network(sys.argv[1])[-int(sys.argv[2])])' "$SUBNET_PREFIX" "$n")
+  if [ "$(az network vnet check-ip-address -g "$(echo "$AKS_SUBNET_ID" | cut -d/ -f5)" \
+        -n "$(echo "$AKS_SUBNET_ID" | cut -d/ -f9)" --ip-address "$IP" --query available -o tsv)" = "true" ]; then
+    export PROXY_IP="$IP"; break
+  fi
+done
+echo "PROXY_IP=${PROXY_IP:-none found}"
+```
+
+Then in step 8b, write `edge_exposure = "internal"`. In step 10, leave out the
+`allow-autoheal-proxy` rule; your users reach `$PROXY_IP` on TCP 443 over your
+network. In step 9b, a DNS provider that proxies traffic must not proxy these
+records, because the address is private.
+
 ### A Portkey gateway
 
 With Portkey, agents-py sends every model and embeddings call to the gateway,
@@ -1524,7 +1569,7 @@ PEM text.
 - [kubelogin](https://azure.github.io/kubelogin/): how `kubectl` signs in with Entra ID
 - [Workload identity on AKS](https://learn.microsoft.com/azure/aks/workload-identity-deploy-cluster): the OIDC issuer and workload identity of step 3
 - [Key Vault provider for the Secrets Store CSI Driver](https://learn.microsoft.com/azure/aks/csi-secrets-store-driver): the add-on of step 3
-- [Static public IP for an AKS load balancer](https://learn.microsoft.com/azure/aks/static-ip): the Temporal address of step 5a
+- [Static public IP for an AKS load balancer](https://learn.microsoft.com/azure/aks/static-ip): the public IPs of step 5
 - [Standard load balancer in AKS](https://learn.microsoft.com/azure/aks/load-balancer-standard): `loadBalancerSourceRanges`, which lets only the runner reach Temporal
 - [Network security groups](https://learn.microsoft.com/azure/virtual-network/network-security-groups-overview): the rules of step 10
 - [Storage network security limitations](https://learn.microsoft.com/azure/storage/common/storage-network-security-limitations): why storage uses a subnet rule, not IP rules

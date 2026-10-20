@@ -860,3 +860,25 @@ run "bad_version" {
 
   expect_failures = [var.autoheal_version]
 }
+
+# A public proxy needs a static public IP that the cluster owner makes in the
+# node resource group, so not on a cluster we create.
+run "public_proxy_needs_a_brought_cluster" {
+  command = plan
+
+  variables {
+    edge_exposure = "public"
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}
+
+run "bad_edge_exposure" {
+  command = plan
+
+  variables {
+    edge_exposure = "external"
+  }
+
+  expect_failures = [var.edge_exposure]
+}

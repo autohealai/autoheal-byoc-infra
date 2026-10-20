@@ -110,6 +110,10 @@ locals {
   proxy_ip = var.edge_mode != "loadbalancer" ? "" : (
     local.create_network ? cidrhost(local.created_subnets.aks, -2) : try(var.existing_network.proxy_ip, "")
   )
+  # A public proxy listens on a static public IP in the node resource group,
+  # which may also be the public Temporal address.
+  public_edge              = var.edge_mode == "loadbalancer" && var.edge_exposure == "public"
+  proxy_shares_temporal_ip = local.public_edge && local.public_path && local.proxy_ip == local.temporal_ip
 
   # VNet ID of a brought network, from the AKS subnet ID.
   brought_vnet_id = local.create_network ? "" : join("/", slice(split("/", var.existing_network.aks_subnet_id), 0, 9))

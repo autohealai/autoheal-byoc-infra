@@ -74,8 +74,9 @@ locals {
 # lines apply only to a cluster in another subscription, where we create
 # nothing next to the cluster.
 locals {
-  cluster_namespace = var.service_accounts.namespace
-  aks_subnet_label  = local.create_network ? "" : "${split("/", var.existing_network.aks_subnet_id)[8]}/${split("/", var.existing_network.aks_subnet_id)[10]}"
+  cluster_namespace   = var.service_accounts.namespace
+  aks_subnet_label    = local.create_network ? "" : "${split("/", var.existing_network.aks_subnet_id)[8]}/${split("/", var.existing_network.aks_subnet_id)[10]}"
+  node_resource_group = try(data.azurerm_kubernetes_cluster.existing[0].node_resource_group, "")
   # The runner's NAT address, which the public load balancers let in.
   runner_egress_ip = local.create_vnet ? module.vnet[0].runner_nat_public_ip : ""
 
@@ -109,11 +110,17 @@ locals {
       "A network path between ${local.brought_vnet_id} and ${local.workload_vnet_id}: VNet peering in both directions, or both VNets through your hub. Pods reach Postgres, Redis, storage and the vaults over it, and the runner VMs reach ${local.temporal_ip}",
     ] : [],
     local.public_path ? [
-      "A Standard static public IP ${local.temporal_ip} in ${try(data.azurerm_kubernetes_cluster.existing[0].node_resource_group, "")}, the node resource group of ${local.cluster_name}: the public Temporal and tool-response load balancers use it",
+      "A Standard static public IP ${local.temporal_ip} in ${local.node_resource_group}, the node resource group of ${local.cluster_name}: the public Temporal and tool-response load balancers${local.proxy_shares_temporal_ip ? " and the Autoheal proxy" : ""} use it",
       "The Microsoft.Storage service endpoint on the AKS subnet ${local.aks_subnet_label}, and Network Contributor or a role with Microsoft.Network/virtualNetworks/subnets/joinViaServiceEndpoint/action on it for the deployer (object ID ${local.deployer_object_id}): the storage account lets that subnet in",
       "Fixed public outbound addresses for ${local.cluster_name}: ${join(", ", var.workload_egress_ip_ranges)}. Postgres and the Key Vaults let in only them",
     ] : [],
-    local.cluster_in_other_subscription && local.proxy_ip != "" ? [
+    local.public_edge && !local.proxy_shares_temporal_ip ? [
+      "A Standard static public IP ${local.proxy_ip} in ${local.node_resource_group}, the node resource group of ${local.cluster_name}: the Autoheal proxy's load balancer uses it",
+    ] : [],
+    local.public_edge ? [
+      "An NSG rule on the AKS subnet ${local.aks_subnet_label}: allow your users and webhook senders, or the internet, to ${local.proxy_ip} on TCP 443 and 80, the public address of the Autoheal proxy",
+    ] : [],
+    !local.public_edge && local.cluster_in_other_subscription && local.proxy_ip != "" ? [
       "A path for users to ${local.proxy_ip} on TCP 443, the address of the Autoheal proxy",
     ] : [],
     length(local.cluster_dns_zones_we_link) > 0 ? [

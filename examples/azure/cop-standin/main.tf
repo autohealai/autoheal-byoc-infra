@@ -11,9 +11,9 @@ locals {
 
   # The two reserved addresses near the top of the AKS subnet, as
   # compositions/azure picks them in a network it creates. On the public path
-  # Temporal is on the static public IP instead.
+  # Temporal and the proxy are on static public IPs instead.
   temporal_ip = local.public ? azurerm_public_ip.temporal[0].ip_address : cidrhost(local.aks_subnet_prefix, -3)
-  proxy_ip    = cidrhost(local.aks_subnet_prefix, -2)
+  proxy_ip    = local.public ? azurerm_public_ip.proxy[0].ip_address : cidrhost(local.aks_subnet_prefix, -2)
 
   # Who may reach the Temporal address: the runner subnet over the peering, or
   # the runner's NAT address over the internet (known after the infra apply).
@@ -54,8 +54,20 @@ resource "azurerm_public_ip" "temporal" {
   sku                 = "Standard"
 }
 
-# The rule the cluster owner adds: only the runner reaches the Temporal address,
-# on 7233 (Temporal) and 8083 (tool results).
+# The public path: the static public IP for the Autoheal proxy, which users and
+# webhooks reach.
+resource "azurerm_public_ip" "proxy" {
+  count               = local.public ? 1 : 0
+  name                = "pip-cop-standin-proxy"
+  resource_group_name = module.aks.node_resource_group
+  location            = var.location
+  allocation_method   = "Static"
+  sku                 = "Standard"
+}
+
+# The rules the cluster owner adds: only the runner reaches the Temporal address,
+# on 7233 (Temporal) and 8083 (tool results). On the public path, everyone
+# reaches the proxy on 443 and 80.
 resource "azurerm_network_security_group" "aks" {
   name                = "nsg-cop-standin-aks"
   resource_group_name = azurerm_resource_group.this.name
@@ -86,6 +98,21 @@ resource "azurerm_network_security_group" "aks" {
     source_address_prefix      = "*"
     destination_address_prefix = local.temporal_ip
     destination_port_ranges    = ["7233", "8083"]
+  }
+
+  dynamic "security_rule" {
+    for_each = local.public ? [local.proxy_ip] : []
+    content {
+      name                       = "allow-internet-to-proxy"
+      priority                   = 120
+      direction                  = "Inbound"
+      access                     = "Allow"
+      protocol                   = "Tcp"
+      source_port_range          = "*"
+      source_address_prefix      = "Internet"
+      destination_address_prefix = security_rule.value
+      destination_port_ranges    = ["443", "80"]
+    }
   }
 }
 

@@ -89,11 +89,22 @@ variable "auth_app_hostname" {
 variable "edge_mode" {
   type        = string
   default     = "loadbalancer"
-  description = "How traffic reaches the Autoheal proxy: loadbalancer (we reserve an internal address for it), gateway-api, istio, ingress or none. Becomes global.edge.mode."
+  description = "How traffic reaches the Autoheal proxy: loadbalancer (a load balancer on the reserved proxy address; see edge_exposure), gateway-api, istio, ingress or none. Becomes global.edge.mode."
 
   validation {
     condition     = contains(["loadbalancer", "gateway-api", "istio", "ingress", "none"], var.edge_mode)
     error_message = "edge_mode must be one of loadbalancer, gateway-api, istio, ingress, none."
+  }
+}
+
+variable "edge_exposure" {
+  type        = string
+  default     = "internal"
+  description = "Where the proxy's load balancer listens in loadbalancer mode: internal, on existing_network.proxy_ip in the AKS subnet, or public, on existing_network.proxy_ip as a Standard static public IP in the cluster's node resource group, for users and webhooks from the internet. Public needs a brought cluster. On cluster_network_path = public, proxy_ip may be temporal_ip, so that one IP serves both. Becomes global.edge.exposure."
+
+  validation {
+    condition     = contains(["internal", "public"], var.edge_exposure)
+    error_message = "edge_exposure must be internal or public."
   }
 }
 
@@ -203,7 +214,7 @@ variable "existing_network" {
     private_dns_zone_ids = optional(map(string), {})
   })
   default     = null
-  description = "A network you already have. temporal_ip, and proxy_ip in loadbalancer mode, are free addresses in the AKS subnet that the chart pins its internal load balancers to; with cluster_network_path = public, temporal_ip is instead a Standard static public IP in the cluster's node resource group. runner_subnet_id is required; postgres_subnet_id is needed only when we create Postgres; endpoint_subnet_id only when we create Redis or private endpoints. The AKS subnet is in the cluster's subscription; the other subnets must be in subscription_id. For a cluster in another subscription, leave the other three empty and we create a VNet for them from network_cidr. Null means we create the network."
+  description = "A network you already have. temporal_ip, and proxy_ip in loadbalancer mode, are free addresses in the AKS subnet that the chart pins its internal load balancers to; with cluster_network_path = public, temporal_ip is instead a Standard static public IP in the cluster's node resource group, and with edge_exposure = public, so is proxy_ip. runner_subnet_id is required; postgres_subnet_id is needed only when we create Postgres; endpoint_subnet_id only when we create Redis or private endpoints. The AKS subnet is in the cluster's subscription; the other subnets must be in subscription_id. For a cluster in another subscription, leave the other three empty and we create a VNet for them from network_cidr. Null means we create the network."
 
   validation {
     condition = var.existing_network == null ? true : alltrue([

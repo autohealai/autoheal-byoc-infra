@@ -25,6 +25,7 @@ cannot connect the two VNets.
 | Storage | Private endpoint, or public with a firewall | Private endpoint | Public endpoint. The firewall lets in only the cluster's AKS subnet and the deploy host |
 | Redis | Private endpoint | Private endpoint | Public endpoint. **No IP filter**: Azure Managed Redis has none. The access key and TLS protect it |
 | Temporal and tool results (runner VMs to the cluster) | Private address. An NSG lets in only the runner subnet | Private address over the peering. An NSG lets in only the runner subnet | **Public IP.** The load balancer, the NSG and a network policy let in only the runner address |
+| Users and webhooks to the Autoheal proxy | A private address, or a public IP on a cluster you bring | A private address, or a public IP | A public IP, open on TCP 443 and 80 or only to the sources you choose. A private address is possible, but then webhooks from outside cannot reach Autoheal |
 | Encryption of Temporal and tool results | None, on the private network | None, on the private network | **None, on public addresses.** Azure keeps the traffic on the Microsoft network |
 | Encryption of all other connections | TLS | TLS | TLS |
 | Rights of our deployer in the cluster subscription | Contributor and role grants | Read only, admin in one namespace, and Network Contributor on the cluster VNet for the DNS links | Read only, admin in one namespace, and Network Contributor on the AKS subnet for the storage firewall |
@@ -35,8 +36,8 @@ cannot connect the two VNets.
 
 | Item | One subscription | Connected VNets | Public endpoints |
 |------|------------------|-----------------|------------------|
-| Tasks for the cluster owner before the install | None, or roles only | Four roles, the namespace, two cluster features, two IP addresses, an address range | Four roles, the namespace, two cluster features, a service endpoint, a static public IP, one IP address, the outbound addresses |
-| Tasks for the cluster owner after the first apply | None | VNet peering (both directions), one NSG rule | One NSG rule |
+| Tasks for the cluster owner before the install | None, or roles only | Four roles, the namespace, two cluster features, two IP addresses, an address range | Four roles, the namespace, two cluster features, a service endpoint, two static public IPs (or one for both), the outbound addresses |
+| Tasks for the cluster owner after the first apply | None | VNet peering (both directions), one NSG rule | NSG rules for the runner and the proxy |
 | Address planning | One VNet range | Two ranges that must not overlap | No overlap rule |
 | Private DNS | We make and link the zones | We make the zones and link them to the cluster VNet, or you use your central zones | None |
 | Recurring upkeep | None | Keep the peering connected | Keep the cluster's outbound addresses fixed. Tell us before they change, so that we update the firewalls first |
@@ -44,7 +45,7 @@ cannot connect the two VNets.
 | Upgrades of Autoheal | Same for all layouts | Same for all layouts | Same for all layouts |
 | Move to another layout later | A new install | To public endpoints: a new Postgres server and a data move | To connected VNets: a new Postgres server and a data move |
 | Troubleshooting | One network | Two networks and the peering | Firewalls on Postgres, the vaults, storage and Temporal, and the outbound addresses |
-| Extra Azure cost | Private endpoints | Private endpoints, private DNS zones, data through the peering | A static public IP |
+| Extra Azure cost | Private endpoints | Private endpoints, private DNS zones, data through the peering | One or two static public IPs |
 
 ## When to select each layout
 

@@ -43,10 +43,15 @@ inputs = {
     # A Standard static public IP the cluster owner creates in the cluster's
     # node resource group. The runner VMs connect here.
     temporal_ip = "20.30.40.50"
-    # A free address in snet-aks for the proxy. Users on your network connect
-    # here; DNS points here.
-    proxy_ip = "10.40.15.252"
+    # A second Standard static public IP in the node resource group, for the
+    # Autoheal proxy. Users and webhooks connect here; DNS points here. To use
+    # one IP for both, set it to temporal_ip: the ports do not overlap.
+    proxy_ip = "20.30.40.60"
   }
+
+  # The proxy listens on proxy_ip, open to the internet. For a proxy that only
+  # your network reaches, set internal and a free address in snet-aks.
+  edge_exposure = "public"
 
   # The cluster's fixed public outbound addresses. Postgres and the Key Vaults
   # let in only these.

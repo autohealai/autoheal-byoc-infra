@@ -83,9 +83,12 @@ locals {
       secrets = {
         mode = "keyvault-csi"
       }
-      # The CA entry is suggested only when edge_ca_certificate is set.
+      # The CA entry is suggested only when edge_ca_certificate is set. The
+      # exposure goes with the proxy address, so it comes from here, not from
+      # values-customer.yaml.
       edge = merge(
         { mode = var.edge_mode },
+        { for k, v in { exposure = var.edge_exposure } : k => v if var.edge_mode == "loadbalancer" },
         { for k, v in { tls = { caVaultEntry = "edge-ca-certificate" } } : k => v if var.edge_ca_certificate != "" },
       )
       },

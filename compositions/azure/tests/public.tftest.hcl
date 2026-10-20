@@ -183,6 +183,11 @@ run "public_path" {
     error_message = "temporal_public_endpoint names the static public IP for compositions/app."
   }
 
+  assert {
+    condition     = output.autoheal_values.global.edge.exposure == "internal"
+    error_message = "The proxy stays internal unless edge_exposure is public."
+  }
+
   # By position: the NSG line (5) holds the runner's NAT address.
   assert {
     condition = (
@@ -230,7 +235,131 @@ run "runner_address" {
   }
 }
 
+# --- A public proxy -------------------------------------------------------------
+
+# Users and webhooks reach the proxy on its own static public IP, also in the
+# node resource group.
+run "public_proxy" {
+  command = plan
+
+  variables {
+    edge_exposure = "public"
+    existing_network = {
+      aks_subnet_id = "/subscriptions/66666666-6666-6666-6666-666666666666/resourceGroups/rg-cop-net/providers/Microsoft.Network/virtualNetworks/vnet-cop/subnets/snet-aks"
+      temporal_ip   = "20.30.40.50"
+      proxy_ip      = "20.30.40.60"
+    }
+  }
+
+  assert {
+    condition = (
+      output.autoheal_values.global.edge.exposure == "public" &&
+      output.autoheal_values.global.infra.edge.internalIP == "20.30.40.60" &&
+      output.autoheal_values.global.infra.temporal.internalIP == "20.30.40.50"
+    )
+    error_message = "The chart puts the proxy's public load balancer on the proxy IP, and Temporal stays on its own."
+  }
+
+  assert {
+    condition     = local.dns_target == "20.30.40.60" && length(module.dns) == 1
+    error_message = "The DNS records point to the proxy's public IP."
+  }
+
+  assert {
+    condition = (
+      length(output.required_cluster_owner_actions) == 11 &&
+      output.required_cluster_owner_actions[6] == "A Standard static public IP 20.30.40.50 in MC_rg-cop_aks-cop_eastus2, the node resource group of aks-cop: the public Temporal and tool-response load balancers use it" &&
+      output.required_cluster_owner_actions[9] == "A Standard static public IP 20.30.40.60 in MC_rg-cop_aks-cop_eastus2, the node resource group of aks-cop: the Autoheal proxy's load balancer uses it" &&
+      output.required_cluster_owner_actions[10] == "An NSG rule on the AKS subnet vnet-cop/snet-aks: allow your users and webhook senders, or the internet, to 20.30.40.60 on TCP 443 and 80, the public address of the Autoheal proxy"
+    )
+    error_message = "Eleven lines: the public path lines, then the proxy's static IP and its NSG rule in place of the private user path."
+  }
+}
+
+# One public IP for the proxy and Temporal. Their ports do not overlap.
+run "public_proxy_shares_the_temporal_ip" {
+  command = plan
+
+  variables {
+    edge_exposure = "public"
+    existing_network = {
+      aks_subnet_id = "/subscriptions/66666666-6666-6666-6666-666666666666/resourceGroups/rg-cop-net/providers/Microsoft.Network/virtualNetworks/vnet-cop/subnets/snet-aks"
+      temporal_ip   = "20.30.40.50"
+      proxy_ip      = "20.30.40.50"
+    }
+  }
+
+  assert {
+    condition = (
+      output.autoheal_values.global.edge.exposure == "public" &&
+      output.autoheal_values.global.infra.edge.internalIP == "20.30.40.50" &&
+      output.autoheal_values.global.infra.temporal.internalIP == "20.30.40.50"
+    )
+    error_message = "The proxy and Temporal share the one public IP."
+  }
+
+  assert {
+    condition = (
+      length(output.required_cluster_owner_actions) == 10 &&
+      output.required_cluster_owner_actions[6] == "A Standard static public IP 20.30.40.50 in MC_rg-cop_aks-cop_eastus2, the node resource group of aks-cop: the public Temporal and tool-response load balancers and the Autoheal proxy use it" &&
+      output.required_cluster_owner_actions[9] == "An NSG rule on the AKS subnet vnet-cop/snet-aks: allow your users and webhook senders, or the internet, to 20.30.40.50 on TCP 443 and 80, the public address of the Autoheal proxy"
+    )
+    error_message = "One static IP line for both, then the proxy's NSG rule."
+  }
+}
+
 # --- Mixes that cannot work ------------------------------------------------------
+
+run "public_proxy_needs_a_public_address" {
+  command = plan
+
+  variables {
+    edge_exposure = "public"
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}
+
+run "internal_proxy_cannot_share_the_temporal_ip" {
+  command = plan
+
+  variables {
+    existing_network = {
+      aks_subnet_id = "/subscriptions/66666666-6666-6666-6666-666666666666/resourceGroups/rg-cop-net/providers/Microsoft.Network/virtualNetworks/vnet-cop/subnets/snet-aks"
+      temporal_ip   = "20.30.40.50"
+      proxy_ip      = "20.30.40.50"
+    }
+  }
+
+  expect_failures = [terraform_data.validate_inputs, terraform_data.validate_addresses]
+}
+
+run "public_proxy_needs_loadbalancer_mode" {
+  command = plan
+
+  variables {
+    edge_exposure = "public"
+    edge_mode     = "istio"
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}
+
+run "public_proxy_needs_a_public_dns_zone" {
+  command = plan
+
+  variables {
+    edge_exposure        = "public"
+    existing_dns_zone_id = "/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-dns/providers/Microsoft.Network/privateDnsZones/acme.example"
+    existing_network = {
+      aks_subnet_id = "/subscriptions/66666666-6666-6666-6666-666666666666/resourceGroups/rg-cop-net/providers/Microsoft.Network/virtualNetworks/vnet-cop/subnets/snet-aks"
+      temporal_ip   = "20.30.40.50"
+      proxy_ip      = "20.30.40.60"
+    }
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}
 
 run "public_path_needs_another_subscription" {
   command = plan

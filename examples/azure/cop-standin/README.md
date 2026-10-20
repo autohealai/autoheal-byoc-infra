@@ -16,9 +16,10 @@ what the customer's cluster owner does, and nothing more:
   or the storage subnet rule);
 - the NSG rule on the AKS subnet for the Temporal address;
 - `network_path = "private"`: after the infra apply, both sides of the peering;
-- `network_path = "public"`: the static public IP for Temporal in the node
-  resource group and the `Microsoft.Storage` service endpoint on the AKS
-  subnet; no peering.
+- `network_path = "public"`: the static public IPs for Temporal and the proxy
+  in the node resource group, an NSG rule that lets everyone reach the proxy on
+  443 and 80, and the `Microsoft.Storage` service endpoint on the AKS subnet;
+  no peering.
 
 It is a plain Terraform root with local state. Run it as someone with Owner on
 COP-test, Network Contributor on SRE-test (for our side of the peering), and

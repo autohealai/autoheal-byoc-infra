@@ -86,10 +86,10 @@ terragrunt --version                # Terragrunt
 helm version                        # Terraform Enterprise
 ```
 
-> **Version.** This layout needs autoheal-byoc-infra **2.2.0 or later**. Until
-> 2.2.0 is released, set `INFRA_REF` in step 1 to the branch
-> `feat/azure-two-subscriptions`, and do the extra part of step 8. After the
-> release, the runbook works as written.
+> **Version.** This layout needs autoheal-byoc-infra **2.2.0 or later**. Step 1
+> sets `INFRA_REF` to the release tag `v2.2.0` when it exists, and to the
+> branch `feat/azure-two-subscriptions` until then. The later steps use it, so
+> you change nothing yourself.
 
 ## Step 1: Sign in and set your values
 
@@ -122,11 +122,19 @@ export DATA_SUB="<data subscription ID>"
 export LOCATION="<region of the cluster, for example eastus2>"
 export K8S_NAMESPACE="autoheal"   # the Kubernetes namespace that Autoheal runs in
 export WORK_DIR="$HOME/autoheal-install"   # a new, empty folder for the files of this install
-export INFRA_REF="v2.2.0"   # the autoheal-byoc-infra release; until 2.2.0 is released: feat/azure-two-subscriptions
 ```
 
 `WORK_DIR` must not be inside a git checkout, for example a copy of
 autoheal-byoc-infra. Step 7 makes it.
+
+The autoheal-byoc-infra version to use: the release tag when it exists, the
+branch until then:
+
+```bash
+export INFRA_REF=$(git ls-remote --tags https://github.com/autohealai/autoheal-byoc-infra.git refs/tags/v2.2.0 |
+  grep -q . && echo v2.2.0 || echo feat/azure-two-subscriptions)
+echo "$INFRA_REF"
+```
 
 Use the namespace that the cluster owner gives you. Step 4 makes it.
 
@@ -474,17 +482,19 @@ Change these values in the output:
 put these values in the `inputs` block. Keep `autoheal_version` as the file has
 it; it comes from `versions.hcl`.
 
-Until 2.2.0 is released (`INFRA_REF` is the branch), point the `source` lines
-of the infra and the app folders at the branch instead of the tag:
+The `source` lines of the infra and the app folders download our code at the
+release tag. Before the release (`INFRA_REF` is the branch), this command
+points them at the branch. After the release, it changes nothing:
 
 ```bash
 cd "$WORK_DIR/acme-autoheal/prod"
-perl -pi -e 's/\?ref=v\$\{local\.v\.infra_version\}/?ref=feat\/azure-two-subscriptions/' infra/terragrunt.hcl app/terragrunt.hcl
+[ "$INFRA_REF" = "v2.2.0" ] || perl -pi -e 's/\?ref=v\$\{local\.v\.infra_version\}/?ref=$ENV{INFRA_REF}/' \
+  infra/terragrunt.hcl app/terragrunt.hcl
 grep -n 'source =' infra/terragrunt.hcl app/terragrunt.hcl
 ```
 
-Both lines must end in `?ref=feat/azure-two-subscriptions"`. When 2.2.0 is
-released, change them back to `?ref=v${local.v.infra_version}`.
+Both lines must end in `?ref=` and then `$INFRA_REF`, or
+`v${local.v.infra_version}` after the release.
 
 Set the secrets as environment variables. They never go in a file:
 

@@ -138,7 +138,9 @@ locals {
     for r in ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"] :
     cidrhost("${local.temporal_ip}/${split("/", r)[1]}", 0) == split("/", r)[0]
   ])
-  proxy_ip_private = local.proxy_ip != "" && anytrue([
+  # A conditional, not &&: Terraform evaluates both sides of &&, and cidrhost
+  # fails on an empty address.
+  proxy_ip_private = local.proxy_ip == "" ? false : anytrue([
     for r in ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"] :
     cidrhost("${local.proxy_ip}/${split("/", r)[1]}", 0) == split("/", r)[0]
   ])

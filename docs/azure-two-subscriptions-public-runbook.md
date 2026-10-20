@@ -933,13 +933,15 @@ Your chart settings go in `$VALUES_FILE` (step 1c). Single sign-on stays off
 here; step 13 adds it after the install. The public proxy setting comes from
 the infra, so the file does not set it.
 
-Make sure that `VALUES_FILE` is set. This must show a path:
+#### 11a: Azure OpenAI
+
+Make sure that the values from step 1 are set. This must show nothing:
 
 ```bash
-echo "VALUES_FILE=${VALUES_FILE:-not set: run step 1c}"
+check_values VALUES_FILE ADMIN_EMAIL NAME_PREFIX LLM_PROVIDER LLM_MODEL LLM_ENDPOINT
 ```
 
-#### 11a: Azure OpenAI
+Then write the file:
 
 ```bash
 mkdir -p "$(dirname "$VALUES_FILE")"
@@ -967,6 +969,14 @@ cat "$VALUES_FILE"
 ```
 
 #### 11a: Portkey
+
+Make sure that the values from step 1 are set. This must show nothing:
+
+```bash
+check_values VALUES_FILE ADMIN_EMAIL NAME_PREFIX LLM_PROVIDER LLM_MODEL LLM_GATEWAY_URL
+```
+
+Then write the file:
 
 ```bash
 mkdir -p "$(dirname "$VALUES_FILE")"

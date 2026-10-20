@@ -1216,9 +1216,20 @@ overrides a pip setting that installs to your user folder, which a Python
 environment does not allow. `urllib3<2` suits the older SSL library of the
 macOS Python.
 
-certbot shows each TXT record to add, at `_acme-challenge.$AUTOHEAL_HOSTNAME`,
-and waits. Add it in your DNS provider, wait a minute, then press Enter. To
-renew, run the `certbot` command again before the 90 days end, then apply
+certbot shows two TXT values, one at a time, both for the same name
+`_acme-challenge.$AUTOHEAL_HOSTNAME`. Add each one as a separate TXT record in
+your DNS provider. Do not edit the first record to hold the second value.
+Before you press Enter after the second value, run this in a second terminal
+until it shows both values:
+
+```bash
+dig +short TXT "_acme-challenge.$AUTOHEAL_HOSTNAME" @1.1.1.1
+```
+
+If certbot stops with `Incorrect TXT record`, run the `certbot certonly` command
+again. It asks only for the value that failed. Add it as one more TXT record.
+
+To renew, run the `certbot` command again before the 90 days end, then apply
 step 9.
 
 **Your own test CA.** Works at once, with nothing to prove. Browsers warn until

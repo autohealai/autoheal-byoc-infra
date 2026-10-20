@@ -1200,13 +1200,21 @@ To prove that you own the name, you add two TXT records in the DNS zone of the
 name while the command runs. It works for a private address too:
 
 ```bash
-python3 -m venv "$WORK_DIR/certbot" && "$WORK_DIR/certbot/bin/pip" install -q certbot
+python3 -m venv "$WORK_DIR/certbot"
+PIP_USER=false "$WORK_DIR/certbot/bin/python3" -m pip install -q --upgrade pip
+PIP_USER=false "$WORK_DIR/certbot/bin/pip" install -q certbot "urllib3<2"
+"$WORK_DIR/certbot/bin/certbot" --version
 "$WORK_DIR/certbot/bin/certbot" certonly --manual --preferred-challenges dns \
   -d "$AUTOHEAL_HOSTNAME" -d "*.$AUTOHEAL_HOSTNAME" \
   --config-dir "$WORK_DIR/certbot/conf" --work-dir "$WORK_DIR/certbot/work" --logs-dir "$WORK_DIR/certbot/logs"
 export TLS_CERT_FILE="$WORK_DIR/certbot/conf/live/$AUTOHEAL_HOSTNAME/fullchain.pem"
 export TLS_KEY_FILE="$WORK_DIR/certbot/conf/live/$AUTOHEAL_HOSTNAME/privkey.pem"
 ```
+
+certbot installs into its own Python environment in `$WORK_DIR`. `PIP_USER=false`
+overrides a pip setting that installs to your user folder, which a Python
+environment does not allow. `urllib3<2` suits the older SSL library of the
+macOS Python.
 
 certbot shows each TXT record to add, at `_acme-challenge.$AUTOHEAL_HOSTNAME`,
 and waits. Add it in your DNS provider, wait a minute, then press Enter. To

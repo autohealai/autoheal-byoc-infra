@@ -451,11 +451,13 @@ Storage in this region through the service endpoint.
 
 ### 5a. Make the static public IP for Temporal
 
-The IP goes in the node resource group of the cluster:
+The IP goes in the node resource group of the cluster, in the cluster
+subscription. Azure may warn about a coming change to zones; it does not affect
+this IP:
 
 ```bash
-export NODE_RG=$(az aks show -g "$AKS_RG" -n "$AKS_NAME" --query nodeResourceGroup -o tsv)
-export TEMPORAL_IP=$(az network public-ip create -g "$NODE_RG" -n pip-autoheal-temporal \
+export NODE_RG=$(az aks show --subscription "$CLUSTER_SUB" -g "$AKS_RG" -n "$AKS_NAME" --query nodeResourceGroup -o tsv)
+export TEMPORAL_IP=$(az network public-ip create --subscription "$CLUSTER_SUB" -g "$NODE_RG" -n pip-autoheal-temporal \
   --location "$LOCATION" --sku Standard --allocation-method Static --query publicIp.ipAddress -o tsv)
 echo "$TEMPORAL_IP"
 ```
@@ -472,7 +474,7 @@ A second IP, apart from the Temporal IP. The proxy and Temporal then have
 separate addresses and separate firewall rules:
 
 ```bash
-export PROXY_IP=$(az network public-ip create -g "$NODE_RG" -n pip-autoheal-proxy \
+export PROXY_IP=$(az network public-ip create --subscription "$CLUSTER_SUB" -g "$NODE_RG" -n pip-autoheal-proxy \
   --location "$LOCATION" --sku Standard --allocation-method Static --query publicIp.ipAddress -o tsv)
 echo "$PROXY_IP"
 ```
@@ -1453,7 +1455,7 @@ export SUBNET_PREFIX=$(az network vnet subnet show --ids "$AKS_SUBNET_ID" \
 unset PROXY_IP
 for n in $(seq 2 20); do
   IP=$(python3 -c 'import ipaddress,sys; print(ipaddress.ip_network(sys.argv[1])[-int(sys.argv[2])])' "$SUBNET_PREFIX" "$n")
-  if [ "$(az network vnet check-ip-address -g "$(echo "$AKS_SUBNET_ID" | cut -d/ -f5)" \
+  if [ "$(az network vnet check-ip-address --subscription "$CLUSTER_SUB" -g "$(echo "$AKS_SUBNET_ID" | cut -d/ -f5)" \
         -n "$(echo "$AKS_SUBNET_ID" | cut -d/ -f9)" --ip-address "$IP" --query available -o tsv)" = "true" ]; then
     export PROXY_IP="$IP"; break
   fi

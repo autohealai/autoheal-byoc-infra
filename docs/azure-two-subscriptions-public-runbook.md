@@ -87,10 +87,9 @@ helm version                        # Terraform Enterprise
 ```
 
 > **Version.** This layout needs autoheal-byoc-infra **2.2.0 or later**. Until
-> 2.2.0 is released, use the branch `feat/azure-two-subscriptions` where this
-> runbook uses the tag `v2.2.0`: in the `git clone` of step 7 and the `source`
-> lines of step 8 (Terragrunt), or as the workspace branch (Terraform
-> Enterprise). After the release, the runbook works as written.
+> 2.2.0 is released, set `INFRA_REF` in step 1 to the branch
+> `feat/azure-two-subscriptions`, and do the extra part of step 8. After the
+> release, the runbook works as written.
 
 ## Step 1: Sign in and set your values
 
@@ -123,6 +122,7 @@ export DATA_SUB="<data subscription ID>"
 export LOCATION="<region of the cluster, for example eastus2>"
 export K8S_NAMESPACE="autoheal"   # the Kubernetes namespace that Autoheal runs in
 export WORK_DIR="$HOME/autoheal-install"   # a new, empty folder for the files of this install
+export INFRA_REF="v2.2.0"   # the autoheal-byoc-infra release; until 2.2.0 is released: feat/azure-two-subscriptions
 ```
 
 `WORK_DIR` must not be inside a git checkout, for example a copy of
@@ -370,14 +370,15 @@ $WORK_DIR/                     for example ~/autoheal-install
 
 ```bash
 mkdir -p "$WORK_DIR" && cd "$WORK_DIR"
-git clone --branch v2.2.0 https://github.com/autohealai/autoheal-byoc-infra.git
-mkdir acme-autoheal
-cp autoheal-byoc-infra/examples/azure/root.hcl acme-autoheal/
-cp -r autoheal-byoc-infra/examples/azure/split-public acme-autoheal/prod
+[ -d autoheal-byoc-infra ] || git clone --branch "$INFRA_REF" https://github.com/autohealai/autoheal-byoc-infra.git
+mkdir -p acme-autoheal
+[ -e acme-autoheal/root.hcl ] || cp autoheal-byoc-infra/examples/azure/root.hcl acme-autoheal/
+[ -e acme-autoheal/prod ] || cp -R autoheal-byoc-infra/examples/azure/split-public acme-autoheal/prod
 cd "$WORK_DIR/acme-autoheal"
 ```
 
-Until 2.2.0 is released, clone with `--branch feat/azure-two-subscriptions`.
+You can run these commands again. They keep a copy and files that are there
+already, so they do not overwrite your edits.
 
 To keep your settings in git, make `acme-autoheal` a git repository of your
 own (`git init`) and push it to your own remote. For a second environment, copy
@@ -473,8 +474,8 @@ Change these values in the output:
 put these values in the `inputs` block. Keep `autoheal_version` as the file has
 it; it comes from `versions.hcl`.
 
-Until 2.2.0 is released, point the `source` lines of the infra and the app
-folders at the branch instead of the tag:
+Until 2.2.0 is released (`INFRA_REF` is the branch), point the `source` lines
+of the infra and the app folders at the branch instead of the tag:
 
 ```bash
 cd "$WORK_DIR/acme-autoheal/prod"
@@ -577,8 +578,8 @@ Enterprise, copy it from the repository into `$WORK_DIR`:
 
 ```bash
 mkdir -p "$WORK_DIR" && cd "$WORK_DIR"
-git clone --branch v2.2.0 https://github.com/autohealai/autoheal-byoc-infra.git   # until 2.2.0: --branch feat/azure-two-subscriptions
-cp autoheal-byoc-infra/examples/azure/split-public/app/values-customer.yaml .
+[ -d autoheal-byoc-infra ] || git clone --branch "$INFRA_REF" https://github.com/autohealai/autoheal-byoc-infra.git
+[ -e values-customer.yaml ] || cp autoheal-byoc-infra/examples/azure/split-public/app/values-customer.yaml .
 ```
 
 - `global.adminEmail`: the first admin's email.

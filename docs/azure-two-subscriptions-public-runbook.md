@@ -532,7 +532,8 @@ cat "$WORK_DIR/inputs.hcl"
 ```
 
 Without `DNS_ZONE_ID`, Terraform makes no DNS records, and step 9 lists the
-records for you to make.
+records for you to make. See
+[The DNS zone is not in the data subscription](#the-dns-zone-is-not-in-the-data-subscription).
 
 **With Terragrunt.** Write the infra folder from the inputs. Its `source` line
 downloads our code at the release tag, or at the branch until the release:
@@ -618,7 +619,7 @@ address:
 ```bash
 terragrunt output temporal_public_endpoint         # the runner address
 terragrunt output required_cluster_owner_actions   # the list from steps 2 to 6, with real values
-terragrunt output required_dns_records             # empty when Terraform made the records
+terragrunt output required_dns_records             # empty when Terraform made the records; else see "The DNS zone is not in the data subscription"
 export RUNNER_IP=$(terragrunt output -json temporal_public_endpoint | jq -r '.allowed_source_ranges[0]' | cut -d/ -f1)
 ```
 
@@ -639,6 +640,8 @@ cat > "$WORK_DIR/values-infra.yaml"
 ```
 
 Read `required_cluster_owner_actions` and `required_dns_records` there too.
+When `required_dns_records` is not empty, see
+[The DNS zone is not in the data subscription](#the-dns-zone-is-not-in-the-data-subscription).
 
 For both, when the plan stops with an error, the message names the
 input to change. The apply takes 30 to 45 minutes; Postgres and Redis are the
@@ -1095,6 +1098,37 @@ If that firewall serves other workloads, they share these addresses, and the
 firewalls of Postgres and the Key Vaults let them in too.
 
 - [Outbound types in AKS](https://learn.microsoft.com/azure/aks/egress-outboundtype)
+
+### The DNS zone is not in the data subscription
+
+Terraform makes the DNS records only in an Azure DNS zone in the data
+subscription. For a zone in another place, keep `DNS_ZONE_ID` empty in step 1,
+and make the three records after step 9. Each record is an A record with the
+value `$PROXY_IP`.
+
+For an Azure DNS zone in another subscription, for example the cluster
+subscription:
+
+```bash
+export RECORDS_ZONE_ID="<ID of the Azure DNS zone that holds AUTOHEAL_HOSTNAME>"
+export ZONE_SUB=$(echo "$RECORDS_ZONE_ID" | cut -d/ -f3) ZONE_RG=$(echo "$RECORDS_ZONE_ID" | cut -d/ -f5) \
+  ZONE_NAME=$(echo "$RECORDS_ZONE_ID" | cut -d/ -f9)
+for h in "$AUTOHEAL_HOSTNAME" "auth.$AUTOHEAL_HOSTNAME" "auth-app.$AUTOHEAL_HOSTNAME"; do
+  az network dns record-set a add-record --subscription "$ZONE_SUB" -g "$ZONE_RG" -z "$ZONE_NAME" \
+    -n "${h%.$ZONE_NAME}" -a "$PROXY_IP" -o none
+done
+```
+
+`AUTOHEAL_HOSTNAME` must be a name below that zone.
+
+For DNS outside Azure, make the three records by hand in your DNS provider:
+`AUTOHEAL_HOSTNAME`, `auth.` and `auth-app.` before it, each an A record with
+the value `$PROXY_IP`. If the provider can proxy traffic, turn that off for
+these records, because the address is private.
+
+To find the zone of a name, ask for its name servers:
+`dig +short NS <zone>`. Azure DNS name servers end in `azure-dns.com`,
+`azure-dns.net`, `azure-dns.org` or `azure-dns.info`.
 
 ### A certificate from a private CA
 

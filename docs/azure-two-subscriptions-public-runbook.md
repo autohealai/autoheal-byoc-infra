@@ -12,7 +12,7 @@ The runbook has two roles. One person can do both:
 
 - The **cluster owner** prepares the cluster (steps 1 to 6 and step 10).
 - The **deployer** runs Terraform in the data subscription (steps 7 to 9 and
-  steps 11 to 12).
+  steps 11 to 13).
 
 ## Choose how you run Terraform
 
@@ -36,6 +36,7 @@ Terraform Enterprise**. All the other steps are the same.
 | 10: NSG rule | 5 min | |
 | 11: install the application | 10 min | 10 to 20 min |
 | 12: check | 10 min | |
+| 13 (optional): single sign-on | 20 min | |
 
 These times are estimates. Plan half a day for a first install.
 
@@ -112,20 +113,53 @@ shell:
 - **Subscription**: a numbered list. Pick any subscription. The steps select
   the correct one with `az account set` each time they change subscription.
 
-Set your values:
+Set your values. This is the only block where you type values; the later
+steps use these variables:
 
 ```bash
+# The cluster, in the cluster subscription
 export CLUSTER_SUB="<cluster subscription ID>"
 export AKS_RG="<resource group of the cluster>"
 export AKS_NAME="<cluster name>"
+export K8S_NAMESPACE="autoheal"        # the Kubernetes namespace that the cluster owner gives you
+
+# The data subscription
 export DATA_SUB="<data subscription ID>"
 export LOCATION="<region of the cluster, for example eastus2>"
-export K8S_NAMESPACE="autoheal"   # the Kubernetes namespace that Autoheal runs in
-export WORK_DIR="$HOME/autoheal-install"   # a new, empty folder for the files of this install
+export NAME_PREFIX="acme"              # your short name; it starts every Azure resource name
+export ENVIRONMENT="prod"
+export RUNNER_CIDR="10.70.0.0/16"      # address range of the runner VNet; it is never connected to your VNet
+
+# The Terraform state (with Terragrunt only)
+export STATE_RG="rg-${NAME_PREFIX}-tfstate"
+export STATE_ACCOUNT="<3 to 24 lowercase letters and digits, unique in Azure>"
+
+# Autoheal
+export AUTOHEAL_HOSTNAME="autoheal.acme.example"   # the name users open; also auth.<name> and auth-app.<name>
+export DNS_ZONE_ID=""                  # ID of an Azure DNS zone in the data subscription that holds the name; empty: you make the records
+export ADMIN_EMAIL="<email of the first admin>"
+export LLM_PROVIDER="azure-openai"
+export LLM_ENDPOINT="https://<resource>.openai.azure.com/openai/v1/"
+export LLM_MODEL="gpt-5-mini"
+export TLS_CERT_FILE="$HOME/certs/fullchain.pem"   # certificate chain for the three names
+export TLS_KEY_FILE="$HOME/certs/privkey.pem"      # its private key
+
+# Where this runbook keeps its files: a new folder, not inside a git checkout
+export WORK_DIR="$HOME/autoheal-install"
 ```
 
-`WORK_DIR` must not be inside a git checkout, for example a copy of
-autoheal-byoc-infra. Step 7 makes it.
+Make sure that every value is set. This command names each value that is
+empty or still has a `<...>` placeholder; it must show nothing. Run it again
+whenever you open a new shell:
+
+```bash
+for v in CLUSTER_SUB AKS_RG AKS_NAME K8S_NAMESPACE DATA_SUB LOCATION NAME_PREFIX ENVIRONMENT \
+         RUNNER_CIDR STATE_RG STATE_ACCOUNT AUTOHEAL_HOSTNAME ADMIN_EMAIL LLM_PROVIDER LLM_ENDPOINT \
+         LLM_MODEL TLS_CERT_FILE TLS_KEY_FILE WORK_DIR; do
+  eval "val=\${$v}"
+  case "$val" in ""|*"<"*) echo "Set $v in step 1";; esac
+done
+```
 
 The autoheal-byoc-infra version to use: the release tag when it exists, the
 branch until then:
@@ -135,8 +169,6 @@ export INFRA_REF=$(git ls-remote --tags https://github.com/autohealai/autoheal-b
   grep -q . && echo v2.2.0 || echo feat/azure-two-subscriptions)
 echo "$INFRA_REF"
 ```
-
-Use the namespace that the cluster owner gives you. Step 4 makes it.
 
 Set the deployer: the identity that Terraform signs in as.
 
@@ -150,14 +182,28 @@ export DEPLOYER_TYPE=User
 For a pipeline service principal, set `DEPLOYER_ID` to its object ID and
 `DEPLOYER_TYPE=ServicePrincipal`.
 
-**With Terraform Enterprise.** The deployer is the identity of the
-workspace. Make it first: do Step 2 and Step 4 of Part A in
-[terraform-enterprise.md](terraform-enterprise.md). That makes the app
-registration `tfe-autoheal-byoc` and lets the workspace `autoheal-infra-prod`
-sign in as it. Then:
+**With Terraform Enterprise.** The deployer is the identity of the workspace:
+an app registration that the workspace signs in as with OIDC. This makes it,
+or finds it when it exists:
 
 ```bash
+export TFE_ISSUER="https://app.terraform.io"   # or the address of your Terraform Enterprise, for example https://tfe.example.com
+export TFE_ORG="<organization>"
+export TFE_PROJECT="Default Project"
+export TFE_WORKSPACE="autoheal-infra-prod"
+
 export APP_ID=$(az ad app list --display-name "tfe-autoheal-byoc" --query "[0].appId" -o tsv)
+[ -n "$APP_ID" ] || export APP_ID=$(az ad app create --display-name "tfe-autoheal-byoc" --query appId -o tsv)
+az ad sp show --id "$APP_ID" -o none 2>/dev/null || az ad sp create --id "$APP_ID" -o none
+for phase in plan apply; do
+  az ad app federated-credential show --id "$APP_ID" --federated-credential-id "tfe-${TFE_WORKSPACE}-${phase}" -o none 2>/dev/null ||
+    az ad app federated-credential create --id "$APP_ID" -o none --parameters "{
+      \"name\": \"tfe-${TFE_WORKSPACE}-${phase}\",
+      \"issuer\": \"${TFE_ISSUER}\",
+      \"subject\": \"organization:${TFE_ORG}:project:${TFE_PROJECT}:workspace:${TFE_WORKSPACE}:run_phase:${phase}\",
+      \"audiences\": [\"api://AzureADTokenExchange\"]
+    }"
+done
 export DEPLOYER_ID=$(az ad sp show --id "$APP_ID" --query id -o tsv)
 export DEPLOYER_TYPE=ServicePrincipal
 ```
@@ -393,14 +439,21 @@ own (`git init`) and push it to your own remote. For a second environment, copy
 `prod/` to `staging/` and change its inputs. Each environment folder has its
 own state.
 
-Edit `root.hcl`: set the resource group, the storage account (3 to 24 lowercase
-letters and digits, unique in Azure) and the container for the state. Then make
-them, with the same names:
+Put the names of the state storage in `root.hcl`, then make the storage account
+and its container:
 
 ```bash
-"$WORK_DIR/autoheal-byoc-infra/scripts/bootstrap-state-azure.sh" \
-  --subscription "$DATA_SUB" --resource-group rg-acme-tfstate \
-  --storage-account stacmetfstate --location "$LOCATION"
+if [ -z "$STATE_RG" ] || [ -z "$STATE_ACCOUNT" ] || [ -z "${STATE_ACCOUNT##*<*}" ]; then
+  echo "Set STATE_RG and STATE_ACCOUNT in step 1 first"
+else
+  cd "$WORK_DIR/acme-autoheal"
+  perl -pi -e 's/^(\s*resource_group_name\s*=\s*)"[^"]*"/$1"$ENV{STATE_RG}"/;
+               s/^(\s*storage_account_name\s*=\s*)"[^"]*"/$1"$ENV{STATE_ACCOUNT}"/' root.hcl
+  grep -n 'resource_group_name\|storage_account_name\|container_name' root.hcl
+  "$WORK_DIR/autoheal-byoc-infra/scripts/bootstrap-state-azure.sh" \
+    --subscription "$DATA_SUB" --resource-group "$STATE_RG" \
+    --storage-account "$STATE_ACCOUNT" --location "$LOCATION"
+fi
 ```
 
 The script also gives you Storage Blob Data Contributor on the account. A
@@ -429,26 +482,31 @@ The workspace keeps the state. You do not make a storage account.
 
 ## Step 8: Set the inputs
 
-Find the public address of the apply host:
+The public address of the apply host. The Key Vaults let it in, so that
+Terraform can write the vault entries.
 
-- With Terragrunt: your machine or your pipeline runner. On your machine:
-  `curl -s https://api.ipify.org; echo`
-- With Terraform Enterprise: the public egress addresses of the workers or
-  agents.
+**With Terragrunt**, on this machine:
+
+```bash
+export DEPLOYER_IPS="$(curl -s https://api.ipify.org)/32"
+echo "$DEPLOYER_IPS"
+```
+
+**With Terraform Enterprise**, the public egress addresses of the workers or
+agents:
 
 ```bash
 export DEPLOYER_IPS="<address>/32"   # several: separate them with spaces
 ```
 
-Print the inputs with your values:
+For both, write the inputs into `$WORK_DIR/inputs.hcl`:
 
 ```bash
-cat <<EOF
-namespace        = "acme"
-environment      = "prod"
-location         = "$LOCATION"
-subscription_id  = "$DATA_SUB"
-autoheal_version = "1.0.0-rc.8"
+cat > "$WORK_DIR/inputs.hcl" <<EOF
+namespace       = "$NAME_PREFIX"
+environment     = "$ENVIRONMENT"
+location        = "$LOCATION"
+subscription_id = "$DATA_SUB"
 
 existing_aks_cluster_id = "$AKS_ID"
 cluster_network_path    = "public"
@@ -460,64 +518,83 @@ existing_network = {
 service_accounts          = { namespace = "$K8S_NAMESPACE" }
 workload_egress_ip_ranges = [$(echo "$EGRESS_IPS" | tr ' ' '\n' | sed 's/.*/"&"/' | paste -sd, -)]
 deployer_ip_ranges        = [$(echo "$DEPLOYER_IPS" | tr ' ' '\n' | sed 's/.*/"&"/' | paste -sd, -)]
-network_cidr              = "10.70.0.0/16"
+network_cidr              = "$RUNNER_CIDR"
 
-hostname             = "autoheal.acme.example"
-edge_mode            = "loadbalancer"
-existing_dns_zone_id = "<ID of an Azure DNS zone in the data subscription that holds hostname>"
+hostname  = "$AUTOHEAL_HOSTNAME"
+edge_mode = "loadbalancer"
+$([ -n "$DNS_ZONE_ID" ] && echo "existing_dns_zone_id = \"$DNS_ZONE_ID\"" || echo "create_dns_records = false")
 EOF
+cat "$WORK_DIR/inputs.hcl"
 ```
 
-Change these values in the output:
+Without `DNS_ZONE_ID`, Terraform makes no DNS records, and step 9 lists the
+records for you to make.
 
-| Input | Value |
-|-------|-------|
-| `namespace`, `environment` | Your short name and the environment, for example `acme` and `prod`. They start every Azure resource name. This `namespace` is not the Kubernetes namespace |
-| `network_cidr` | A range for the runner VNet. It is never connected to your VNet |
-| `hostname` | The name users open |
-| `existing_dns_zone_id` | An Azure DNS zone in the data subscription that holds `hostname`. If you have none, remove this line and add `create_dns_records = false`. Step 9 then lists the records to make |
-
-
-**With Terragrunt.** In `$WORK_DIR/acme-autoheal/prod/infra/terragrunt.hcl`,
-put these values in the `inputs` block. Keep `autoheal_version` as the file has
-it; it comes from `versions.hcl`.
-
-The `source` lines of the infra and the app folders download our code at the
-release tag. Before the release (`INFRA_REF` is the branch), this command
-points them at the branch. After the release, it changes nothing:
+**With Terragrunt.** Write the infra folder from the inputs. Its `source` line
+downloads our code at the release tag, or at the branch until the release:
 
 ```bash
-cd "$WORK_DIR/acme-autoheal/prod"
-[ "$INFRA_REF" = "v2.2.0" ] || perl -pi -e 's/\?ref=v\$\{local\.v\.infra_version\}/?ref=$ENV{INFRA_REF}/' \
-  infra/terragrunt.hcl app/terragrunt.hcl
-grep -n 'source =' infra/terragrunt.hcl app/terragrunt.hcl
+cd "$WORK_DIR/acme-autoheal/prod/infra"
+[ "$INFRA_REF" = "v2.2.0" ] && SOURCE_REF='v${local.v.infra_version}' || SOURCE_REF="$INFRA_REF"
+{
+  cat <<EOF
+# The cloud resources in the data subscription. Written by step 8 of
+# docs/azure-two-subscriptions-public-runbook.md.
+
+locals { v = read_terragrunt_config(find_in_parent_folders("versions.hcl")).locals }
+
+include "root" { path = find_in_parent_folders("root.hcl") }
+
+terraform {
+  source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure?ref=$SOURCE_REF"
+}
+
+inputs = {
+  autoheal_version = local.v.chart_version
+
+EOF
+  sed 's/^/  /; s/^  $//' "$WORK_DIR/inputs.hcl"
+  echo "}"
+} > terragrunt.hcl
+cat terragrunt.hcl
 ```
 
-Both lines must end in `?ref=` and then `$INFRA_REF`, or
-`v${local.v.infra_version}` after the release.
+Set the namespace and the `source` line of the app folder:
+
+```bash
+cd "$WORK_DIR/acme-autoheal/prod/app"
+perl -pi -e 's/^(\s*namespace\s*=\s*)"[^"]*"/$1"$ENV{K8S_NAMESPACE}"/' terragrunt.hcl
+[ "$INFRA_REF" = "v2.2.0" ] || perl -pi -e 's/\?ref=v\$\{local\.v\.infra_version\}/?ref=$ENV{INFRA_REF}/' terragrunt.hcl
+grep -n 'source =\|^ *namespace ' terragrunt.hcl
+```
 
 Set the secrets as environment variables. They never go in a file:
 
 ```bash
 export TF_VAR_llm_api_key="<your LLM provider key>"
-export TF_VAR_tls_certificate=$(jq -n --rawfile c fullchain.pem --rawfile k privkey.pem \
+export TF_VAR_tls_certificate=$(jq -n --rawfile c "$TLS_CERT_FILE" --rawfile k "$TLS_KEY_FILE" \
   '{certificate: $c, private_key: $k}')
-export TF_VAR_sso_client_secret="<only when SSO is on>"
 ```
 
-**With Terraform Enterprise.** In the workspace, open **Variables**. Add each
-input as a variable of the category **Terraform**: the key is the name before
-`=`, the value is the part after it. For `existing_network`,
-`service_accounts` and the two `_ranges` lists, tick **HCL**. Add the secrets
-as **Sensitive** Terraform variables:
+**With Terraform Enterprise.** In the workspace, open **Variables**, and add
+each line of the output below as a variable of the category **Terraform**. The
+key is the name before `=`; the value is the part after it. For
+`existing_network`, `service_accounts` and the two `_ranges` lists, tick
+**HCL**:
 
-| Key | Value |
-|-----|-------|
-| `llm_api_key` | Your LLM provider key |
-| `tls_certificate` | **HCL**. The output of `jq -n --rawfile c fullchain.pem --rawfile k privkey.pem '{certificate: $c, private_key: $k}'` |
-| `sso_client_secret` | Only when SSO is on |
+```bash
+cat "$WORK_DIR/inputs.hcl"
+echo 'autoheal_version = "1.0.0-rc.8"'
+```
 
-For both: `fullchain.pem` is the certificate chain and `privkey.pem` its key.
+Add the secrets as **Sensitive** variables of the category **Terraform**:
+`llm_api_key` with your LLM provider key, and `tls_certificate`, with **HCL**
+ticked, with the output of this command:
+
+```bash
+jq -n --rawfile c "$TLS_CERT_FILE" --rawfile k "$TLS_KEY_FILE" '{certificate: $c, private_key: $k}'
+```
+
 For a certificate from a private CA, see
 [A certificate from a private CA](#a-certificate-from-a-private-ca).
 
@@ -542,15 +619,22 @@ export RUNNER_IP=$(terragrunt output -json temporal_public_endpoint | jq -r '.al
 ```
 
 **With Terraform Enterprise:** in the workspace, click **Actions**, then
-**Start new run**. Read the plan, then click **Confirm & Apply**. Open the
-**Outputs** tab, and keep the runner address and the chart values:
+**Start new run**. Read the plan, then click **Confirm & Apply**. Then open the
+**Outputs** tab. Keep the address in `temporal_public_endpoint.allowed_source_ranges`,
+without `/32`:
 
-- `temporal_public_endpoint`: copy the address in `allowed_source_ranges`,
-  without `/32`, into `export RUNNER_IP="<address>"`.
-- `autoheal_values_yaml`: save the value as the file
-  `$WORK_DIR/values-infra.yaml`. Step 11 uses it.
-- `required_cluster_owner_actions` and `required_dns_records`: as with
-  Terragrunt.
+```bash
+export RUNNER_IP="<the address>"
+```
+
+Save the value of `autoheal_values_yaml` for step 11. Run this command, paste
+the value, then press Ctrl-D:
+
+```bash
+cat > "$WORK_DIR/values-infra.yaml"
+```
+
+Read `required_cluster_owner_actions` and `required_dns_records` there too.
 
 For both, when the plan stops with an error, the message names the
 input to change. The apply takes 30 to 45 minutes; Postgres and Redis are the
@@ -558,52 +642,75 @@ slow parts.
 
 ## Step 10: Let the runner through the subnet NSG
 
+When the AKS subnet has an NSG, add two rules to it: let only the runner reach
+the Temporal address on TCP 7233 and 8083, and deny all other sources. Without
+an NSG, AKS opens its own NSG for the load balancers, and the command does
+nothing. The rules take the first free priorities from 300:
+
 ```bash
 az account set --subscription "$CLUSTER_SUB"
-az network vnet subnet show --ids "$AKS_SUBNET_ID" --query networkSecurityGroup.id -o tsv
-```
-
-If the command shows no NSG, skip this step: AKS opens its own NSG for the load
-balancers. If it shows an NSG, add two rules to it. Use priorities that the NSG
-does not use yet:
-
-```bash
-export NSG_ID="<the NSG ID from the command above>"
-export NSG_RG=$(echo "$NSG_ID" | cut -d/ -f5) NSG_NAME=$(echo "$NSG_ID" | cut -d/ -f9)
-az network nsg rule create -g "$NSG_RG" --nsg-name "$NSG_NAME" \
-  -n allow-autoheal-runner --priority 300 --direction Inbound --access Allow --protocol Tcp \
-  --source-address-prefixes "$RUNNER_IP" --destination-address-prefixes "$TEMPORAL_IP" \
-  --destination-port-ranges 7233 8083
-az network nsg rule create -g "$NSG_RG" --nsg-name "$NSG_NAME" \
-  -n deny-others-to-autoheal-temporal --priority 310 --direction Inbound --access Deny --protocol '*' \
-  --source-address-prefixes '*' --destination-address-prefixes "$TEMPORAL_IP" \
-  --destination-port-ranges 7233 8083
+export NSG_ID=$(az network vnet subnet show --ids "$AKS_SUBNET_ID" --query networkSecurityGroup.id -o tsv)
+echo "NSG: ${NSG_ID:-none}"
+if [ -n "$NSG_ID" ]; then
+  export NSG_RG=$(echo "$NSG_ID" | cut -d/ -f5) NSG_NAME=$(echo "$NSG_ID" | cut -d/ -f9)
+  USED=$(az network nsg rule list -g "$NSG_RG" --nsg-name "$NSG_NAME" \
+    --query "[?name!='allow-autoheal-runner' && name!='deny-others-to-autoheal-temporal'].priority" -o tsv)
+  ALLOW_PRIORITY=300; while echo "$USED" | grep -qx "$ALLOW_PRIORITY"; do ALLOW_PRIORITY=$((ALLOW_PRIORITY+1)); done
+  DENY_PRIORITY=$((ALLOW_PRIORITY+1)); while echo "$USED" | grep -qx "$DENY_PRIORITY"; do DENY_PRIORITY=$((DENY_PRIORITY+1)); done
+  az network nsg rule create -g "$NSG_RG" --nsg-name "$NSG_NAME" -o none \
+    -n allow-autoheal-runner --priority "$ALLOW_PRIORITY" --direction Inbound --access Allow --protocol Tcp \
+    --source-address-prefixes "$RUNNER_IP" --destination-address-prefixes "$TEMPORAL_IP" \
+    --destination-port-ranges 7233 8083
+  az network nsg rule create -g "$NSG_RG" --nsg-name "$NSG_NAME" -o none \
+    -n deny-others-to-autoheal-temporal --priority "$DENY_PRIORITY" --direction Inbound --access Deny --protocol '*' \
+    --source-address-prefixes '*' --destination-address-prefixes "$TEMPORAL_IP" \
+    --destination-port-ranges 7233 8083
+  echo "Rules added at priorities $ALLOW_PRIORITY and $DENY_PRIORITY"
+fi
 ```
 
 ## Step 11: Install the application
 
-For both, edit `values-customer.yaml`. With Terragrunt, the file is
-`$WORK_DIR/acme-autoheal/prod/app/values-customer.yaml`. With Terraform
-Enterprise, copy it from the repository into `$WORK_DIR`:
+Your chart settings go in `values-customer.yaml`. Where the file is:
 
 ```bash
-mkdir -p "$WORK_DIR" && cd "$WORK_DIR"
-[ -d autoheal-byoc-infra ] || git clone --branch "$INFRA_REF" https://github.com/autohealai/autoheal-byoc-infra.git
-[ -e values-customer.yaml ] || cp autoheal-byoc-infra/examples/azure/split-public/app/values-customer.yaml .
+export VALUES_FILE="$WORK_DIR/acme-autoheal/prod/app/values-customer.yaml"   # with Terragrunt
+# export VALUES_FILE="$WORK_DIR/values-customer.yaml"                      # with Terraform Enterprise
 ```
 
-- `global.adminEmail`: the first admin's email.
-- `global.tenant.name`: your short name.
-- `global.llm`: your provider, endpoint, model and
-  `apiKeyVaultEntry: llm-api-key`. See Step 7 of
-  [getting-started.md](getting-started.md) for Azure OpenAI.
-- `global.sso`: your SSO application, or `enabled: false`.
+Write it. Single sign-on stays off here; step 13 adds it after the install:
 
-Do not set `global.infra`.
+```bash
+mkdir -p "$(dirname "$VALUES_FILE")"
+cat > "$VALUES_FILE" <<EOF
+# Your chart settings. Written by step 11 of docs/azure-two-subscriptions-public-runbook.md.
+# Do not set global.infra: those values come from the infra.
+global:
+  adminEmail: $ADMIN_EMAIL
+  tenant:
+    name: $NAME_PREFIX
+  edge:
+    mode: loadbalancer
+    exposure: internal
+    tls:
+      secretName: autoheal-tls
+  llm:
+    provider: $LLM_PROVIDER
+    endpoint: $LLM_ENDPOINT
+    model: $LLM_MODEL
+    apiKeyVaultEntry: llm-api-key
+  sso:
+    enabled: false
+  imageRegistry: ""
+EOF
+cat "$VALUES_FILE"
+```
 
-**With Terragrunt.** Edit `$WORK_DIR/acme-autoheal/prod/app/terragrunt.hcl`:
-set `namespace` to `$K8S_NAMESPACE`. It must be the same as
-`service_accounts.namespace` in step 8. Then:
+For an Azure OpenAI resource, the endpoint ends in `/openai/v1/`, and the
+resource also needs an embedding deployment named `text-embedding-3-large`.
+See Step 7 of [getting-started.md](getting-started.md).
+
+**With Terragrunt:**
 
 ```bash
 cd "$WORK_DIR/acme-autoheal/prod/app"
@@ -622,7 +729,7 @@ access from step 4. Install the chart:
 cd "$WORK_DIR"
 helm upgrade --install autoheal oci://public.ecr.aws/e4h3h0d9/charts/autoheal \
   --version 1.0.0-rc.8 -n "$K8S_NAMESPACE" \
-  -f values-infra.yaml -f values-customer.yaml --atomic --wait --timeout 20m
+  -f values-infra.yaml -f "$VALUES_FILE" --atomic --wait --timeout 20m
 ```
 
 Then make the two public load balancers on `$TEMPORAL_IP`, open only to the
@@ -710,12 +817,11 @@ The runner VMs connect to Temporal:
 
 ```bash
 az account set --subscription "$DATA_SUB"
-az vmss run-command invoke -g rg-acme-prod-autoheal -n acme-prod-autoheal-runner \
+az vmss run-command invoke -g "rg-$NAME_PREFIX-$ENVIRONMENT-autoheal" -n "$NAME_PREFIX-$ENVIRONMENT-autoheal-runner" \
   --instance-id 0 --command-id RunShellScript --scripts "docker logs --tail 30 runner-go"
 ```
 
-The log must show a connection to `$TEMPORAL_IP:7233`. Use your own
-`namespace` and `environment` in the two names.
+The log must show a connection to `$TEMPORAL_IP:7233`.
 
 Only the runner can reach Temporal. From your own machine, this command must
 time out:
@@ -724,8 +830,41 @@ time out:
 nc -vz -w 5 "$TEMPORAL_IP" 7233
 ```
 
-Open `https://<hostname>` from a machine on the cluster's network. The proxy
-address `$PROXY_IP` is private.
+Open Autoheal from a machine on the cluster's network. The proxy address
+`$PROXY_IP` is private:
+
+```bash
+echo "https://$AUTOHEAL_HOSTNAME"
+```
+
+## Step 13 (optional): Turn on single sign-on
+
+Single sign-on is set up after the install. The chart does not configure your
+identity provider in this version: you add it in the Zitadel console, which
+Autoheal uses for sign-in.
+
+Get the password of the first admin, from the install vault:
+
+```bash
+az account set --subscription "$DATA_SUB"
+export VAULT_NAME=$(cd "$WORK_DIR/acme-autoheal/prod/infra" && terragrunt output -json autoheal_values | jq -r .global.infra.keyVault.name)   # with Terragrunt
+# export VAULT_NAME=$(grep -A2 'keyVault:' "$WORK_DIR/values-infra.yaml" | sed -n 's/.*name: *//p')          # with Terraform Enterprise
+az keyvault secret show --vault-name "$VAULT_NAME" --name first-admin-password --query value -o tsv
+echo "https://auth.$AUTOHEAL_HOSTNAME"
+```
+
+The vault firewall lets in the apply host, so run this on the machine of step 8.
+Then:
+
+1. Open the address that the last command shows, and sign in as `$ADMIN_EMAIL`
+   with that password. Zitadel asks for a new password.
+2. In your identity provider, for example Microsoft Entra ID, make an app
+   registration for Autoheal, with a client secret.
+3. In the Zitadel console, add the identity provider with the client ID and the
+   secret of step 2. Zitadel shows the redirect URI; add it to the app
+   registration of step 2.
+
+Users then sign in to `https://$AUTOHEAL_HOSTNAME` with your identity provider.
 
 ## Troubleshooting
 
@@ -741,6 +880,7 @@ address `$PROXY_IP` is private.
 | Step 11 fails with Forbidden | The namespace role is missing or not in effect yet, or the namespace is not `$K8S_NAMESPACE` | Check step 6 and step 11, wait, then try again |
 | The secrets-sync job fails to sign in to Key Vault | `service_accounts.namespace` is not `$K8S_NAMESPACE` | Fix it in step 8 and apply step 9 again |
 | The proxy pod waits for the Secret `autoheal-tls` | `tls_certificate` was not set in step 8 | Set it and apply step 9 again |
+| Step 13 shows `Forbidden` from Key Vault | The vault firewall does not let in this machine, or you are not the deployer | Run it on the machine of step 8, as the deployer |
 | Pods wait for secrets, or show 403 from Key Vault | The cluster's outbound addresses changed or are wrong | Update `workload_egress_ip_ranges` and apply step 9 again |
 | Pods cannot reach Postgres | The same | The same |
 | `temporal-frontend-public` stays `<pending>` | The IP is not in the node resource group, or is not Standard and static | Do step 5 again |
@@ -750,9 +890,18 @@ address `$PROXY_IP` is private.
 
 The cluster owner does not have to give new permissions.
 
-- With Terragrunt: change the two numbers in
-  `$WORK_DIR/acme-autoheal/prod/versions.hcl`, then apply step 9 and step 11
-  again.
+- With Terragrunt: set the two new numbers, then apply step 9 and step 11
+  again. The command also points the `source` lines at the release tag:
+
+  ```bash
+  export NEW_INFRA_VERSION="<new autoheal-byoc-infra version, for example 2.2.1>"
+  export NEW_CHART_VERSION="<new chart version>"
+  cd "$WORK_DIR/acme-autoheal/prod"
+  perl -pi -e 's/^(\s*infra_version\s*=\s*)"[^"]*"/$1"$ENV{NEW_INFRA_VERSION}"/;
+               s/^(\s*chart_version\s*=\s*)"[^"]*"/$1"$ENV{NEW_CHART_VERSION}"/' versions.hcl
+  perl -pi -e 's/\?ref=[^"]*"/?ref=v\$\{local.v.infra_version}"/' infra/terragrunt.hcl app/terragrunt.hcl
+  grep -n 'version' versions.hcl; grep -n 'source =' infra/terragrunt.hcl app/terragrunt.hcl
+  ```
 - With Terraform Enterprise: move the workspace branch to the new release and
   set `autoheal_version` to the new chart version. Apply step 9 again. Save the
   new `values-infra.yaml`, then run the `helm upgrade` of step 11 with the new
@@ -778,10 +927,42 @@ helm uninstall autoheal -n "$K8S_NAMESPACE"
 Then, in the workspace, queue a destroy run: **Settings**, **Destruction and
 Deletion**, **Queue destroy plan**.
 
-For both, as the cluster owner: delete `pip-autoheal-temporal`, the NSG
-rules from step 10 and the role grants. Delete the namespace only if step 4
-made it for Autoheal. Remove `Microsoft.Storage` from the subnet only if
-nothing else uses it.
+For both, as the cluster owner, remove the static IP, the NSG rules and the
+deployer's roles:
+
+```bash
+az account set --subscription "$CLUSTER_SUB"
+az network public-ip delete -g "$NODE_RG" -n pip-autoheal-temporal
+if [ -n "$NSG_ID" ]; then
+  az network nsg rule delete -g "$NSG_RG" --nsg-name "$NSG_NAME" -n allow-autoheal-runner
+  az network nsg rule delete -g "$NSG_RG" --nsg-name "$NSG_NAME" -n deny-others-to-autoheal-temporal
+fi
+for grant in \
+  "Azure Kubernetes Service Cluster User Role|$AKS_ID" \
+  "Azure Kubernetes Service RBAC Admin|$AKS_ID/namespaces/$K8S_NAMESPACE" \
+  "Reader|$AKS_SUBNET_ID" \
+  "Network Contributor|$AKS_SUBNET_ID"; do
+  az role assignment delete --assignee "$DEPLOYER_ID" --role "${grant%%|*}" --scope "${grant#*|}"
+done
+```
+
+Only if step 4 made the namespace for Autoheal:
+
+```bash
+kubectl delete namespace "$K8S_NAMESPACE"
+```
+
+Only if no other workload on the AKS subnet uses the `Microsoft.Storage`
+service endpoint:
+
+```bash
+OTHER_ENDPOINTS=$(az network vnet subnet show --ids "$AKS_SUBNET_ID" --query "serviceEndpoints[].service" -o tsv | grep -vx Microsoft.Storage)
+if [ -n "$OTHER_ENDPOINTS" ]; then
+  az network vnet subnet update --ids "$AKS_SUBNET_ID" --service-endpoints $(echo "$OTHER_ENDPOINTS") -o none
+else
+  az network vnet subnet update --ids "$AKS_SUBNET_ID" --remove serviceEndpoints -o none
+fi
+```
 
 ## Edge cases and references
 
@@ -881,8 +1062,11 @@ layout lets in public addresses only, so it cannot let the pods in. Use the
 
 The check in step 4 shows a Helm release named `autoheal` from a different
 install. Two installs in one namespace overwrite each other. Remove the other
-install first, or set `K8S_NAMESPACE` to a different namespace in step 1 and
-start again from step 4.
+install first, or use a different namespace and start again from step 4:
+
+```bash
+export K8S_NAMESPACE="autoheal-public"
+```
 
 ### Other outbound types
 

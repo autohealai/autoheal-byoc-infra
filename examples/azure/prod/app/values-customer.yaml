@@ -19,6 +19,7 @@ global:
     provider: azure-openai
     endpoint: https://acme-openai.openai.azure.com/openai/v1/   # the v1 endpoint
     model: gpt-5-mini
+    offeredModels: gpt-5-mini         # models agents may use, comma separated; the first is the default
     apiKeyVaultEntry: llm-api-key     # the name of the vault entry, not the key
     # Embeddings use the deployment text-embedding-3-large on the same resource.
     # embeddingModel: azure-openai:<deployment>   # another deployment, 1024 dimensions

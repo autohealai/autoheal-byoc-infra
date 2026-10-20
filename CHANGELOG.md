@@ -6,6 +6,18 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-10-20
+
+Docs and examples only. The modules and compositions are the same as 2.2.0, so
+an install moving from 2.2.0 plans no changes.
+
+### Fixed
+- `examples/azure/*/app/values-customer.yaml`, `docs/getting-started.md` and
+  step 11a of `docs/azure-two-subscriptions-public-runbook.md` set
+  `global.llm.offeredModels`. Without it the chart gives api-server-go no
+  `AGENT_SUPPORTED_MODELS`, and every agent run fails with "this deployment
+  offers no models". Each example and doc pins v2.2.1.
+
 ## [2.2.0] - 2026-10-20
 
 An AKS cluster in another subscription, over connected VNets or over public

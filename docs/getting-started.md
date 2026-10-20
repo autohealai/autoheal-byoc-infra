@@ -111,7 +111,7 @@ az account set --subscription "<subscription-id>"   # az account show --query id
 Copy `examples/azure` from a released tag into a repository you own:
 
 ```bash
-git clone --branch v2.2.0 https://github.com/autohealai/autoheal-byoc-infra.git
+git clone --branch v2.2.1 https://github.com/autohealai/autoheal-byoc-infra.git
 mkdir acme-autoheal && cp -r autoheal-byoc-infra/examples/azure/. acme-autoheal/
 cd acme-autoheal
 ```
@@ -200,6 +200,11 @@ terragrunt output -raw autoheal_values_yaml   # what the chart receives; no secr
 Edit `prod/app/values-customer.yaml` (admin email, LLM, SSO, sizing). Do not set
 `global.infra`; those values come from the infra folder. For an LLM gateway, see
 "Optional: an LLM gateway" below.
+
+`global.llm.offeredModels` lists the models that agents may use, comma
+separated; the first is the default for an agent that names no model. Each
+name must be a deployment on the resource, such as `gpt-5-mini`. Without it,
+agent runs fail with `this deployment offers no models`.
 
 For `provider: azure-openai`, `global.llm.endpoint` is the resource's v1
 endpoint, ending in `/openai/v1/`, such as
@@ -304,6 +309,7 @@ global:
   llm:
     provider: azure-openai
     model: gpt-5-mini
+    offeredModels: gpt-5-mini
     gateway:
       enabled: true
       kind: portkey     # portkey, litellm, openrouter, helicone, pydantic or custom

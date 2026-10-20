@@ -7,7 +7,7 @@ subscription**). The two VNets are not connected. The data services use public
 endpoints with firewalls, and users and webhooks reach Autoheal on a public IP.
 [The one-pager](azure-two-subscriptions-public.md) explains the layout, and
 [the comparison](azure-subscription-options.md) shows its limits. The runbook
-uses autoheal-byoc-infra **v2.2.0**.
+uses autoheal-byoc-infra **v2.2.1**.
 
 The runbook has two roles. One person can do both:
 
@@ -562,7 +562,7 @@ files that are there already, so it does not overwrite your edits:
 
 ```bash
 mkdir -p "$WORK_DIR" && cd "$WORK_DIR"
-[ -d autoheal-byoc-infra ] || git clone --branch v2.2.0 https://github.com/autohealai/autoheal-byoc-infra.git
+[ -d autoheal-byoc-infra ] || git clone --branch v2.2.1 https://github.com/autohealai/autoheal-byoc-infra.git
 mkdir -p acme-autoheal
 [ -e acme-autoheal/root.hcl ] || cp autoheal-byoc-infra/examples/azure/root.hcl acme-autoheal/
 [ -e acme-autoheal/prod ] || cp -R autoheal-byoc-infra/examples/azure/split-public acme-autoheal/prod
@@ -607,7 +607,7 @@ az role assignment create --assignee "$APP_ID" --role "User Access Administrator
 Part B in [terraform-enterprise.md](terraform-enterprise.md):
 
 - Make the workspace `autoheal-infra-prod`, with the Terraform working
-  directory `compositions/azure`, on a branch of your copy at the tag v2.2.0. Set the workspace Terraform version to 1.7 or later.
+  directory `compositions/azure`, on a branch of your copy at the tag v2.2.1. Set the workspace Terraform version to 1.7 or later.
 - Add the four environment variables for the sign-in. `ARM_SUBSCRIPTION_ID`
   is `$DATA_SUB`. The composition reads the cluster in the cluster subscription
   with the same identity.
@@ -931,7 +931,9 @@ fi
 
 Your chart settings go in `$VALUES_FILE` (step 1c). Single sign-on stays off
 here; step 13 adds it after the install. The public proxy setting comes from
-the infra, so the file does not set it.
+the infra, so the file does not set it. `offeredModels` lists the models that
+agents may use, comma separated; the first is the default for an agent that
+names no model.
 
 #### 11a: Azure OpenAI
 
@@ -959,6 +961,7 @@ global:
   llm:
     provider: $LLM_PROVIDER
     model: $LLM_MODEL
+    offeredModels: $LLM_MODEL
     endpoint: $LLM_ENDPOINT
     apiKeyVaultEntry: llm-api-key
   sso:
@@ -994,6 +997,7 @@ global:
   llm:
     provider: $LLM_PROVIDER
     model: $LLM_MODEL
+    offeredModels: $LLM_MODEL
     gateway:
       enabled: true
       kind: portkey
@@ -1289,6 +1293,7 @@ before you apply step 9a.
 | `temporal-frontend-public` stays `<pending>`                                          | The IP is not in the node resource group, or is not Standard and static                      | Do step 5a again                                                                                               |
 | `autoheal-edge` stays `<pending>` | The proxy IP is not in the node resource group, or is not Standard and static | Do step 5b again |
 | Users or webhooks time out on `https://$AUTOHEAL_HOSTNAME` | The subnet NSG blocks TCP 443, or a DNS record points elsewhere | Do step 10, and check step 9b |
+| An agent run fails with `this deployment offers no models` | `global.llm.offeredModels` is not set | Add `offeredModels: $LLM_MODEL` under `llm` in `$VALUES_FILE` (step 11a), then do step 11b again |
 | Step 9a stops on "edge_exposure" or "proxy_ip" | `PROXY_IP` is a private address, or the DNS zone is private | Do step 5b again, or see step 9b |
 | The runner log shows no connection to Temporal                                        | The NSG blocks the runner                                                                    | Do step 10                                                                                                     |
 

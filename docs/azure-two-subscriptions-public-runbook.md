@@ -117,6 +117,9 @@ Set your values. This is the only block where you type values; the later
 steps use these variables:
 
 ```bash
+# Where this runbook keeps its files: a new folder, not inside a git checkout
+export WORK_DIR="$HOME/autoheal-install"
+
 # The cluster, in the cluster subscription
 export CLUSTER_SUB="<cluster subscription ID>"
 export AKS_RG="<resource group of the cluster>"
@@ -130,9 +133,13 @@ export NAME_PREFIX="acme"              # your short name; it starts every Azure 
 export ENVIRONMENT="prod"
 export RUNNER_CIDR="10.70.0.0/16"      # address range of the runner VNet; it is never connected to your VNet
 
-# The Terraform state (with Terragrunt only)
+# The Terraform state (with Terragrunt only): a new storage account that step 7 makes.
+# Its name is made for you, unique in Azure; a later shell reads it back from root.hcl.
 export STATE_RG="rg-${NAME_PREFIX}-tfstate"
-export STATE_ACCOUNT="<3 to 24 lowercase letters and digits, unique in Azure>"
+export STATE_ACCOUNT=$(sed -n 's/.*storage_account_name *= *"\([a-z0-9]*\)".*/\1/p' \
+  "$WORK_DIR/acme-autoheal/root.hcl" 2>/dev/null | grep -vx stacmetfstate)
+[ -n "$STATE_ACCOUNT" ] ||
+  export STATE_ACCOUNT="st$(echo "$NAME_PREFIX" | tr -cd 'a-z0-9' | cut -c1-9)tfstate$(openssl rand -hex 3)"
 
 # Autoheal
 export AUTOHEAL_HOSTNAME="autoheal.acme.example"   # the name users open; also auth.<name> and auth-app.<name>
@@ -143,9 +150,6 @@ export LLM_ENDPOINT="https://<resource>.openai.azure.com/openai/v1/"
 export LLM_MODEL="gpt-5-mini"
 export TLS_CERT_FILE="$HOME/certs/fullchain.pem"   # certificate chain for the three names
 export TLS_KEY_FILE="$HOME/certs/privkey.pem"      # its private key
-
-# Where this runbook keeps its files: a new folder, not inside a git checkout
-export WORK_DIR="$HOME/autoheal-install"
 ```
 
 Make sure that every value is set. This command names each value that is

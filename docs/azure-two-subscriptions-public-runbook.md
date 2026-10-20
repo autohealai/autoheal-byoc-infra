@@ -61,6 +61,7 @@ You must have:
 - An LLM provider, for example an Azure OpenAI resource with a key.
 - A TLS certificate, with its private key, that covers `hostname`,
   `auth.<hostname>` and `auth-app.<hostname>`. The Autoheal proxy serves it.
+  [Get a TLS certificate](#get-a-tls-certificate) shows how to make one.
 
 Install these tools:
 
@@ -146,9 +147,11 @@ export AUTOHEAL_HOSTNAME="autoheal.acme.example"   # the name users open; also a
 export DNS_ZONE_ID=""                  # ID of an Azure DNS zone in the data subscription that holds the name; empty: you make the records
 export ADMIN_EMAIL="<email of the first admin>"
 export LLM_PROVIDER="azure-openai"
-export LLM_ENDPOINT="https://<resource>.openai.azure.com/openai/v1/"
+export LLM_ENDPOINT="https://<resource>.openai.azure.com/openai/v1/"   # not read with a gateway
 export LLM_MODEL="gpt-5-mini"
-export TLS_CERT_FILE="$HOME/certs/fullchain.pem"   # certificate chain for the three names
+export LLM_GATEWAY_URL=""              # Portkey: the gateway's OpenAI-compatible root, ending in /v1; empty: call the provider directly
+export PORTKEY_CONFIG_FILE=""          # Portkey OSS only: its config JSON, with the routing and the provider keys; keep it outside any repository
+export TLS_CERT_FILE="$HOME/certs/fullchain.pem"   # certificate chain for the three names; see "Get a TLS certificate" at the end
 export TLS_KEY_FILE="$HOME/certs/privkey.pem"      # its private key
 ```
 
@@ -160,6 +163,7 @@ whenever you open a new shell:
 for v in CLUSTER_SUB AKS_RG AKS_NAME K8S_NAMESPACE DATA_SUB LOCATION NAME_PREFIX ENVIRONMENT \
          RUNNER_CIDR STATE_RG STATE_ACCOUNT AUTOHEAL_HOSTNAME ADMIN_EMAIL LLM_PROVIDER LLM_ENDPOINT \
          LLM_MODEL TLS_CERT_FILE TLS_KEY_FILE WORK_DIR; do
+  [ "$v" = LLM_ENDPOINT ] && [ -n "$LLM_GATEWAY_URL" ] && continue
   eval "val=\${$v}"
   case "$val" in ""|*"<"*) echo "Set $v in step 1";; esac
 done
@@ -576,9 +580,24 @@ grep -n 'source =\|^ *namespace ' terragrunt.hcl
 Set the secrets as environment variables. They never go in a file:
 
 ```bash
-export TF_VAR_llm_api_key="<your LLM provider key>"
 export TF_VAR_tls_certificate=$(jq -n --rawfile c "$TLS_CERT_FILE" --rawfile k "$TLS_KEY_FILE" \
   '{certificate: $c, private_key: $k}')
+```
+
+Without a gateway (`LLM_GATEWAY_URL` empty), the key of your LLM provider:
+
+```bash
+export TF_VAR_llm_api_key="<your LLM provider key>"
+```
+
+With a Portkey gateway, the gateway secrets instead. The gateway holds the
+provider keys:
+
+```bash
+unset TF_VAR_llm_api_key
+export TF_VAR_llm_gateway_api_key="<Portkey API key; Portkey OSS ignores it, so any value, for example unused>"
+[ -z "$PORTKEY_CONFIG_FILE" ] ||
+  export TF_VAR_llm_gateway_extra_headers="$(jq -cn --arg cfg "$(jq -c . "$PORTKEY_CONFIG_FILE")" '{"x-portkey-config": $cfg}')"
 ```
 
 **With Terraform Enterprise.** In the workspace, open **Variables**, and add
@@ -592,12 +611,20 @@ cat "$WORK_DIR/inputs.hcl"
 echo 'autoheal_version = "1.0.0-rc.8"'
 ```
 
-Add the secrets as **Sensitive** variables of the category **Terraform**:
-`llm_api_key` with your LLM provider key, and `tls_certificate`, with **HCL**
-ticked, with the output of this command:
+Add the secrets as **Sensitive** variables of the category **Terraform**.
+`tls_certificate`, with **HCL** ticked, takes the output of this command:
 
 ```bash
 jq -n --rawfile c "$TLS_CERT_FILE" --rawfile k "$TLS_KEY_FILE" '{certificate: $c, private_key: $k}'
+```
+
+Without a gateway, add `llm_api_key` with your LLM provider key. With a Portkey
+gateway, add `llm_gateway_api_key` with the Portkey API key (any value for
+Portkey OSS) and, for Portkey OSS, `llm_gateway_extra_headers` with the output
+of this command:
+
+```bash
+jq -cn --arg cfg "$(jq -c . "$PORTKEY_CONFIG_FILE")" '{"x-portkey-config": $cfg}'
 ```
 
 For a certificate from a private CA, see
@@ -703,9 +730,12 @@ global:
       secretName: autoheal-tls
   llm:
     provider: $LLM_PROVIDER
-    endpoint: $LLM_ENDPOINT
     model: $LLM_MODEL
-    apiKeyVaultEntry: llm-api-key
+$(if [ -n "$LLM_GATEWAY_URL" ]; then
+  printf '    gateway:\n      enabled: true\n      kind: portkey\n      baseUrl: %s\n' "$LLM_GATEWAY_URL"
+else
+  printf '    endpoint: %s\n    apiKeyVaultEntry: llm-api-key\n' "$LLM_ENDPOINT"
+fi)
   sso:
     enabled: false
   imageRegistry: ""
@@ -715,7 +745,8 @@ cat "$VALUES_FILE"
 
 For an Azure OpenAI resource, the endpoint ends in `/openai/v1/`, and the
 resource also needs an embedding deployment named `text-embedding-3-large`.
-See Step 7 of [getting-started.md](getting-started.md).
+See Step 7 of [getting-started.md](getting-started.md). With a gateway, see
+[A Portkey gateway](#a-portkey-gateway).
 
 **With Terragrunt:**
 
@@ -829,6 +860,13 @@ az vmss run-command invoke -g "rg-$NAME_PREFIX-$ENVIRONMENT-autoheal" -n "$NAME_
 ```
 
 The log must show a connection to `$TEMPORAL_IP:7233`.
+
+With a gateway, model calls go to the gateway. Start a chat in Autoheal, then
+check that each line names the gateway address, not the provider:
+
+```bash
+kubectl logs -n "$K8S_NAMESPACE" deploy/agents-py-worker --since=10m | grep 'HTTP Request: POST'
+```
 
 Only the runner can reach Temporal. From your own machine, this command must
 time out:
@@ -1129,6 +1167,71 @@ these records, because the address is private.
 To find the zone of a name, ask for its name servers:
 `dig +short NS <zone>`. Azure DNS name servers end in `azure-dns.com`,
 `azure-dns.net`, `azure-dns.org` or `azure-dns.info`.
+
+### A Portkey gateway
+
+With `LLM_GATEWAY_URL` set, agents-py sends every model and embeddings call to
+the gateway, and the gateway calls the provider with its own keys. The gateway
+is not part of this install:
+
+- Run it where the agents-py pods reach it, for example as a service in its own
+  namespace of the cluster:
+  `http://portkey-gateway.llm-gateway.svc.cluster.local:8787/v1`. Portkey OSS
+  is the `portkeyai/gateway` image, on port 8787.
+- The gateway must route the embedding model `text-embedding-3-large` to a model
+  that returns 1024 dimensions.
+- For Portkey OSS, the config in `PORTKEY_CONFIG_FILE` holds the routing and
+  the provider keys. Hosted Portkey takes its config from the API key instead,
+  so leave `PORTKEY_CONFIG_FILE` empty.
+
+"Optional: an LLM gateway" in [getting-started.md](getting-started.md) has an
+example Portkey config for Azure OpenAI and Azure AI Foundry, and the other
+gateway kinds.
+
+### Get a TLS certificate
+
+The Autoheal proxy serves one certificate for the three names:
+`$AUTOHEAL_HOSTNAME`, `auth.$AUTOHEAL_HOSTNAME` and `auth-app.$AUTOHEAL_HOSTNAME`.
+Use the certificate of your organization when you have one. Otherwise, make one
+of these two.
+
+**Let's Encrypt.** A free certificate that browsers trust, valid for 90 days.
+To prove that you own the name, you add two TXT records in the DNS zone of the
+name while the command runs. It works for a private address too:
+
+```bash
+python3 -m venv "$WORK_DIR/certbot" && "$WORK_DIR/certbot/bin/pip" install -q certbot
+"$WORK_DIR/certbot/bin/certbot" certonly --manual --preferred-challenges dns \
+  -d "$AUTOHEAL_HOSTNAME" -d "*.$AUTOHEAL_HOSTNAME" \
+  --config-dir "$WORK_DIR/certbot/conf" --work-dir "$WORK_DIR/certbot/work" --logs-dir "$WORK_DIR/certbot/logs"
+export TLS_CERT_FILE="$WORK_DIR/certbot/conf/live/$AUTOHEAL_HOSTNAME/fullchain.pem"
+export TLS_KEY_FILE="$WORK_DIR/certbot/conf/live/$AUTOHEAL_HOSTNAME/privkey.pem"
+```
+
+certbot shows each TXT record to add, at `_acme-challenge.$AUTOHEAL_HOSTNAME`,
+and waits. Add it in your DNS provider, wait a minute, then press Enter. To
+renew, run the `certbot` command again before the 90 days end, then apply
+step 9.
+
+**Your own test CA.** Works at once, with nothing to prove. Browsers warn until
+you trust `ca.pem` on your machine. Autoheal trusts it through
+`TF_VAR_edge_ca_certificate`:
+
+```bash
+mkdir -p "$WORK_DIR/certs" && cd "$WORK_DIR/certs"
+openssl req -x509 -newkey rsa:4096 -sha256 -days 365 -nodes -keyout ca.key -out ca.pem -subj "/CN=Autoheal test CA"
+openssl req -newkey rsa:2048 -nodes -keyout privkey.pem -out server.csr -subj "/CN=$AUTOHEAL_HOSTNAME"
+printf 'subjectAltName=DNS:%s,DNS:auth.%s,DNS:auth-app.%s\nextendedKeyUsage=serverAuth\n' \
+  "$AUTOHEAL_HOSTNAME" "$AUTOHEAL_HOSTNAME" "$AUTOHEAL_HOSTNAME" > san.ext
+openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 365 -sha256 \
+  -extfile san.ext -out server.pem
+cat server.pem ca.pem > fullchain.pem
+export TLS_CERT_FILE="$WORK_DIR/certs/fullchain.pem" TLS_KEY_FILE="$WORK_DIR/certs/privkey.pem"
+export TF_VAR_edge_ca_certificate="$(cat ca.pem)"
+```
+
+With Terraform Enterprise, add `edge_ca_certificate` as a Terraform variable
+with the text of `ca.pem`.
 
 ### A certificate from a private CA
 

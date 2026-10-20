@@ -57,10 +57,10 @@ The runbook has two roles. One person can do both:
   - [12b. Check the runner](#12b-check-the-runner)
   - [12c. Check that only the runner reaches Temporal](#12c-check-that-only-the-runner-reaches-temporal)
   - [12d. Open Autoheal](#12d-open-autoheal)
-  - [12e. Check the model calls](#12e-check-the-model-calls): [Azure OpenAI](#12e-azure-openai), [Portkey](#12e-portkey)
+  - [12e. Sign in as the first admin](#12e-sign-in-as-the-first-admin): [Terragrunt](#12e-terragrunt), [Terraform Enterprise](#12e-terraform-enterprise)
+  - [12f. Check the model calls](#12f-check-the-model-calls): [Azure OpenAI](#12f-azure-openai), [Portkey](#12f-portkey)
 - [Step 13 (optional): Turn on single sign-on](#step-13-optional-turn-on-single-sign-on)
-  - [13a. Get the password of the first admin](#13a-get-the-password-of-the-first-admin): [Terragrunt](#13a-terragrunt), [Terraform Enterprise](#13a-terraform-enterprise)
-  - [13b. Add your identity provider](#13b-add-your-identity-provider)
+  - [13a. Add your identity provider](#13a-add-your-identity-provider)
 - [Troubleshooting](#troubleshooting)
 - [Upgrade](#upgrade): [Terragrunt](#upgrade-with-terragrunt), [Terraform Enterprise](#upgrade-with-terraform-enterprise)
 - [Remove](#remove): [Terragrunt](#remove-with-terragrunt), [Terraform Enterprise](#remove-with-terraform-enterprise), [the cluster owner's changes](#remove-the-cluster-owners-changes)
@@ -637,7 +637,7 @@ echo "$DEPLOYER_IPS"
 #### 8a: Terraform Enterprise
 
 The public egress addresses of the workers or agents, and the address of this
-machine, which reads the admin password in step 13a:
+machine, which reads the admin password in step 12e:
 
 ```bash
 export DEPLOYER_IPS="<address of the workers>/32 $(curl -s https://api.ipify.org)/32"   # several worker addresses: separate them with spaces
@@ -1151,11 +1151,41 @@ curl -sS -o /dev/null -w '%{http_code}\n' "https://$AUTOHEAL_HOSTNAME"
 echo "https://$AUTOHEAL_HOSTNAME"
 ```
 
-### 12e. Check the model calls
+### 12e. Sign in as the first admin
+
+Terraform made a password for the first admin, `$ADMIN_EMAIL`, and keeps it in
+the install vault as `first-admin-password`. Run the command on the machine of
+step 8a, which the vault firewall lets in.
+
+#### 12e: Terragrunt
+
+```bash
+export VAULT_NAME=$(cd "$WORK_DIR/acme-autoheal/prod/infra" && terragrunt output -json autoheal_values | jq -r .global.infra.keyVault.name)
+az keyvault secret show --subscription "$DATA_SUB" --vault-name "$VAULT_NAME" --name first-admin-password --query value -o tsv
+```
+
+#### 12e: Terraform Enterprise
+
+Only the workspace identity can read the vault, so the first command gives you
+read access. It can take a few minutes to take effect:
+
+```bash
+export VAULT_NAME=$(grep -A2 'keyVault:' "$WORK_DIR/values-infra.yaml" | sed -n 's/.*name: *//p')
+az role assignment create --assignee-object-id "$(az ad signed-in-user show --query id -o tsv)" \
+  --assignee-principal-type User --role "Key Vault Secrets User" \
+  --scope "$(az keyvault show --subscription "$DATA_SUB" -n "$VAULT_NAME" --query id -o tsv)" -o none
+az keyvault secret show --subscription "$DATA_SUB" --vault-name "$VAULT_NAME" --name first-admin-password --query value -o tsv
+```
+
+Then open `https://$AUTOHEAL_HOSTNAME`, and sign in as `$ADMIN_EMAIL` with that
+password. The login asks you for a new password. The vault keeps the first
+password only; it does not learn the new one.
+
+### 12f. Check the model calls
 
 Start a chat in Autoheal, then look for the model calls in the agents-py logs.
 
-#### 12e: Azure OpenAI
+#### 12f: Azure OpenAI
 
 The command must show lines with your Azure OpenAI resource:
 
@@ -1164,7 +1194,7 @@ kubectl logs -n "$K8S_NAMESPACE" deploy/agents-py-worker --since=10m | grep 'HTT
   grep "$(echo "$LLM_ENDPOINT" | cut -d/ -f3)"
 ```
 
-#### 12e: Portkey
+#### 12f: Portkey
 
 The command must show lines with the gateway address. Calls go to the gateway,
 not to the provider:
@@ -1180,41 +1210,15 @@ Single sign-on is set up after the install. The chart does not configure your
 identity provider in this version: you add it in the Zitadel console, which
 Autoheal uses for sign-in.
 
-### 13a. Get the password of the first admin
+### 13a. Add your identity provider
 
-The password is in the install vault.
+1. Open the Zitadel console, and sign in as `$ADMIN_EMAIL` with the password
+   that you set in step 12e:
 
-#### 13a: Terragrunt
+   ```bash
+   echo "https://auth.$AUTOHEAL_HOSTNAME/ui/console"
+   ```
 
-Run this on the machine of step 8a, which the vault firewall lets in:
-
-```bash
-az account set --subscription "$DATA_SUB"
-export VAULT_NAME=$(cd "$WORK_DIR/acme-autoheal/prod/infra" && terragrunt output -json autoheal_values | jq -r .global.infra.keyVault.name)
-az keyvault secret show --vault-name "$VAULT_NAME" --name first-admin-password --query value -o tsv
-echo "https://auth.$AUTOHEAL_HOSTNAME"
-```
-
-#### 13a: Terraform Enterprise
-
-Run this on the machine of step 8a, which the vault firewall lets in. Only the
-workspace identity can read the vault, so the first command gives you read
-access. It can take a few minutes to take effect:
-
-```bash
-az account set --subscription "$DATA_SUB"
-export VAULT_NAME=$(grep -A2 'keyVault:' "$WORK_DIR/values-infra.yaml" | sed -n 's/.*name: *//p')
-az role assignment create --assignee-object-id "$(az ad signed-in-user show --query id -o tsv)" \
-  --assignee-principal-type User --role "Key Vault Secrets User" \
-  --scope "$(az keyvault show -n "$VAULT_NAME" --query id -o tsv)" -o none
-az keyvault secret show --vault-name "$VAULT_NAME" --name first-admin-password --query value -o tsv
-echo "https://auth.$AUTOHEAL_HOSTNAME"
-```
-
-### 13b. Add your identity provider
-
-1. Open the address that step 13a shows, and sign in as `$ADMIN_EMAIL` with
-   that password. Zitadel asks for a new password.
 2. In your identity provider, for example Microsoft Entra ID, make an app
    registration for Autoheal, with a client secret.
 3. In the Zitadel console, add the identity provider with the client ID and the
@@ -1239,7 +1243,7 @@ Users then sign in to `https://$AUTOHEAL_HOSTNAME` with your identity provider.
 | Step 11b fails with Forbidden                                                         | The namespace role is missing or not in effect yet, or the namespace is not `$K8S_NAMESPACE` | Check step 6b and step 8c, wait, then try again                                                                |
 | The secrets-sync job fails to sign in to Key Vault                                    | `service_accounts.namespace` is not `$K8S_NAMESPACE`                                         | Fix it in step 8b and apply step 9a again                                                                      |
 | The proxy pod waits for the Secret `autoheal-tls`                                     | `tls_certificate` was not set in step 8d                                                     | Set it and apply step 9a again                                                                                 |
-| Step 13a shows `Forbidden` from Key Vault                                             | The vault firewall does not let in this machine, or you have no read access                  | Run it on the machine of step 8a. With Terraform Enterprise, wait a few minutes for the role grant             |
+| Step 12e shows `Forbidden` from Key Vault | The vault firewall does not let in this machine, or you have no read access | Run it on the machine of step 8a. With Terraform Enterprise, wait a few minutes for the role grant |
 | Pods wait for secrets, or show 403 from Key Vault                                     | The cluster's outbound addresses changed or are wrong                                        | Update `workload_egress_ip_ranges` and apply step 9a again                                                     |
 | Pods cannot reach Postgres                                                            | The same                                                                                     | The same                                                                                                       |
 | `temporal-frontend-public` stays `<pending>`                                          | The IP is not in the node resource group, or is not Standard and static                      | Do step 5a again                                                                                               |

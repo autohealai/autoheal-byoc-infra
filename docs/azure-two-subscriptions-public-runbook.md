@@ -4,9 +4,10 @@ This runbook installs Autoheal end to end on an AKS cluster that you already
 have. The cluster stays in its subscription (the **cluster subscription**).
 All the other Autoheal resources go in a second subscription (the **data
 subscription**). The two VNets are not connected. The data services use public
-endpoints with firewalls. Users and webhooks reach Autoheal on a public IP. [The one-pager](azure-two-subscriptions-public.md)
-explains the layout, and [the comparison](azure-subscription-options.md) shows
-its limits.
+endpoints with firewalls, and users and webhooks reach Autoheal on a public IP.
+[The one-pager](azure-two-subscriptions-public.md) explains the layout, and
+[the comparison](azure-subscription-options.md) shows its limits. The runbook
+uses autoheal-byoc-infra **v2.2.0**.
 
 The runbook has two roles. One person can do both:
 
@@ -61,6 +62,7 @@ The runbook has two roles. One person can do both:
   - [12f. Check the model calls](#12f-check-the-model-calls): [Azure OpenAI](#12f-azure-openai), [Portkey](#12f-portkey)
 - [Step 13 (optional): Turn on single sign-on](#step-13-optional-turn-on-single-sign-on)
   - [13a. Add your identity provider](#13a-add-your-identity-provider)
+- [Resume in a new shell](#resume-in-a-new-shell)
 - [Troubleshooting](#troubleshooting)
 - [Upgrade](#upgrade): [Terragrunt](#upgrade-with-terragrunt), [Terraform Enterprise](#upgrade-with-terraform-enterprise)
 - [Remove](#remove): [Terragrunt](#remove-with-terragrunt), [Terraform Enterprise](#remove-with-terraform-enterprise), [the cluster owner's changes](#remove-the-cluster-owners-changes)
@@ -110,7 +112,7 @@ option and skip the others. Sub-step 8d has one part for each pair of options.
 | 1 to 6: prepare the cluster          | 30 min                                | 10 to 15 min for step 3; none when you skip it |
 | 7 to 8: state or workspace, settings | 30 min (Terraform Enterprise: 45 min) |                                                |
 | 9: apply the infra                   | 5 min                                 | 30 to 45 min                                   |
-| 10: NSG rule                         | 5 min                                 |                                                |
+| 10: NSG rules                        | 5 min                                 |                                                |
 | 11: install the application          | 10 min                                | 10 to 20 min                                   |
 | 12: check                            | 10 min                                |                                                |
 | 13 (optional): single sign-on        | 20 min                                |                                                |
@@ -168,16 +170,13 @@ terragrunt --version                # Terragrunt
 helm version                        # Terraform Enterprise
 ```
 
-> **Version.** This layout needs autoheal-byoc-infra **2.2.0 or later**. Step
-> 1b sets `INFRA_REF` to the release tag `v2.2.0` when it exists, and to the
-> branch `feat/azure-two-subscriptions` until then. The later steps use it, so
-> you change nothing yourself.
-
 ## Step 1: Sign in and set your values
 
 Open one shell and keep it open. Every later step uses the variables you set
-here. When you open a new shell, run step 1 again. Steps 1 to 6 work from any
-folder. From step 7, the commands go to the folders that they need themselves.
+here and in steps 4 to 9. Keep a copy of your filled-in blocks of step 1: in a
+new shell, run them again, then [Resume in a new shell](#resume-in-a-new-shell).
+Steps 1 to 6 work from any folder. From step 7, the commands go to the folders
+that they need themselves.
 
 ### 1a. Sign in
 
@@ -226,13 +225,8 @@ export ADMIN_EMAIL="<email of the first admin>"
 export TLS_CERT_FILE="$HOME/certs/fullchain.pem"   # certificate chain for the three names; see "Get a TLS certificate" at the end
 export TLS_KEY_FILE="$HOME/certs/privkey.pem"      # its private key
 
-# The autoheal-byoc-infra version: the release tag when it exists, the branch until then
-export INFRA_REF=$(git ls-remote --tags https://github.com/autohealai/autoheal-byoc-infra.git refs/tags/v2.2.0 |
-  grep -q . && echo v2.2.0 || echo feat/azure-two-subscriptions)
-echo "INFRA_REF=$INFRA_REF"
-
 check_values WORK_DIR CLUSTER_SUB AKS_RG AKS_NAME K8S_NAMESPACE DATA_SUB LOCATION NAME_PREFIX ENVIRONMENT \
-  RUNNER_CIDR AUTOHEAL_HOSTNAME ADMIN_EMAIL TLS_CERT_FILE TLS_KEY_FILE INFRA_REF
+  RUNNER_CIDR AUTOHEAL_HOSTNAME ADMIN_EMAIL TLS_CERT_FILE TLS_KEY_FILE
 ```
 
 ### 1c. Set the Terraform values
@@ -373,6 +367,7 @@ and `keyVaultAddon`. Otherwise, run the command for each feature that does not
 show `true`:
 
 ```bash
+az account set --subscription "$CLUSTER_SUB"
 # oidcIssuer or workloadIdentity
 az aks update -g "$AKS_RG" -n "$AKS_NAME" --enable-oidc-issuer --enable-workload-identity
 # keyVaultAddon
@@ -386,6 +381,7 @@ Each command takes 5 to 10 minutes.
 ### 4a. Connect to the cluster
 
 ```bash
+az account set --subscription "$CLUSTER_SUB"
 az aks get-credentials -g "$AKS_RG" -n "$AKS_NAME" --overwrite-existing
 kubelogin convert-kubeconfig -l azurecli
 kubectl get --raw /readyz --request-timeout=20s; echo
@@ -498,6 +494,7 @@ in only these addresses, so they must stay fixed. For the `outboundType`
 `loadBalancer` from step 2, this command finds them:
 
 ```bash
+az account set --subscription "$CLUSTER_SUB"
 export EGRESS_IPS=$(az aks show -g "$AKS_RG" -n "$AKS_NAME" \
   --query "networkProfile.loadBalancerProfile.effectiveOutboundIPs[].id" -o tsv |
   xargs -n1 az network public-ip show --query ipAddress -o tsv --ids |
@@ -565,7 +562,7 @@ files that are there already, so it does not overwrite your edits:
 
 ```bash
 mkdir -p "$WORK_DIR" && cd "$WORK_DIR"
-[ -d autoheal-byoc-infra ] || git clone --branch "$INFRA_REF" https://github.com/autohealai/autoheal-byoc-infra.git
+[ -d autoheal-byoc-infra ] || git clone --branch v2.2.0 https://github.com/autohealai/autoheal-byoc-infra.git
 mkdir -p acme-autoheal
 [ -e acme-autoheal/root.hcl ] || cp autoheal-byoc-infra/examples/azure/root.hcl acme-autoheal/
 [ -e acme-autoheal/prod ] || cp -R autoheal-byoc-infra/examples/azure/split-public acme-autoheal/prod
@@ -610,8 +607,7 @@ az role assignment create --assignee "$APP_ID" --role "User Access Administrator
 Part B in [terraform-enterprise.md](terraform-enterprise.md):
 
 - Make the workspace `autoheal-infra-prod`, with the Terraform working
-  directory `compositions/azure`, on a branch of your copy that has 2.2.0 or
-  later. Set the workspace Terraform version to 1.7 or later.
+  directory `compositions/azure`, on a branch of your copy at the tag v2.2.0. Set the workspace Terraform version to 1.7 or later.
 - Add the four environment variables for the sign-in. `ARM_SUBSCRIPTION_ID`
   is `$DATA_SUB`. The composition reads the cluster in the cluster subscription
   with the same identity.
@@ -690,11 +686,10 @@ step 9b.
 #### 8c: Terragrunt
 
 **1. Write the infra folder** from the inputs. Its `source` line downloads our
-code at the release tag, or at the branch until the release:
+code at the tag `infra_version` in `versions.hcl`:
 
 ```bash
 cd "$WORK_DIR/acme-autoheal/prod/infra"
-[ "$INFRA_REF" = "v2.2.0" ] && SOURCE_REF='v${local.v.infra_version}' || SOURCE_REF="$INFRA_REF"
 {
   cat <<EOF
 # The cloud resources in the data subscription. Written by step 8c of
@@ -705,7 +700,7 @@ locals { v = read_terragrunt_config(find_in_parent_folders("versions.hcl")).loca
 include "root" { path = find_in_parent_folders("root.hcl") }
 
 terraform {
-  source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure?ref=$SOURCE_REF"
+  source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure?ref=v\${local.v.infra_version}"
 }
 
 inputs = {
@@ -718,13 +713,12 @@ EOF
 cat terragrunt.hcl
 ```
 
-**2. Set the namespace and the `source` line of the app folder:**
+**2. Set the namespace of the app folder:**
 
 ```bash
 cd "$WORK_DIR/acme-autoheal/prod/app"
 perl -pi -e 's/^(\s*namespace\s*=\s*)"[^"]*"/$1"$ENV{K8S_NAMESPACE}"/' terragrunt.hcl
-[ "$INFRA_REF" = "v2.2.0" ] || perl -pi -e 's/\?ref=v\$\{local\.v\.infra_version\}/?ref=$ENV{INFRA_REF}/' terragrunt.hcl
-grep -n 'source =\|^ *namespace ' terragrunt.hcl
+grep -n '^ *namespace ' terragrunt.hcl
 ```
 
 #### 8c: Terraform Enterprise
@@ -1227,6 +1221,52 @@ Autoheal uses for sign-in.
 
 Users then sign in to `https://$AUTOHEAL_HOSTNAME` with your identity provider.
 
+## Resume in a new shell
+
+The steps keep their results in shell variables. In a new shell, run your
+filled-in blocks of step 1 again, then this block. It reads the other values
+back from Azure, so it is safe to run at any time after the step that makes
+each value:
+
+```bash
+az account set --subscription "$CLUSTER_SUB"
+export AKS_ID=$(az aks show -g "$AKS_RG" -n "$AKS_NAME" --query id -o tsv)
+export AKS_SUBNET_ID=$(az aks show -g "$AKS_RG" -n "$AKS_NAME" --query "agentPoolProfiles[0].vnetSubnetId" -o tsv)
+export NODE_RG=$(az aks show -g "$AKS_RG" -n "$AKS_NAME" --query nodeResourceGroup -o tsv)
+export TEMPORAL_IP=$(az network public-ip show -g "$NODE_RG" -n pip-autoheal-temporal --query ipAddress -o tsv)
+export PROXY_IP=$(az network public-ip show -g "$NODE_RG" -n pip-autoheal-proxy --query ipAddress -o tsv 2>/dev/null || echo "$TEMPORAL_IP")
+export EGRESS_IPS=$(az aks show -g "$AKS_RG" -n "$AKS_NAME" \
+  --query "networkProfile.loadBalancerProfile.effectiveOutboundIPs[].id" -o tsv |
+  xargs -n1 az network public-ip show --query ipAddress -o tsv --ids |
+  sed 's|$|/32|' | paste -sd' ' -)
+export NSG_ID=$(az network vnet subnet show --ids "$AKS_SUBNET_ID" --query networkSecurityGroup.id -o tsv)
+[ -z "$NSG_ID" ] || export NSG_RG=$(echo "$NSG_ID" | cut -d/ -f5) NSG_NAME=$(echo "$NSG_ID" | cut -d/ -f9)
+check_values AKS_ID AKS_SUBNET_ID NODE_RG TEMPORAL_IP PROXY_IP EGRESS_IPS
+```
+
+For another `outboundType`, set `EGRESS_IPS` as in
+[Other outbound types](#other-outbound-types). Then the values of steps 8a and
+9a, for your option.
+
+#### Resume: Terragrunt
+
+```bash
+export DEPLOYER_IPS="$(curl -s https://api.ipify.org)/32"
+export RUNNER_IP=$(cd "$WORK_DIR/acme-autoheal/prod/infra" && terragrunt output -json temporal_public_endpoint 2>/dev/null |
+  jq -r '.allowed_source_ranges[0] // empty' | cut -d/ -f1)
+echo "RUNNER_IP=${RUNNER_IP:-none yet: step 9a makes it}"
+```
+
+#### Resume: Terraform Enterprise
+
+```bash
+export DEPLOYER_IPS="<address of the workers>/32 $(curl -s https://api.ipify.org)/32"   # as in step 8a
+export RUNNER_IP="<the address from the Outputs tab, without /32>"                     # as in step 9a
+```
+
+The secrets of step 8d are not kept anywhere on your machine: set them again
+before you apply step 9a.
+
 ## Troubleshooting
 
 | Symptom                                                                               | Cause                                                                                        | Fix                                                                                                            |
@@ -1258,8 +1298,8 @@ The cluster owner does not have to give new permissions.
 
 ### Upgrade with Terragrunt
 
-Set the two new numbers, then apply step 9a and step 11b again. The command
-also points the `source` lines at the release tag:
+Set the two new numbers in `versions.hcl`, then apply step 9a and step 11b
+again. Both `source` lines follow `infra_version`:
 
 ```bash
 export NEW_INFRA_VERSION="<new autoheal-byoc-infra version, for example 2.2.1>"
@@ -1267,8 +1307,7 @@ export NEW_CHART_VERSION="<new chart version>"
 cd "$WORK_DIR/acme-autoheal/prod"
 perl -pi -e 's/^(\s*infra_version\s*=\s*)"[^"]*"/$1"$ENV{NEW_INFRA_VERSION}"/;
              s/^(\s*chart_version\s*=\s*)"[^"]*"/$1"$ENV{NEW_CHART_VERSION}"/' versions.hcl
-perl -pi -e 's/\?ref=[^"]*"/?ref=v\$\{local.v.infra_version}"/' infra/terragrunt.hcl app/terragrunt.hcl
-grep -n 'version' versions.hcl; grep -n 'source =' infra/terragrunt.hcl app/terragrunt.hcl
+grep -n 'version' versions.hcl
 ```
 
 ### Upgrade with Terraform Enterprise

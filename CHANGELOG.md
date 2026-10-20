@@ -6,8 +6,10 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-10-20
+
 An AKS cluster in another subscription, over connected VNets or over public
-endpoints, for 2.2.0. Installs that keep the cluster in `subscription_id`
+endpoints, and a public Autoheal proxy. Installs that keep the cluster in `subscription_id`
 change no Azure resource: the plan adds only
 `terraform_data.validate_subscriptions`, a plan-time check, and the new output
 values. The subnets in `modules/azure/vnet` move to `[0]` addresses through

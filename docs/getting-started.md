@@ -441,7 +441,7 @@ later; no DynamoDB table is needed.
   ```bash
   export TF_VAR_llm_api_key="..."               # if your LLM provider uses a key; not with Bedrock or an LLM gateway
   export TF_VAR_postgres_admin_password="..."   # only with existing_postgres_arn
-  export TF_VAR_redis_auth_token="..."          # only with an existing_redis_arn that has AUTH on
+  export TF_VAR_redis_auth_token="..."          # only with existing_redis_arn (AUTH must be on)
   export TF_VAR_llm_gateway_api_key="..."       # only with an LLM gateway; see "Optional: an LLM gateway"
   ```
 

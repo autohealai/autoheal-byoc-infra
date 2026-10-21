@@ -43,8 +43,13 @@ One file per building block.
 Impossible mixes stop the plan with a message saying what to change, for example
 a brought cluster without `existing_network` or in another VPC, an ARN in
 another region or account, a PostgreSQL engine older than 15, a Redis in cluster
-mode, a bucket in another region, a KMS key that is not symmetric, a hostname
-outside the zone, or a VPC with no NAT gateway and no interface endpoints.
+mode or with AUTH off, a bucket in another region, a KMS key that is not
+symmetric, a hostname outside the zone, or a VPC with no NAT gateway and no
+interface endpoints.
+
+We change no security group of a brought database or Redis.
+`required_datastore_owner_actions` lists the rule its owner adds so the pods can
+connect.
 
 The provider refuses to run with credentials for any account other than
 `account_id`.
@@ -217,8 +222,9 @@ multipart cleanup and expiry of old versions after
 `s3_noncurrent_version_expiration_days`. api-server-go adds the Git Registry
 lifecycle rules to the tenant bucket at startup, so Terraform leaves its rules
 alone. `tenant_bucket_prefix` defaults to `<namespace>-<environment>-<name>-`;
-it is at most 27 characters (a bucket name is at most 63 and the tenant ID 36)
-and cannot change after install. S3 names are global, so a name taken in another
+it is 8 to 27 characters (a bucket name is at most 63 and the tenant ID 36, and
+the api-server role may use every bucket named `<prefix>*`) and cannot change
+after install. S3 names are global, so a name taken in another
 account fails the apply.
 
 ## Encryption
@@ -270,6 +276,7 @@ launch template starts an instance refresh.
 | `required_role_assignments` | Pod Identity association commands for an administrator, filled when `create_pod_identity_associations = false`. |
 | `required_dns_records` | Records for a person to create (`name`, `type`, `value`), filled when we do not create them. |
 | `required_cluster_owner_actions` | What the owner of a brought cluster must do, as readable lines: an access entry and IAM permissions for the deployer, the Pod Identity agent and Secrets Store CSI add-ons, the AWS Load Balancer Controller, and, when they apply, a path to a private API endpoint and image pull access for the nodes. Filled only with `existing_eks_cluster_arn`. |
+| `required_datastore_owner_actions` | What the owner of a brought database or Redis must do: a security group rule letting the pods in on its port. Filled only with `existing_postgres_arn` or `existing_redis_arn`. |
 | `network` | `vpc_id`, `vpc_cidr_block`, `private_subnet_ids`, `runner_subnet_ids`, `data_subnet_ids`, `public_subnet_ids`. |
 
 `autoheal_values` keys:

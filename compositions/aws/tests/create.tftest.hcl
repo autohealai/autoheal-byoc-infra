@@ -441,6 +441,11 @@ run "cluster_access" {
     condition     = length(output.required_cluster_owner_actions) == 0
     error_message = "A cluster we create needs nothing from an owner."
   }
+
+  assert {
+    condition     = length(output.required_datastore_owner_actions) == 0
+    error_message = "Data stores we create need nothing from an owner."
+  }
 }
 
 run "cluster_viewer_permission_set" {

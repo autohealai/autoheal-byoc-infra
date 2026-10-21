@@ -174,6 +174,17 @@ locals {
     local.create_redis ? module.redis[0].port : data.aws_elasticache_replication_group.existing[0].port
   )
 
+  # Listed in the required_datastore_owner_actions output. We change no security
+  # group of a brought data store, so its owner lets the pods in.
+  datastore_owner_actions = concat(
+    local.create_postgres ? [] : [
+      "A security group rule on database ${local.existing.postgres.id} allowing TCP 5432 from ${local.node_security_group_id}, the security group the cluster's pods run with",
+    ],
+    local.create_redis || !local.redis_enabled ? [] : [
+      "A security group rule on ElastiCache replication group ${local.existing.redis.id} allowing TCP ${local.redis_port} from ${local.node_security_group_id}, the security group the cluster's pods run with",
+    ],
+  )
+
   attachments_bucket = local.create_attachments_bucket ? module.attachments_bucket[0].bucket_id : local.existing.attachments_bucket
   artifacts_bucket   = local.create_artifacts_bucket ? module.artifacts_bucket[0].bucket_id : local.existing.artifacts_bucket
 

@@ -145,7 +145,7 @@ the secrets KMS key:
 |----------|--------|------|
 | `TF_VAR_llm_api_key` | `llm-api-key` | When your LLM provider uses an API key and the chart's LLM gateway is off. Not with Bedrock, which uses the agents' Pod Identity roles. |
 | `TF_VAR_postgres_admin_password` | `postgres-admin-password` | Only with `existing_postgres_arn`; for a database we create, Terraform generates it |
-| `TF_VAR_redis_auth_token` | `redis-access-key` | Only with an `existing_redis_arn` that has AUTH on |
+| `TF_VAR_redis_auth_token` | `redis-access-key` | Only with `existing_redis_arn`, which must have AUTH on |
 | `TF_VAR_sso_client_secret` | `sso-client-secret` | When SSO is on |
 | `TF_VAR_tls_certificate` | `tls-certificate`, `tls-private-key` | When the edge serves your own certificate; an HCL object `{ certificate = "<PEM chain>", private_key = "<PEM>" }` |
 | `TF_VAR_github_app_private_key` | `github-app-private-key` | When you connect a GitHub App; the PEM, which Terraform stores base64-encoded |

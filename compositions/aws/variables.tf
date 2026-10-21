@@ -287,7 +287,7 @@ variable "existing_eks_cluster_arn" {
 variable "existing_postgres_arn" {
   type        = string
   default     = ""
-  description = "ARN of an Aurora PostgreSQL cluster (arn:aws:rds:<region>:<account>:cluster:<id>) or an RDS for PostgreSQL instance (...:db:<id>) you already have, version 15 or later, port 5432, reachable from the cluster's nodes. Its admin password must be passed as postgres_admin_password."
+  description = "ARN of an Aurora PostgreSQL cluster (arn:aws:rds:<region>:<account>:cluster:<id>) or an RDS for PostgreSQL instance (...:db:<id>) you already have, version 15 or later, port 5432, reachable from the cluster's nodes. Its admin password must be passed as postgres_admin_password. required_datastore_owner_actions lists the security group rule it needs."
 
   validation {
     condition     = var.existing_postgres_arn == "" || can(regex("^arn:aws[a-z-]*:rds:[a-z0-9-]+:[0-9]{12}:(cluster|db):[a-z][a-z0-9-]*$", var.existing_postgres_arn))
@@ -298,7 +298,7 @@ variable "existing_postgres_arn" {
 variable "existing_redis_arn" {
   type        = string
   default     = ""
-  description = "ARN of an ElastiCache replication group (Valkey or Redis OSS, cluster mode disabled, encryption in transit on) you already have: arn:aws:elasticache:<region>:<account>:replicationgroup:<id>. Pass its AUTH token as redis_auth_token."
+  description = "ARN of an ElastiCache replication group (Valkey or Redis OSS, cluster mode disabled, encryption in transit and AUTH on) you already have, reachable from the cluster's nodes: arn:aws:elasticache:<region>:<account>:replicationgroup:<id>. Pass its AUTH token as redis_auth_token. required_datastore_owner_actions lists the security group rule it needs."
 
   validation {
     condition     = var.existing_redis_arn == "" || can(regex("^arn:aws[a-z-]*:elasticache:[a-z0-9-]+:[0-9]{12}:replicationgroup:[a-z][a-z0-9-]*$", var.existing_redis_arn))
@@ -392,17 +392,18 @@ variable "artifacts_bucket_name" {
 variable "tenant_bucket_prefix" {
   type        = string
   default     = ""
-  description = "Prefix of the per-tenant bucket api-server-go uses for the Git Registry and tool outputs: <prefix><tenant id>. Empty means <namespace>-<environment>-<name>-. At most 27 characters, since a bucket name is at most 63 and the tenant ID is 36. Cannot change after install."
+  description = "Prefix of the per-tenant bucket api-server-go uses for the Git Registry and tool outputs: <prefix><tenant id>. Empty means <namespace>-<environment>-<name>-. 8 to 27 characters: a bucket name is at most 63 and the tenant ID is 36, and the api-server role may use every bucket named <prefix>*. Cannot change after install."
 
   validation {
     condition = var.tenant_bucket_prefix == "" || (
       can(regex("^[a-z0-9][a-z0-9-]*$", var.tenant_bucket_prefix)) &&
+      length(var.tenant_bucket_prefix) >= 8 &&
       length(var.tenant_bucket_prefix) <= 27 &&
       !strcontains(var.tenant_bucket_prefix, "--") &&
       !startswith(var.tenant_bucket_prefix, "sthree-") &&
       !startswith(var.tenant_bucket_prefix, "amzn-s3-demo-")
     )
-    error_message = "tenant_bucket_prefix must be at most 27 lowercase letters, digits and hyphens, starting with a letter or digit, without -- and not starting with sthree- or amzn-s3-demo-."
+    error_message = "tenant_bucket_prefix must be 8 to 27 lowercase letters, digits and hyphens, starting with a letter or digit, without -- and not starting with sthree- or amzn-s3-demo-."
   }
 }
 
@@ -846,7 +847,7 @@ variable "redis_auth_token" {
   type        = string
   default     = ""
   sensitive   = true
-  description = "AUTH token of a brought ElastiCache replication group (required with existing_redis_arn when it has AUTH on). Ignored for one we create, which gets a generated token. Stored in Secrets Manager as redis-access-key."
+  description = "AUTH token of a brought ElastiCache replication group, required with existing_redis_arn. Ignored for one we create, which gets a generated token. Stored in Secrets Manager as redis-access-key."
 }
 
 variable "llm_api_key" {

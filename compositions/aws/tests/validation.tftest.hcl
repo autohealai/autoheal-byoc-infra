@@ -132,6 +132,28 @@ run "tenant_prefix_too_long" {
   expect_failures = [var.tenant_bucket_prefix]
 }
 
+run "tenant_prefix_too_short" {
+  command = plan
+
+  variables {
+    tenant_bucket_prefix = "acme-ah"
+  }
+
+  expect_failures = [var.tenant_bucket_prefix]
+}
+
+run "derived_tenant_prefix_too_short" {
+  command = plan
+
+  variables {
+    namespace   = "a"
+    environment = "b"
+    name        = "c"
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}
+
 run "zone_missing" {
   command = plan
 
@@ -185,11 +207,12 @@ run "redis_arn_with_redis_off" {
   variables {
     redis_enabled      = false
     existing_redis_arn = "arn:aws:elasticache:us-west-2:123456789012:replicationgroup:acme-redis"
+    redis_auth_token   = "brought-redis-token"
   }
 
   override_data {
     target = data.aws_elasticache_replication_group.existing
-    values = { primary_endpoint_address = "master.acme-redis.abc.usw2.cache.amazonaws.com", port = 6379, auth_token_enabled = false }
+    values = { primary_endpoint_address = "master.acme-redis.abc.usw2.cache.amazonaws.com", port = 6379, auth_token_enabled = true }
   }
 
   expect_failures = [terraform_data.validate_inputs]

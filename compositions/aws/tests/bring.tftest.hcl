@@ -183,6 +183,15 @@ run "everything_brought" {
     )
     error_message = "required_cluster_owner_actions should list the access entry, IAM, add-ons, controller, private endpoint and registry."
   }
+
+  assert {
+    condition = (
+      length(output.required_datastore_owner_actions) == 2 &&
+      strcontains(output.required_datastore_owner_actions[0], "database acme-pg allowing TCP 5432 from sg-0cluster0000000000") &&
+      strcontains(output.required_datastore_owner_actions[1], "replication group acme-redis allowing TCP 6379 from sg-0cluster0000000000")
+    )
+    error_message = "required_datastore_owner_actions should list the database and Redis rules for the pods' security group."
+  }
 }
 
 run "brought_cluster_public_endpoint" {
@@ -320,6 +329,17 @@ run "redis_token_missing" {
 
   variables {
     redis_auth_token = ""
+  }
+
+  expect_failures = [terraform_data.redis_guard]
+}
+
+run "redis_auth_off" {
+  command = plan
+
+  override_data {
+    target = data.aws_elasticache_replication_group.existing
+    values = { primary_endpoint_address = "master.acme-redis.abc.usw2.cache.amazonaws.com", port = 6379, auth_token_enabled = false }
   }
 
   expect_failures = [terraform_data.redis_guard]

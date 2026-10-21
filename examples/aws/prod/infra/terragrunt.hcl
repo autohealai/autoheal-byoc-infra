@@ -50,8 +50,8 @@ inputs = {
   # existing_registry_url           = "111111111111.dkr.ecr.us-west-2.amazonaws.com/autoheal" # a mirror of the Autoheal images
   #
   # With existing_postgres_arn, pass the database's master password as
-  # TF_VAR_postgres_admin_password from the pipeline's secret store. With an
-  # existing_redis_arn that has AUTH on, pass TF_VAR_redis_auth_token.
+  # TF_VAR_postgres_admin_password from the pipeline's secret store. With
+  # existing_redis_arn (AUTH must be on), pass TF_VAR_redis_auth_token.
 
   # Pod Identity associations. true: Terraform creates them. false: an
   # administrator runs the commands in the required_role_assignments output,

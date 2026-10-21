@@ -46,6 +46,10 @@ resource "terraform_data" "validate_inputs" {
       error_message = "The tenant bucket prefix ${local.tenant_bucket_prefix} is longer than 27 characters, so <prefix><tenant id> would exceed S3's 63. Set tenant_bucket_prefix, or shorten namespace, environment or name."
     }
     precondition {
+      condition     = length(local.tenant_bucket_prefix) >= 8
+      error_message = "The tenant bucket prefix ${local.tenant_bucket_prefix} is shorter than 8 characters. The api-server role may use every bucket named <prefix>*, so a short prefix would reach unrelated buckets in the account. Set tenant_bucket_prefix."
+    }
+    precondition {
       condition     = can(regex("^[a-z0-9][a-z0-9-]*$", local.tenant_bucket_prefix)) && !strcontains(local.tenant_bucket_prefix, "--") && !startswith(local.tenant_bucket_prefix, "sthree-") && !startswith(local.tenant_bucket_prefix, "amzn-s3-demo-")
       error_message = "The tenant bucket prefix ${local.tenant_bucket_prefix} is not a valid S3 name start: lowercase letters, digits and single hyphens only. Set tenant_bucket_prefix."
     }
@@ -166,9 +170,15 @@ resource "terraform_data" "redis_guard" {
       condition     = data.aws_elasticache_replication_group.existing[0].primary_endpoint_address != ""
       error_message = "ElastiCache replication group ${local.existing.redis.id} has no primary endpoint, so it runs in cluster mode. Autoheal needs cluster mode disabled."
     }
+    # The chart always reads the redis-access-key secret, and Secrets Manager
+    # does not store an empty one.
     precondition {
-      condition     = !data.aws_elasticache_replication_group.existing[0].auth_token_enabled || nonsensitive(var.redis_auth_token != "")
-      error_message = "ElastiCache replication group ${local.existing.redis.id} has AUTH on, so redis_auth_token is required. Pass it as TF_VAR_redis_auth_token from the pipeline's secret store."
+      condition     = data.aws_elasticache_replication_group.existing[0].auth_token_enabled
+      error_message = "ElastiCache replication group ${local.existing.redis.id} has AUTH off. Autoheal connects with an AUTH token, like the Redis we create: turn AUTH on (it needs encryption in transit) and pass the token as redis_auth_token."
+    }
+    precondition {
+      condition     = nonsensitive(var.redis_auth_token != "")
+      error_message = "ElastiCache replication group ${local.existing.redis.id} is brought, so redis_auth_token is required. Pass it as TF_VAR_redis_auth_token from the pipeline's secret store."
     }
   }
 }

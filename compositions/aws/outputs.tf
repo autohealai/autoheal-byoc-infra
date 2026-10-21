@@ -12,6 +12,9 @@
 #   required_cluster_owner_actions
 #                              what the owner of a brought cluster must do, filled
 #                              only for a brought cluster
+#   required_datastore_owner_actions
+#                              what the owner of a brought database or Redis must
+#                              do, filled only for a brought data store
 #   network                   the VPC and subnets Autoheal runs in, created or
 #                              brought
 #
@@ -55,6 +58,11 @@ output "required_dns_records" {
 output "required_cluster_owner_actions" {
   description = "What the owner of a brought EKS cluster must do, as readable lines: the deployer's access entry and IAM permissions, the Pod Identity agent and Secrets Store CSI add-ons, the AWS Load Balancer Controller and, when they apply, a path to a private API endpoint and image pull access for the nodes. Filled only when existing_eks_cluster_arn is set."
   value       = local.cluster_owner_actions
+}
+
+output "required_datastore_owner_actions" {
+  description = "What the owner of a brought database or ElastiCache replication group must do, as readable lines: a security group rule letting the cluster's pods in on its port. Filled only when existing_postgres_arn or existing_redis_arn is set."
+  value       = local.datastore_owner_actions
 }
 
 output "network" {

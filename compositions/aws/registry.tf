@@ -17,7 +17,8 @@ module "ecr" {
   attributes  = ["registry"]
   tags        = var.tags
 
-  repository_prefix = local.registry_prefix
+  repository_prefix  = local.registry_prefix
+  upstream_namespace = local.public_registry_namespace
 }
 
 resource "aws_iam_policy" "ecr_pull_through" {

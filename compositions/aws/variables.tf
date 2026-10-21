@@ -895,6 +895,17 @@ variable "tls_certificate" {
   default     = null
   sensitive   = true
   description = "Corporate TLS certificate (PEM, full chain) and private key (PEM) for the three hostnames. Stored as tls-certificate and tls-private-key. The proxy terminates TLS with it in loadbalancer mode."
+
+  # Secrets Manager does not store an empty value, so an empty field would fail
+  # the apply halfway. try() because Terraform 1.7 does not short-circuit ||.
+  validation {
+    condition = var.tls_certificate == null || try(
+      startswith(trimspace(var.tls_certificate.certificate), "-----BEGIN CERTIFICATE-----") &&
+      can(regex("^-----BEGIN [A-Z ]*PRIVATE KEY-----", trimspace(var.tls_certificate.private_key))),
+      false
+    )
+    error_message = "tls_certificate needs a PEM certificate (full chain) and a PEM private key. Leave it unset when the edge does not serve your own certificate."
+  }
 }
 
 variable "edge_ca_certificate" {

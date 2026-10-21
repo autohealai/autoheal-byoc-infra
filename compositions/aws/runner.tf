@@ -50,7 +50,7 @@ module "runner" {
 
 locals {
   runner_image_repository = var.runner_image_repository != "" ? var.runner_image_repository : (
-    local.image_registry != "" ? "${local.image_registry}/app/runner-go" : "public.ecr.aws/e4h3h0d9/app/runner-go"
+    local.image_registry != "" ? "${local.image_registry}/app/runner-go" : "public.ecr.aws/${local.public_registry_namespace}/app/runner-go"
   )
   runner_image = "${local.runner_image_repository}:${var.runner_image_tag != "" ? var.runner_image_tag : "chart-${var.autoheal_version}"}"
 

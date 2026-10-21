@@ -198,9 +198,13 @@ locals {
   # Registry the chart and the runner VMs pull from, as host/path, or "" for the
   # public registry. An ECR registry host is known at plan time.
   ecr_registry_host = "${var.account_id}.dkr.ecr.${var.region}.${local.dns_suffix}"
+  # The public Autoheal registry is public.ecr.aws/<namespace>. The pull-through
+  # cache keeps that path under <prefix>/, so the namespace is passed to the
+  # ecr module from here rather than taken from its default.
+  public_registry_namespace = "e4h3h0d9"
   image_registry = (
     var.existing_registry_url != "" ? var.existing_registry_url :
-    local.create_registry ? "${local.ecr_registry_host}/${local.registry_prefix}/e4h3h0d9" : ""
+    local.create_registry ? "${local.ecr_registry_host}/${local.registry_prefix}/${local.public_registry_namespace}" : ""
   )
 
   # --- DNS ------------------------------------------------------------------

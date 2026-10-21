@@ -154,6 +154,37 @@ run "derived_tenant_prefix_too_short" {
   expect_failures = [terraform_data.validate_inputs]
 }
 
+run "tls_certificate_empty" {
+  command = plan
+
+  variables {
+    tls_certificate = { certificate = "", private_key = "" }
+  }
+
+  expect_failures = [var.tls_certificate]
+}
+
+run "tls_private_key_missing" {
+  command = plan
+
+  variables {
+    tls_certificate = { certificate = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----", private_key = "" }
+  }
+
+  expect_failures = [var.tls_certificate]
+}
+
+run "tls_certificate_pem" {
+  command = plan
+
+  variables {
+    tls_certificate = {
+      certificate = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----"
+      private_key = "-----BEGIN EC PRIVATE KEY-----\nMHcC\n-----END EC PRIVATE KEY-----"
+    }
+  }
+}
+
 run "zone_missing" {
   command = plan
 

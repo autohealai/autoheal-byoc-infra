@@ -197,7 +197,7 @@ run "brought_cluster_public_endpoint" {
   }
 
   override_data {
-    target = data.aws_eks_cluster.existing[0]
+    target = data.aws_eks_cluster.existing
     values = {
       endpoint              = "https://ABCDEF.gr7.us-west-2.eks.amazonaws.com"
       status                = "ACTIVE"
@@ -271,7 +271,7 @@ run "postgres_too_old" {
   command = plan
 
   override_data {
-    target = data.aws_rds_cluster.existing[0]
+    target = data.aws_rds_cluster.existing
     values = { engine = "aurora-postgresql", engine_version = "14.9", port = 5432 }
   }
 
@@ -282,7 +282,7 @@ run "postgres_wrong_engine" {
   command = plan
 
   override_data {
-    target = data.aws_rds_cluster.existing[0]
+    target = data.aws_rds_cluster.existing
     values = { engine = "aurora-mysql", engine_version = "8.0.mysql_aurora.3.05.2", port = 3306 }
   }
 
@@ -293,7 +293,7 @@ run "cluster_in_other_vpc" {
   command = plan
 
   override_data {
-    target = data.aws_eks_cluster.existing[0]
+    target = data.aws_eks_cluster.existing
     values = {
       status                = "ACTIVE"
       certificate_authority = [{ data = "Q0E=" }]
@@ -308,7 +308,7 @@ run "redis_cluster_mode" {
   command = plan
 
   override_data {
-    target = data.aws_elasticache_replication_group.existing[0]
+    target = data.aws_elasticache_replication_group.existing
     values = { primary_endpoint_address = "", port = 6379, auth_token_enabled = true }
   }
 
@@ -329,7 +329,7 @@ run "bucket_in_other_region" {
   command = plan
 
   override_data {
-    target = data.aws_s3_bucket.existing["artifacts"]
+    target = data.aws_s3_bucket.existing
     values = { bucket_region = "eu-west-1" }
   }
 
@@ -340,7 +340,7 @@ run "kms_key_asymmetric" {
   command = plan
 
   override_data {
-    target = data.aws_kms_key.existing[0]
+    target = data.aws_kms_key.existing
     values = { enabled = true, key_spec = "RSA_2048", key_usage = "SIGN_VERIFY" }
   }
 

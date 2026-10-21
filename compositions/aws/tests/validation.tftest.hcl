@@ -172,7 +172,7 @@ run "arn_in_other_region" {
   }
 
   override_data {
-    target = data.aws_kms_key.existing[0]
+    target = data.aws_kms_key.existing
     values = { enabled = true, key_spec = "SYMMETRIC_DEFAULT", key_usage = "ENCRYPT_DECRYPT" }
   }
 
@@ -188,7 +188,7 @@ run "redis_arn_with_redis_off" {
   }
 
   override_data {
-    target = data.aws_elasticache_replication_group.existing[0]
+    target = data.aws_elasticache_replication_group.existing
     values = { primary_endpoint_address = "master.acme-redis.abc.usw2.cache.amazonaws.com", port = 6379, auth_token_enabled = false }
   }
 
@@ -203,7 +203,7 @@ run "brought_cluster_without_network" {
   }
 
   override_data {
-    target = data.aws_eks_cluster.existing[0]
+    target = data.aws_eks_cluster.existing
     values = {
       endpoint              = "https://ABCDEF.gr7.us-west-2.eks.amazonaws.com"
       status                = "ACTIVE"
@@ -233,7 +233,7 @@ run "permission_set_not_assigned" {
   }
 
   override_data {
-    target = data.aws_iam_roles.sso["sso-admin-AutohealAdmin"]
+    target = data.aws_iam_roles.sso
     values = { arns = [] }
   }
 
@@ -260,7 +260,7 @@ run "permission_set_also_by_arn" {
   }
 
   override_data {
-    target = data.aws_iam_roles.sso["sso-admin-AutohealAdmin"]
+    target = data.aws_iam_roles.sso
     values = { arns = ["arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_AutohealAdmin_0123456789abcdef"] }
   }
 

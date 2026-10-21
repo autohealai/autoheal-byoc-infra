@@ -395,33 +395,28 @@ run "private_vpc" {
   }
 }
 
+# OpenTofu overrides every instance of a data source, so each run looks up one
+# permission set: an override target with an instance key fails there.
 run "cluster_access" {
   command = plan
 
   variables {
-    cluster_admin_principal_arns       = ["arn:aws:iam::123456789012:role/break-glass"]
-    cluster_viewer_principal_arns      = ["arn:aws:iam::123456789012:role/audit"]
-    cluster_admin_sso_permission_sets  = ["AutohealAdmin"]
-    cluster_viewer_sso_permission_sets = ["Ops.View+1"]
+    cluster_admin_principal_arns      = ["arn:aws:iam::123456789012:role/break-glass"]
+    cluster_viewer_principal_arns     = ["arn:aws:iam::123456789012:role/audit"]
+    cluster_admin_sso_permission_sets = ["AutohealAdmin"]
   }
 
   override_data {
-    target = data.aws_iam_roles.sso["sso-admin-AutohealAdmin"]
+    target = data.aws_iam_roles.sso
     values = { arns = ["arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/us-west-2/AWSReservedSSO_AutohealAdmin_0123456789abcdef"] }
-  }
-
-  override_data {
-    target = data.aws_iam_roles.sso["sso-viewer-Ops.View+1"]
-    values = { arns = ["arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_Ops.View+1_fedcba9876543210"] }
   }
 
   assert {
     condition = (
       data.aws_iam_roles.sso["sso-admin-AutohealAdmin"].name_regex == "^AWSReservedSSO_AutohealAdmin_[0-9a-f]+$" &&
-      data.aws_iam_roles.sso["sso-viewer-Ops.View+1"].name_regex == "^AWSReservedSSO_Ops\\.View\\+1_[0-9a-f]+$" &&
       data.aws_iam_roles.sso["sso-admin-AutohealAdmin"].path_prefix == "/aws-reserved/sso.amazonaws.com/"
     )
-    error_message = "Permission sets should be looked up by role name, with regex operators escaped."
+    error_message = "Permission sets should be looked up by role name under the Identity Center path."
   }
 
   assert {
@@ -438,10 +433,6 @@ run "cluster_access" {
         principal_arn = "arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/us-west-2/AWSReservedSSO_AutohealAdmin_0123456789abcdef"
         policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
       }
-      "sso-viewer-Ops.View+1" = {
-        principal_arn = "arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_Ops.View+1_fedcba9876543210"
-        policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy"
-      }
     }
     error_message = "Access entries should give admins the cluster admin policy and viewers the view policy."
   }
@@ -449,5 +440,31 @@ run "cluster_access" {
   assert {
     condition     = length(output.required_cluster_owner_actions) == 0
     error_message = "A cluster we create needs nothing from an owner."
+  }
+}
+
+run "cluster_viewer_permission_set" {
+  command = plan
+
+  variables {
+    cluster_viewer_sso_permission_sets = ["Ops.View+1"]
+  }
+
+  override_data {
+    target = data.aws_iam_roles.sso
+    values = { arns = ["arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_Ops.View+1_fedcba9876543210"] }
+  }
+
+  assert {
+    condition     = data.aws_iam_roles.sso["sso-viewer-Ops.View+1"].name_regex == "^AWSReservedSSO_Ops\\.View\\+1_[0-9a-f]+$"
+    error_message = "Regex operators in a permission set name should be escaped."
+  }
+
+  assert {
+    condition = local.cluster_access_entries["sso-viewer-Ops.View+1"] == {
+      principal_arn = "arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_Ops.View+1_fedcba9876543210"
+      policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy"
+    }
+    error_message = "A viewer permission set should get the view policy."
   }
 }

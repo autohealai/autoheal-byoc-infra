@@ -2,8 +2,31 @@
 package_update: true
 packages:
   - docker
+%{ if ecr_registry_host != "" ~}
   - amazon-ecr-credential-helper
+%{ endif ~}
 write_files:
+  # The Docker settings of Autoheal's hosted runners: capped json-file logs,
+  # overlay2 and live-restore. The Amazon Linux docker package ships no
+  # daemon.json and does not start the daemon, so the file is in place when
+  # runcmd starts it. containerd-snapshotter false keeps the overlay2 image
+  # store if a later Docker version turns the containerd store on by default.
+  - path: /etc/docker/daemon.json
+    permissions: '0644'
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "10m",
+          "max-file": "3"
+        },
+        "storage-driver": "overlay2",
+        "features": {
+          "containerd-snapshotter": false
+        },
+        "userland-proxy": false,
+        "live-restore": true
+      }
   - path: /opt/runner-go/config.env
     permissions: '0644'
     content: |
@@ -16,6 +39,9 @@ write_files:
       WORKER_SHUTDOWN_GRACE_SECONDS=30
       DEBUG_MODE=false
       DOCKER_SOCKET_PATH=/var/run/docker.sock
+%{ if ecr_registry_host != "" ~}
+      LOCAL_DOCKER_CONFIG_PATH=/opt/runner-go/docker/config.json
+%{ endif ~}
       LAMBDA_DOWNLOAD_PATH=/var/lib/runner-go/lambdas
       DATA_SOURCES_PATH=/var/lib/runner-go/datasources
       SANDBOX_BASE_DIR=/var/lib/runner-go/sandboxes
@@ -23,44 +49,136 @@ write_files:
       LOG_LEVEL=info
       LOG_FORMAT=json
       SANDBOX_WORKER_DEPLOYMENT_NAME=sandbox
-  # The ecr-login credential helper pulls a fresh token per `docker pull` using the
-  # instance profile, so there is no login timer and no static registry creds.
+%{ if tool_response_callback_url != "" ~}
+      SANDBOX_TOOL_RESPONSE_CALLBACK_URL=${tool_response_callback_url}
+%{ endif ~}
+%{ if ecr_registry_host != "" ~}
+  # The host docker CLI (runner-pull.sh, the sandbox pre-pull) gets ECR
+  # credentials from the instance role through the credential helper.
   - path: /root/.docker/config.json
     permissions: '0600'
     content: |
       {
         "credHelpers": {
-          "${ecr_registry}": "ecr-login"
+          "${ecr_registry_host}": "ecr-login"
         }
       }
+  - path: /usr/local/bin/ecr-login.sh
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      # Write an ECR login file for runner-go. The token is valid for 12
+      # hours, so a timer runs this every hour.
+      #
+      # runner-go pulls the sandbox image through the Docker API, which does
+      # not run credential helpers. It reads the file at
+      # LOCAL_DOCKER_CONFIG_PATH on every pull and sends the user name and
+      # password from its "auth" field, so the file holds the ECR token the
+      # credential helper gets with the instance role. The runner runs as uid
+      # 1000, so the file is owned by it. It is written to a temporary name and
+      # renamed, so a pull never reads a partial file.
+      set -euo pipefail
+      export HOME=/root DOCKER_CONFIG=/root/.docker
+      host="${ecr_registry_host}"
+      creds=$(printf '%s' "$host" | docker-credential-ecr-login get)
+      auth=$(printf '%s' "$creds" | python3 -c 'import base64, json, sys; c = json.load(sys.stdin); print(base64.b64encode((c["Username"] + ":" + c["Secret"]).encode()).decode())')
+      test -n "$auth"
+      install -d -m 0755 /opt/runner-go/docker
+      (umask 077; printf '{"auths":{"%s":{"auth":"%s"}}}\n' "$host" "$auth" > /opt/runner-go/docker/config.json.new)
+      chown 1000:1000 /opt/runner-go/docker/config.json.new
+      mv -f /opt/runner-go/docker/config.json.new /opt/runner-go/docker/config.json
+  - path: /etc/systemd/system/ecr-login.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Refresh the ECR login file for runner-go
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/ecr-login.sh
+  - path: /etc/systemd/system/ecr-login.timer
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Hourly ECR login refresh for runner-go
+      [Timer]
+      OnBootSec=2min
+      OnUnitActiveSec=1h
+      [Install]
+      WantedBy=timers.target
+%{ endif ~}
+  - path: /usr/local/bin/runner-pull.sh
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      # Pull the runner image, retrying until it succeeds. The instances boot
+      # during the first apply, often before the image can be pulled (a new
+      # mirror, an IAM grant that is still propagating), so a failed pull waits
+      # and tries again: 15s, doubling up to 5 minutes. With an ECR registry,
+      # runner-go's login file is refreshed before each try as well.
+      export HOME=/root DOCKER_CONFIG=/root/.docker
+      image="$1"
+      ecr_registry_host="${ecr_registry_host}"
+      delay=15
+      while true; do
+        if [ -n "$ecr_registry_host" ]; then /usr/local/bin/ecr-login.sh || true; fi
+        /usr/bin/docker pull "$image" && exit 0
+        echo "pull of $image failed, retrying in $delay seconds"
+        sleep "$delay"
+        delay=$(( delay * 2 ))
+        if [ "$delay" -gt 300 ]; then delay=300; fi
+      done
   - path: /etc/systemd/system/runner-go.service
     permissions: '0644'
     content: |
       [Unit]
       Description=Autoheal runner-go (Docker-out-of-Docker sandbox worker)
-      After=docker.service
+      After=docker.service network-online.target%{ if ecr_registry_host != "" } ecr-login.service%{ endif }
+      Wants=network-online.target
       Requires=docker.service
+      # No start limit: a failed start is retried for as long as it takes.
+      StartLimitIntervalSec=0
       [Service]
       Restart=always
       RestartSec=10
-      Environment=DOCKER_CONFIG=/root/.docker
+      # The pull step waits until the image exists, so it has no start timeout.
+      TimeoutStartSec=infinity
       ExecStartPre=-/usr/bin/docker rm -f runner-go
-      ExecStartPre=/usr/bin/docker pull ${runner_image}
-      # --group-add <docker-gid>: the runner container runs as uid/gid 1000 (alpine
-      # adduser 'runner'); the host docker.sock is root:docker mode 660, so the
-      # runner must join the host docker group to drive the daemon (DooD).
-      # __DOCKER_GID__ is substituted from the host's real docker gid in runcmd.
+      ExecStartPre=/usr/local/bin/runner-pull.sh ${runner_image}
+      # --group-add <docker-gid>: the runner container runs as uid/gid 1000
+      # (alpine adduser 'runner'); the host docker.sock is root:docker mode 660,
+      # so the runner must join the host docker group to drive the daemon (DooD).
+      # __DOCKER_GID__ is substituted from the host's actual docker gid in runcmd.
       # Each identity dir is bind-mounted at an IDENTICAL host<->container path:
-      # startup.ValidateIdentityMounts requires a mount whose Destination equals
-      # SANDBOX_BASE_DIR / DATA_SOURCES_PATH (a single parent mount does NOT satisfy
-      # the subpath check), and sandbox bind-mounts resolve on the HOST, so paths
-      # must match.
-      ExecStart=/usr/bin/docker run --rm --name runner-go --group-add __DOCKER_GID__ \
+      # startup.ValidateIdentityMounts requires an exact mount entry whose
+      # Destination == SANDBOX_BASE_DIR / DATA_SOURCES_PATH (a single parent
+      # mount of /var/lib/runner-go does NOT satisfy the subpath check), and
+      # sandbox bind-mounts resolve on the HOST so the paths must match.
+%{ if ecr_registry_host != "" ~}
+      # /opt/runner-go/docker holds the ECR login ecr-login.sh writes for the
+      # runner, mounted read-only. It is a directory mount because the login
+      # file is replaced on each refresh, and a file mount would keep the old one.
+%{ endif ~}
+      # --hostname %H: the instance's host name, which is its instance ID (the
+      # launch template sets resource-name host names). It stays the same across
+      # restarts and reboots and differs on each instance. runner-go names its
+      # per-host task queue after the EC2 instance ID it reads from IMDS, or the
+      # host name when IMDS is out of reach, as here: the IMDS hop limit of 1
+      # keeps containers away from it. The container's default host name is its
+      # id, which changes on every restart and leaves the sandboxes placed
+      # before it with no worker.
+      # HOSTNAME=runner-go: at start runner-go looks up its own container by
+      # $HOSTNAME to check the mounts below. Docker sets $HOSTNAME to the
+      # --hostname value, which is not a container name, so it is set to the
+      # container name here. The host queue uses the kernel host name, not this.
+      ExecStart=/usr/bin/docker run --rm --name runner-go --hostname %H -e HOSTNAME=runner-go --group-add __DOCKER_GID__ \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v /var/lib/runner-go/lambdas:/var/lib/runner-go/lambdas \
         -v /var/lib/runner-go/datasources:/var/lib/runner-go/datasources \
         -v /var/lib/runner-go/sandboxes:/var/lib/runner-go/sandboxes \
         -v /var/lib/runner-go/agent-sessions:/var/lib/runner-go/agent-sessions \
+%{ if ecr_registry_host != "" ~}
+        -v /opt/runner-go/docker:/opt/runner-go/docker:ro \
+%{ endif ~}
         --env-file /opt/runner-go/config.env \
         ${runner_image}
       ExecStop=/usr/bin/docker stop runner-go
@@ -68,17 +186,30 @@ write_files:
       WantedBy=multi-user.target
 runcmd:
   # runner-go container runs as uid/gid 1000 (alpine adduser); the bind-mounted
-  # state dir must be writable by it, and sandbox bind-mounts resolve on the HOST at
-  # the same path (DooD), so keep paths identical container<->host.
-  # cloud-init runs these with /bin/sh. Each dir is listed in full so this does
-  # not depend on brace expansion, which dash (Ubuntu's /bin/sh) does not do.
+  # state dir must be writable by it, and sandbox bind-mounts resolve on the HOST
+  # at the same path (DooD), so keep paths identical container<->host. A missing
+  # dir is created by docker as root when the runner starts, and the runner
+  # cannot write to it.
   - mkdir -p /var/lib/runner-go/lambdas /var/lib/runner-go/datasources /var/lib/runner-go/sandboxes /var/lib/runner-go/agent-sessions
   - chown -R 1000:1000 /var/lib/runner-go
   - systemctl enable --now docker
-  # Substitute the host's real docker gid into the runner unit (only known now that
-  # docker is installed), so the container can access the host socket.
-  - sed -i "s/__DOCKER_GID__/$(getent group docker | cut -d: -f3)/" /etc/systemd/system/runner-go.service
-  # Pre-pull the sandbox image so the first investigation doesn't wait on a cold pull.
+%{ if ecr_registry_host != "" ~}
+  - systemctl enable --now ecr-login.timer
+  # May fail while the instance role's permissions propagate; runner-pull.sh
+  # tries again.
+  - /usr/local/bin/ecr-login.sh || true
+%{ endif ~}
+  # Substitute the host's real docker gid into the runner unit (only known now
+  # that the docker package is installed), so the container can access the host
+  # socket. Single-quoted for YAML: a bare "-d: " would turn the item into a
+  # mapping, which cloud-init does not run.
+  - 'sed -i "s/__DOCKER_GID__/$(getent group docker | cut -d: -f3)/" /etc/systemd/system/runner-go.service'
+%{ if sandbox_image != "" ~}
+  # Pre-pull the sandbox image so the first investigation doesn't wait on a cold pull
   - DOCKER_CONFIG=/root/.docker docker pull ${sandbox_image} || true
+%{ endif ~}
   - systemctl daemon-reload
-  - systemctl enable --now runner-go.service
+  # --no-block: the start waits in runner-pull.sh until the image exists, which
+  # must not hold up cloud-init.
+  - systemctl enable runner-go.service
+  - systemctl start --no-block runner-go.service

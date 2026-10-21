@@ -6,8 +6,9 @@ variable "cluster" {
     ca_certificate = string
     resource_group = optional(string, "")
     region         = optional(string, "")
+    vpc_id         = optional(string, "")
   })
-  description = "The cluster output of the infra composition: cloud (azure or aws), name, API endpoint, base64 CA certificate, and resource_group (Azure) or region (AWS)."
+  description = "The cluster output of the infra composition: cloud (azure or aws), name, API endpoint, base64 CA certificate, and resource_group (Azure) or region and vpc_id (AWS)."
 
   validation {
     condition     = contains(["azure", "aws"], var.cluster.cloud)
@@ -94,4 +95,15 @@ variable "timeout" {
   type        = number
   default     = 1200
   description = "Seconds Helm waits for the release to become ready before it rolls back."
+}
+
+variable "aws_load_balancer_controller" {
+  type = object({
+    enabled       = optional(bool, false)
+    chart_version = optional(string, "3.6.0")
+    repository    = optional(string, "https://aws.github.io/eks-charts")
+    values        = optional(string, "")
+  })
+  default     = {}
+  description = "Install the AWS Load Balancer Controller in kube-system before the chart (EKS only; ignored on Azure). Set enabled = true when compositions/aws created the cluster or its controller role (create_load_balancer_controller_role); leave it false on a cluster that already runs one. values is a YAML document merged over the composition's settings, for example image.repository for a private VPC without a NAT gateway."
 }

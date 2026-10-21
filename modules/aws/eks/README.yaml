@@ -1,21 +1,29 @@
 name: aws/eks
-title: Autoheal BYOC — AWS EKS
+title: Autoheal BYOC - AWS EKS
 description: |-
-  EKS cluster + managed node group + IRSA OIDC provider for a BYOC Autoheal install.
-  The cluster OIDC provider is what modules/aws/irsa federates app service accounts
-  against; the EBS CSI add-on backs stateful PersistentVolumes. Trimmed to BYOC
-  essentials (no ALB controller IAM; the ingress controller is installed at
-  app-install time).
+  EKS cluster, one managed node group and the EKS managed add-ons for a
+  BYOC-on-EKS Autoheal install.
 
-  Azure analogue: modules/azure/aks. Naming/tags via the null-label base.
+  Access is through EKS access entries only (authentication mode API); there is
+  no aws-auth ConfigMap and no IAM OIDC provider. Workloads get AWS credentials
+  through EKS Pod Identity (modules/aws/pod-identity). Kubernetes Secrets are
+  envelope-encrypted with the caller's KMS key, all control plane logs go to a
+  log group the module creates, and nodes run IMDSv2 only with a hop limit of 1
+  on encrypted gp3 volumes.
+
+  The Azure analogue is modules/azure/aks. Naming and tags follow the repo's
+  null-label convention (see label.tf and docs/MODULE_STANDARD.md).
 
 usage: |-
-  See examples/basic for a runnable configuration.
+  See examples/basic for a runnable configuration wired to the kms and vpc
+  modules.
 
 related:
   - name: Module standard
     url: ../../../docs/MODULE_STANDARD.md
-  - name: AWS VPC module
+  - name: AWS VPC module (provides the private subnets)
     url: ../vpc
-  - name: AWS IRSA module
-    url: ../irsa
+  - name: AWS KMS module (provides the secrets key)
+    url: ../kms
+  - name: AWS Pod Identity module (workload IAM roles)
+    url: ../pod-identity

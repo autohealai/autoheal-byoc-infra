@@ -1,229 +1,202 @@
-# EKS cluster + managed node group + IRSA OIDC provider for a BYOC Autoheal install.
-# This is the compute plane the app runs on; the cluster's OIDC provider is what
-# modules/aws/irsa federates app service accounts against. The EBS CSI add-on backs
-# the stateful workloads' PersistentVolumes.
+# EKS cluster for a BYOC Autoheal install: control plane, one managed node group
+# and the EKS managed add-ons. The Azure analogue is modules/azure/aks.
 #
-# Trimmed to BYOC essentials vs the legacy monorepo module: no ALB controller IAM
-# (the ingress controller is installed at app-install time with the upstream policy).
+#   - Authentication is EKS access entries only (authentication_mode = API). No
+#     aws-auth ConfigMap and no IAM OIDC provider: workloads get AWS credentials
+#     through EKS Pod Identity (modules/aws/pod-identity).
+#   - Kubernetes Secrets are envelope-encrypted with the caller's KMS key.
+#   - All control plane logs go to a log group the module creates first, so
+#     retention and encryption apply from the first log line.
 #
-# Azure analogue: modules/azure/aks. Naming/tags via the null-label base (module.this).
+# Files: main.tf (cluster, cluster role, access entries), node_group.tf (node
+# role, launch template, node group), addons.tf (add-ons and the EBS CSI role).
+#
+# Every count and for_each depends only on variables or map keys, so plans are
+# complete even when ARNs passed in come from the same apply.
+#
+# Naming and tags come from the null-label base (module.this); see label.tf.
+
+data "aws_caller_identity" "current" {}
+data "aws_partition" "current" {}
 
 locals {
-  cluster_name = coalesce(var.cluster_name, module.this.id)
+  cluster_name = module.this.id
+
+  # IAM role names are limited to 64 characters. Keep the suffix and replace the
+  # tail of a long label id with a short hash so names stay unique.
+  role_suffixes = {
+    cluster = "-eks-cluster"
+    node    = "-eks-node"
+    ebs_csi = "-eks-ebs-csi"
+  }
+  role_names = {
+    for k, suffix in local.role_suffixes : k => (
+      length("${module.this.id}${suffix}") <= 64
+      ? "${module.this.id}${suffix}"
+      : "${substr(module.this.id, 0, 64 - length(suffix) - 9)}-${substr(sha1(module.this.id), 0, 8)}${suffix}"
+    )
+  }
+
+  policy_prefix = "arn:${data.aws_partition.current.partition}:iam::aws:policy"
 }
 
-# EKS cluster IAM role
+# -----------------------------------------------------------------------------
+# Cluster IAM role
+# -----------------------------------------------------------------------------
+
 resource "aws_iam_role" "cluster" {
-  name = "${local.cluster_name}-cluster-role"
+  name = local.role_names.cluster
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action    = "sts:AssumeRole"
+      Sid       = "EksControlPlaneAssume"
       Effect    = "Allow"
       Principal = { Service = "eks.amazonaws.com" }
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
     }]
   })
 
-  tags = module.this.tags
-}
-
-resource "aws_iam_role_policy_attachment" "cluster_policy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
-  role       = aws_iam_role.cluster.name
-}
-
-resource "aws_iam_role_policy_attachment" "vpc_resource_controller" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSVPCResourceController"
-  role       = aws_iam_role.cluster.name
-}
-
-# Cluster security group
-resource "aws_security_group" "cluster" {
-  name        = "${local.cluster_name}-cluster-sg"
-  description = "EKS control-plane security group for ${local.cluster_name}"
-  vpc_id      = var.vpc_id
-
-  # The control plane needs outbound reach to the managed node group, AWS APIs
-  # (STS/ECR/EC2) and image registries; nodes live in private subnets behind NAT.
-  #trivy:ignore:AVD-AWS-0104 Unrestricted egress is required for EKS control-plane/node operation; ingress is the controlled surface.
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = merge(module.this.tags, { Name = "${local.cluster_name}-cluster-sg" })
-}
-
-# EKS cluster
-# Envelope encryption of Kubernetes secrets is operator-gated: supply var.kms_key_arn
-# and the encryption_config block below activates. EKS already encrypts etcd at rest
-# with an AWS-managed key by default; the KMS key adds a customer-controlled envelope.
-#trivy:ignore:AVD-AWS-0039 Secret envelope encryption is operator-gated via kms_key_arn; etcd is AWS-encrypted at rest by default.
-resource "aws_eks_cluster" "this" {
-  name     = local.cluster_name
-  role_arn = aws_iam_role.cluster.arn
-  version  = var.kubernetes_version
-
-  # Public API access is operator-gated: endpoint_public_access + public_access_cidrs
-  # are variables the deployment sets (restrict to admin/CI CIDRs in production).
-  # Private access is always on, so a closed public endpoint stays fully functional.
-  #trivy:ignore:AVD-AWS-0040 Public endpoint is operator-gated via endpoint_public_access; private access always on.
-  #trivy:ignore:AVD-AWS-0041 Public CIDRs are operator-gated via public_access_cidrs; set per deployment.
-  vpc_config {
-    subnet_ids              = concat(var.private_subnet_ids, var.public_subnet_ids)
-    endpoint_private_access = true
-    endpoint_public_access  = var.endpoint_public_access
-    public_access_cidrs     = var.endpoint_public_access ? var.public_access_cidrs : null
-    security_group_ids      = [aws_security_group.cluster.id]
-  }
-
-  enabled_cluster_log_types = var.enabled_cluster_log_types
-
-  # Envelope-encrypt Kubernetes secrets with a customer KMS key when provided.
-  dynamic "encryption_config" {
-    for_each = var.kms_key_arn != "" ? [1] : []
-    content {
-      provider {
-        key_arn = var.kms_key_arn
-      }
-      resources = ["secrets"]
-    }
-  }
+  force_detach_policies = true
 
   tags = module.this.tags
-
-  depends_on = [
-    aws_iam_role_policy_attachment.cluster_policy,
-    aws_iam_role_policy_attachment.vpc_resource_controller,
-  ]
 }
 
-# Node group IAM role
-resource "aws_iam_role" "node_group" {
-  name = "${local.cluster_name}-node-role"
+resource "aws_iam_role_policy_attachment" "cluster" {
+  for_each = {
+    cluster_policy          = "${local.policy_prefix}/AmazonEKSClusterPolicy"
+    vpc_resource_controller = "${local.policy_prefix}/AmazonEKSVPCResourceController"
+  }
 
-  assume_role_policy = jsonencode({
+  role       = aws_iam_role.cluster.name
+  policy_arn = each.value
+}
+
+# Lets the control plane use the secrets key for envelope encryption.
+resource "aws_iam_role_policy" "cluster_secrets_kms" {
+  name = "secrets-encryption"
+  role = aws_iam_role.cluster.id
+
+  policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action    = "sts:AssumeRole"
-      Effect    = "Allow"
-      Principal = { Service = "ec2.amazonaws.com" }
+      Sid      = "SecretsEnvelopeEncryption"
+      Effect   = "Allow"
+      Action   = ["kms:Encrypt", "kms:Decrypt", "kms:ListGrants", "kms:DescribeKey"]
+      Resource = var.secrets_kms_key_arn
     }]
   })
+}
+
+# -----------------------------------------------------------------------------
+# Control plane log group. EKS writes to this exact name; creating it first
+# means the module, not EKS, owns retention and encryption.
+# -----------------------------------------------------------------------------
+
+resource "aws_cloudwatch_log_group" "cluster" {
+  name              = "/aws/eks/${local.cluster_name}/cluster"
+  retention_in_days = var.log_retention_days
+  kms_key_id        = var.log_kms_key_arn != "" ? var.log_kms_key_arn : null
 
   tags = module.this.tags
 }
 
-resource "aws_iam_role_policy_attachment" "node_worker" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
-  role       = aws_iam_role.node_group.name
-}
+# -----------------------------------------------------------------------------
+# Cluster
+# -----------------------------------------------------------------------------
 
-resource "aws_iam_role_policy_attachment" "node_cni" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-  role       = aws_iam_role.node_group.name
-}
+# The public endpoint is on by default so an operator outside the VPC can run
+# the install; callers lock it down with public_access_cidrs or turn it off.
+#trivy:ignore:AVD-AWS-0040
+#trivy:ignore:AVD-AWS-0041
+resource "aws_eks_cluster" "this" {
+  name     = local.cluster_name
+  version  = var.kubernetes_version
+  role_arn = aws_iam_role.cluster.arn
 
-resource "aws_iam_role_policy_attachment" "node_ecr" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-  role       = aws_iam_role.node_group.name
-}
+  enabled_cluster_log_types = var.enabled_log_types
+  deletion_protection       = var.deletion_protection
 
-resource "aws_iam_role_policy_attachment" "node_ssm" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-  role       = aws_iam_role.node_group.name
-}
+  # Keep the default aws-node, kube-proxy and CoreDNS that EKS installs at
+  # creation. The managed add-ons in addons.tf take them over (OVERWRITE).
+  # Without them the first nodes cannot reach the API server and never join.
+  bootstrap_self_managed_addons = true
 
-# Managed node group (private subnets only)
-resource "aws_eks_node_group" "this" {
-  cluster_name    = aws_eks_cluster.this.name
-  node_group_name = "${local.cluster_name}-ng"
-  node_role_arn   = aws_iam_role.node_group.arn
-  subnet_ids      = var.private_subnet_ids
-
-  instance_types = var.node_instance_types
-  capacity_type  = var.node_capacity_type
-
-  scaling_config {
-    desired_size = var.node_desired_size
-    max_size     = var.node_max_size
-    min_size     = var.node_min_size
+  access_config {
+    authentication_mode                         = "API"
+    bootstrap_cluster_creator_admin_permissions = var.bootstrap_cluster_creator_admin_permissions
   }
 
-  update_config {
-    max_unavailable = 1
+  encryption_config {
+    resources = ["secrets"]
+    provider {
+      key_arn = var.secrets_kms_key_arn
+    }
   }
 
-  labels = var.node_labels
+  upgrade_policy {
+    support_type = var.upgrade_support_type
+  }
 
-  tags = merge(module.this.tags, { Name = "${local.cluster_name}-ng" })
+  vpc_config {
+    subnet_ids              = var.subnet_ids
+    endpoint_private_access = true
+    endpoint_public_access  = var.endpoint_public_access
+    # EKS reports 0.0.0.0/0 when the public endpoint is off; matching it avoids
+    # a permanent diff.
+    public_access_cidrs = var.endpoint_public_access ? var.public_access_cidrs : ["0.0.0.0/0"]
+  }
+
+  kubernetes_network_config {
+    ip_family         = "ipv4"
+    service_ipv4_cidr = var.service_ipv4_cidr != "" ? var.service_ipv4_cidr : null
+  }
+
+  tags = module.this.tags
+
+  lifecycle {
+    precondition {
+      condition     = length(local.cluster_name) <= 100
+      error_message = "The label id '${local.cluster_name}' is used as the cluster name and must be 100 characters or fewer."
+    }
+
+    postcondition {
+      condition     = self.vpc_config[0].vpc_id == var.vpc_id
+      error_message = "subnet_ids must belong to vpc_id (${var.vpc_id})."
+    }
+  }
 
   depends_on = [
-    aws_iam_role_policy_attachment.node_worker,
-    aws_iam_role_policy_attachment.node_cni,
-    aws_iam_role_policy_attachment.node_ecr,
+    aws_cloudwatch_log_group.cluster,
+    aws_iam_role_policy_attachment.cluster,
+    aws_iam_role_policy.cluster_secrets_kms,
   ]
 }
 
-# OIDC provider for IRSA
-data "tls_certificate" "cluster" {
-  url = aws_eks_cluster.this.identity[0].oidc[0].issuer
-}
+# -----------------------------------------------------------------------------
+# Access entries. The node role entry is created by EKS for the managed node
+# group; these are for people and automation.
+# -----------------------------------------------------------------------------
 
-resource "aws_iam_openid_connect_provider" "cluster" {
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = [data.tls_certificate.cluster.certificates[0].sha1_fingerprint]
-  url             = aws_eks_cluster.this.identity[0].oidc[0].issuer
+resource "aws_eks_access_entry" "this" {
+  for_each = var.access_entries
+
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = each.value.principal_arn
+  type          = "STANDARD"
 
   tags = module.this.tags
 }
 
-# EBS CSI driver: IRSA role + add-on, so stateful workloads get PersistentVolumes.
-data "aws_iam_policy_document" "ebs_csi_assume_role" {
-  statement {
-    effect  = "Allow"
-    actions = ["sts:AssumeRoleWithWebIdentity"]
+resource "aws_eks_access_policy_association" "this" {
+  for_each = var.access_entries
 
-    principals {
-      type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.cluster.arn]
-    }
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = aws_eks_access_entry.this[each.key].principal_arn
+  policy_arn    = each.value.policy_arn
 
-    condition {
-      test     = "StringEquals"
-      variable = "${replace(aws_iam_openid_connect_provider.cluster.url, "https://", "")}:sub"
-      values   = ["system:serviceaccount:kube-system:ebs-csi-controller-sa"]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "${replace(aws_iam_openid_connect_provider.cluster.url, "https://", "")}:aud"
-      values   = ["sts.amazonaws.com"]
-    }
+  access_scope {
+    type       = each.value.access_scope_type
+    namespaces = each.value.access_scope_type == "namespace" ? each.value.namespaces : null
   }
-}
-
-resource "aws_iam_role" "ebs_csi" {
-  name               = "${local.cluster_name}-ebs-csi-role"
-  assume_role_policy = data.aws_iam_policy_document.ebs_csi_assume_role.json
-  tags               = module.this.tags
-}
-
-resource "aws_iam_role_policy_attachment" "ebs_csi" {
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
-  role       = aws_iam_role.ebs_csi.name
-}
-
-resource "aws_eks_addon" "ebs_csi" {
-  cluster_name             = aws_eks_cluster.this.name
-  addon_name               = "aws-ebs-csi-driver"
-  addon_version            = var.ebs_csi_driver_version != "" ? var.ebs_csi_driver_version : null
-  service_account_role_arn = aws_iam_role.ebs_csi.arn
-
-  tags = module.this.tags
-
-  depends_on = [aws_eks_node_group.this]
 }

@@ -1,0 +1,5 @@
+# Two numbers for the whole environment. Changing them is how you upgrade.
+locals {
+  infra_version = "3.0.0"      # autoheal-byoc-infra tag
+  chart_version = "1.0.0-rc.9" # every service, Temporal, Zitadel, the proxy, runner-go; the first chart that installs on EKS
+}

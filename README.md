@@ -1,12 +1,12 @@
 # autoheal-byoc-infra
 
 Terraform and Terragrunt code for the infrastructure Autoheal runs on inside a
-customer's own cloud (BYOC). Azure is on 2.x; AWS is still on the 1.x
-composition; GCP is planned.
+customer's own cloud (BYOC): Azure and AWS, with the same structure on both. GCP
+is planned.
 
 A deployment has two folders, each with its own state:
 
-1. **infra**: a cloud composition (`compositions/azure`) creates the cloud
+1. **infra**: a cloud composition (`compositions/azure` or `compositions/aws`) creates the cloud
    resources, or reads the ones you already have, and outputs the chart's infra
    values (`autoheal_values`) and how to reach the cluster (`cluster`).
 2. **app**: `compositions/app` installs the Autoheal chart with those values and
@@ -20,23 +20,26 @@ Customers run compositions, never individual modules.
 modules/            Building blocks, one concern each.
   azure/            VNet, AKS, PostgreSQL Flexible, Managed Redis, Blob, Key Vault,
                     ACR, DNS records, private endpoints, runner VMSS, identities.
-  aws/              VPC, Aurora, ElastiCache, S3, EKS, runner ASG, IRSA.
+  aws/              VPC, EKS, Aurora, ElastiCache, S3, KMS, Secrets Manager, ECR,
+                    Route 53 records, NLBs, runner ASG, Pod Identity roles.
 compositions/       Full wiring, one per cloud, plus the app install.
   azure/            Create, bring or mix every Azure building block.
-  app/              The chart, on any cloud (helm_release).
-  aws-byoc/         1.x AWS composition; the runner is a separate apply.
+  aws/              Create, bring or mix every AWS building block.
+  app/              The chart, on any cloud (helm_release), and the AWS Load
+                    Balancer Controller on EKS.
 examples/
   azure/            A deployment repository to copy: root.hcl, prod/infra, prod/app.
-  aws-byoc/         1.x AWS starting config.
+  aws/              The same for AWS.
 docs/               MODULE_STANDARD.md (contributor contract), getting-started.md.
-scripts/            bootstrap-state-azure.sh (one-time state storage account).
+scripts/            bootstrap-state-azure.sh and bootstrap-state-aws.sh (one-time
+                    state storage account or bucket).
 ```
 
-## Quick start (Azure)
+## Quick start
 
-Copy `examples/azure` into a repository you own and follow its README, or
-[docs/getting-started.md](docs/getting-started.md) step by step. Once the state
-storage account exists:
+Copy `examples/azure` or `examples/aws` into a repository you own and follow its
+README, or [docs/getting-started.md](docs/getting-started.md) step by step. Once
+the state storage account or bucket exists:
 
 ```bash
 cd prod/infra && terragrunt apply   # cloud resources, vault entries, DNS, runner

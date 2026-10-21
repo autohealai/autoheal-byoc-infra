@@ -7,8 +7,8 @@ does not meet this bar should not merge.
 
 - `modules/<cloud>/<name>/` — one concern each, reusable, cloud-scoped.
 - `compositions/<cloud>/`: wire modules into the Autoheal infrastructure for one
-  cloud, for every case (create, bring, mixed). `compositions/aws-byoc` keeps its
-  1.x name until it moves to this shape.
+  cloud, for every case (create, bring, mixed): `compositions/azure` and
+  `compositions/aws`.
 - `compositions/app/`: installs the chart on any cloud from the infra
   composition's outputs. The only composition with the `helm` and `kubernetes`
   providers.
@@ -124,17 +124,13 @@ and the chart do not care which cloud built the cluster:
 |--------|---------|
 | `autoheal_values`           | The chart's infra values as an object: `global.infra` facts, suggested `global.addons`, `global.secrets`, `global.edge` and `global.imageRegistry`, and the Temporal and Zitadel copies. Shape versioned by `global.infra.version`. |
 | `autoheal_values_yaml`      | The same values as YAML, for a Helm or Flux install. |
-| `cluster`                   | `cloud`, `name`, `endpoint`, base64 `ca_certificate`, and `resource_group` (Azure) or `region` (AWS). No credential. |
+| `cluster`                   | `cloud`, `name`, `endpoint`, base64 `ca_certificate`, and `resource_group` (Azure) or `region` and `vpc_id` (AWS). No credential. |
 | `required_role_assignments` | Grants an administrator must make when the composition makes none. |
 | `required_dns_records`      | DNS records a person must create when the composition creates none. |
-| `network`                   | The network Autoheal runs in. Azure: `vnet_id`, `vnet_name`, `resource_group_name`, `address_space`, `aks_subnet_id`, `runner_subnet_id`, `private_endpoint_subnet_id`. AWS will emit the VPC equivalents. |
+| `network`                   | The network Autoheal runs in. Azure: `vnet_id`, `vnet_name`, `resource_group_name`, `address_space`, `aks_subnet_id`, `runner_subnet_id`, `private_endpoint_subnet_id`. AWS: `vpc_id`, `vpc_cidr_block`, `private_subnet_ids`, `runner_subnet_ids`, `data_subnet_ids`, `public_subnet_ids`. |
 
 None of them may hold a secret. Bump `global.infra.version` (the
 `infra_contract_version` local) when the shape of `global.infra` changes.
-
-`compositions/aws-byoc` still emits the 1.x contract (`cluster_name`,
-`postgres_host`, `redis_endpoint`, `object_store`, `secret_store_uri`,
-`registry`, `runner_identity`) until it moves to 2.x.
 
 ## 9. Secrets
 
@@ -156,13 +152,12 @@ None of them may hold a secret. Bump `global.infra.version` (the
 
 ## 11. Remote state
 
-State lives in a remote backend (Azure Storage container / S3 + DynamoDB lock),
+State lives in a remote backend (Azure Storage container / S3 with a lock file),
 never on a laptop for a real install. Compositions do not commit a `backend.tf`:
 the caller generates it, for example with Terragrunt `remote_state` and
-`generate` (`examples/azure/root.hcl`). That keeps `compositions/app` usable on
-any cloud and lets Terragrunt write the file without a conflict.
-`compositions/aws-byoc` keeps its 1.x partial `backend "s3" {}` block until it
-moves to 2.x.
+`generate` (`examples/azure/root.hcl`, `examples/aws/root.hcl`). That keeps
+`compositions/app` usable on any cloud and lets Terragrunt write the file without
+a conflict.
 
 ## 12. Versioning
 

@@ -127,6 +127,111 @@ run "eks" {
   }
 }
 
+run "eks_with_lb_controller" {
+  command = plan
+
+  variables {
+    cluster = {
+      cloud          = "aws"
+      name           = "acme-prod-autoheal"
+      region         = "us-east-1"
+      vpc_id         = "vpc-0123456789abcdef0"
+      endpoint       = "https://ABCDEF0123456789.gr7.us-east-1.eks.amazonaws.com"
+      ca_certificate = "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCg=="
+    }
+    aws_load_balancer_controller = {
+      enabled = true
+      values  = "image:\n  repository: 602401143452.dkr.ecr.us-east-1.amazonaws.com/amazon/aws-load-balancer-controller\n"
+    }
+  }
+
+  assert {
+    condition     = length(helm_release.aws_load_balancer_controller) == 1
+    error_message = "The controller is installed on EKS when enabled."
+  }
+  assert {
+    condition = (
+      helm_release.aws_load_balancer_controller[0].namespace == "kube-system" &&
+      helm_release.aws_load_balancer_controller[0].chart == "aws-load-balancer-controller" &&
+      helm_release.aws_load_balancer_controller[0].repository == "https://aws.github.io/eks-charts" &&
+      helm_release.aws_load_balancer_controller[0].version == "3.6.0"
+    )
+    error_message = "aws-load-balancer-controller 3.6.0 from eks-charts in kube-system."
+  }
+  assert {
+    condition = (
+      yamldecode(helm_release.aws_load_balancer_controller[0].values[0]).clusterName == "acme-prod-autoheal" &&
+      yamldecode(helm_release.aws_load_balancer_controller[0].values[0]).region == "us-east-1" &&
+      yamldecode(helm_release.aws_load_balancer_controller[0].values[0]).vpcId == "vpc-0123456789abcdef0"
+    )
+    error_message = "Cluster name, region and VPC come from the cluster input, so the pods need no instance metadata."
+  }
+  assert {
+    condition     = yamldecode(helm_release.aws_load_balancer_controller[0].values[0]).serviceAccount.name == "aws-load-balancer-controller"
+    error_message = "The service account compositions/aws federates."
+  }
+  assert {
+    condition = (
+      !yamldecode(helm_release.aws_load_balancer_controller[0].values[0]).createIngressClassResource &&
+      !yamldecode(helm_release.aws_load_balancer_controller[0].values[0]).enableServiceMutatorWebhook
+    )
+    error_message = "No IngressClass and no Service webhook: the controller serves TargetGroupBinding only."
+  }
+  assert {
+    condition     = length(helm_release.aws_load_balancer_controller[0].values) == 2
+    error_message = "The values override is merged after the composition's settings."
+  }
+}
+
+run "lb_controller_off_by_default" {
+  command = plan
+
+  variables {
+    cluster = {
+      cloud          = "aws"
+      name           = "acme-prod-autoheal"
+      region         = "us-east-1"
+      endpoint       = "https://ABCDEF0123456789.gr7.us-east-1.eks.amazonaws.com"
+      ca_certificate = ""
+    }
+  }
+
+  assert {
+    condition     = length(helm_release.aws_load_balancer_controller) == 0
+    error_message = "A cluster that runs its own controller gets none."
+  }
+}
+
+run "lb_controller_ignored_on_aks" {
+  command = plan
+
+  variables {
+    aws_load_balancer_controller = { enabled = true }
+  }
+
+  assert {
+    condition     = length(helm_release.aws_load_balancer_controller) == 0
+    error_message = "The AWS controller is never installed on AKS."
+  }
+}
+
+run "lb_controller_needs_vpc_id" {
+  command = plan
+
+  variables {
+    cluster = {
+      cloud          = "aws"
+      name           = "acme-prod-autoheal"
+      region         = "us-east-1"
+      endpoint       = "https://ABCDEF0123456789.gr7.us-east-1.eks.amazonaws.com"
+      ca_certificate = ""
+    }
+    aws_load_balancer_controller = { enabled = true }
+  }
+
+  expect_failures = [helm_release.aws_load_balancer_controller]
+}
+
 run "workload_identity_login" {
   command = plan
 

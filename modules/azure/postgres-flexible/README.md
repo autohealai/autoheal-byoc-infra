@@ -12,7 +12,7 @@ Sets the `azure.extensions` server configuration so `CREATE EXTENSION` (pgvector
 btree_gin, pg_trgm, ...) succeeds. Azure Flexible rejects any extension not
 pre-listed, a gap RDS did not have.
 
-The AWS analogue is `modules/aws/rds-cluster`. Naming and tags follow the repo's
+The AWS analogue is `modules/aws/aurora-postgres`. Naming and tags follow the repo's
 null-label convention (see `label.tf` and
 [docs/MODULE_STANDARD.md](../../../docs/MODULE_STANDARD.md)).
 

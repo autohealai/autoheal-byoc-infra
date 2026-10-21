@@ -1,29 +1,29 @@
-output "endpoint" {
-  description = "primary_endpoint:port. Maps to the cross-cloud output contract 'redis_endpoint'."
-  value       = "${aws_elasticache_replication_group.this.primary_endpoint_address}:${aws_elasticache_replication_group.this.port}"
+output "replication_group_id" {
+  description = "Replication group ID."
+  value       = aws_elasticache_replication_group.this.id
+}
+
+output "arn" {
+  description = "Replication group ARN."
+  value       = aws_elasticache_replication_group.this.arn
 }
 
 output "primary_endpoint_address" {
-  description = "Primary (writer) endpoint address."
+  description = "Primary (read and write) endpoint hostname. Clients connect with TLS and the AUTH token."
   value       = aws_elasticache_replication_group.this.primary_endpoint_address
 }
 
 output "reader_endpoint_address" {
-  description = "Reader endpoint address (empty for a single-node cache)."
-  value       = try(aws_elasticache_replication_group.this.reader_endpoint_address, "")
+  description = "Reader endpoint hostname. It spreads reads over the replicas and resolves to the primary when there are none."
+  value       = aws_elasticache_replication_group.this.reader_endpoint_address
 }
 
 output "port" {
-  description = "Redis port."
+  description = "Port the cache listens on."
   value       = aws_elasticache_replication_group.this.port
 }
 
 output "security_group_id" {
-  description = "Security group id of the cache."
-  value       = aws_security_group.redis.id
-}
-
-output "arn" {
-  description = "ARN of the replication group."
-  value       = aws_elasticache_replication_group.this.arn
+  description = "ID of the cache's security group."
+  value       = aws_security_group.this.id
 }

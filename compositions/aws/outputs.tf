@@ -9,7 +9,10 @@
 #                              create_pod_identity_associations = false
 #   required_dns_records       records a person must create, filled only when we
 #                              do not create them
-#   network                    the VPC and subnets Autoheal runs in, created or
+#   required_cluster_owner_actions
+#                              what the owner of a brought cluster must do, filled
+#                              only for a brought cluster
+#   network                   the VPC and subnets Autoheal runs in, created or
 #                              brought
 #
 # None of them holds a secret.
@@ -47,6 +50,11 @@ output "required_role_assignments" {
 output "required_dns_records" {
   description = "DNS records a person must create (name, type, value). Filled when create_dns_records = false, when existing_dns_zone_id is empty, or when the address is not known yet (edge_address empty in a mode other than loadbalancer)."
   value       = local.required_dns_records
+}
+
+output "required_cluster_owner_actions" {
+  description = "What the owner of a brought EKS cluster must do, as readable lines: the deployer's access entry and IAM permissions, the Pod Identity agent and Secrets Store CSI add-ons, the AWS Load Balancer Controller and, when they apply, a path to a private API endpoint and image pull access for the nodes. Filled only when existing_eks_cluster_arn is set."
+  value       = local.cluster_owner_actions
 }
 
 output "network" {

@@ -567,11 +567,44 @@ variable "kubernetes_version" {
 variable "cluster_admin_principal_arns" {
   type        = list(string)
   default     = []
-  description = "IAM roles or users granted cluster admin on the EKS cluster we create through access entries, e.g. an SSO administrator role. The identity that runs the apply is always admin."
+  description = "IAM roles or users granted cluster admin on the EKS cluster we create through access entries, e.g. a break-glass role. The identity that runs the apply is always admin, so do not list it. For IAM Identity Center roles use cluster_admin_sso_permission_sets."
 
   validation {
     condition     = alltrue([for a in var.cluster_admin_principal_arns : can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:(role|user)/.+$", a))])
     error_message = "cluster_admin_principal_arns must be IAM role or user ARNs."
+  }
+}
+
+variable "cluster_admin_sso_permission_sets" {
+  type        = list(string)
+  default     = []
+  description = "IAM Identity Center permission set names granted cluster admin on the EKS cluster we create, e.g. AutohealAdmin. Each must be assigned to this account. The plan looks up its role (AWSReservedSSO_<name>_<suffix> under /aws-reserved/sso.amazonaws.com/), so the random suffix is never copied into a file and a recreated role is picked up on the next apply. Use this instead of cluster_admin_principal_arns for SSO roles."
+
+  validation {
+    condition     = alltrue([for n in var.cluster_admin_sso_permission_sets : can(regex("^[A-Za-z0-9_+=,.@-]{1,32}$", n))])
+    error_message = "cluster_admin_sso_permission_sets must be permission set names: 1 to 32 letters, digits and _+=,.@- characters."
+  }
+}
+
+variable "cluster_viewer_principal_arns" {
+  type        = list(string)
+  default     = []
+  description = "IAM roles or users with read-only access to the EKS cluster we create: AmazonEKSViewPolicy across the cluster, which shows workloads and pod logs but not Secrets. For on-call and audit roles."
+
+  validation {
+    condition     = alltrue([for a in var.cluster_viewer_principal_arns : can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:(role|user)/.+$", a))])
+    error_message = "cluster_viewer_principal_arns must be IAM role or user ARNs."
+  }
+}
+
+variable "cluster_viewer_sso_permission_sets" {
+  type        = list(string)
+  default     = []
+  description = "IAM Identity Center permission set names with read-only access to the EKS cluster we create, looked up as in cluster_admin_sso_permission_sets. Same access as cluster_viewer_principal_arns."
+
+  validation {
+    condition     = alltrue([for n in var.cluster_viewer_sso_permission_sets : can(regex("^[A-Za-z0-9_+=,.@-]{1,32}$", n))])
+    error_message = "cluster_viewer_sso_permission_sets must be permission set names: 1 to 32 letters, digits and _+=,.@- characters."
   }
 }
 

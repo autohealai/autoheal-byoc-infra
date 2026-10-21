@@ -214,3 +214,55 @@ run "brought_cluster_without_network" {
 
   expect_failures = [terraform_data.validate_inputs]
 }
+
+run "bad_permission_set_name" {
+  command = plan
+
+  variables {
+    cluster_admin_sso_permission_sets = ["Autoheal Admin"]
+  }
+
+  expect_failures = [var.cluster_admin_sso_permission_sets]
+}
+
+run "permission_set_not_assigned" {
+  command = plan
+
+  variables {
+    cluster_admin_sso_permission_sets = ["AutohealAdmin"]
+  }
+
+  override_data {
+    target = data.aws_iam_roles.sso["sso-admin-AutohealAdmin"]
+    values = { arns = [] }
+  }
+
+  expect_failures = [data.aws_iam_roles.sso["sso-admin-AutohealAdmin"]]
+}
+
+run "admin_and_viewer" {
+  command = plan
+
+  variables {
+    cluster_admin_principal_arns  = ["arn:aws:iam::123456789012:role/platform"]
+    cluster_viewer_principal_arns = ["arn:aws:iam::123456789012:role/platform"]
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}
+
+run "permission_set_also_by_arn" {
+  command = plan
+
+  variables {
+    cluster_admin_principal_arns      = ["arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_AutohealAdmin_0123456789abcdef"]
+    cluster_admin_sso_permission_sets = ["AutohealAdmin"]
+  }
+
+  override_data {
+    target = data.aws_iam_roles.sso["sso-admin-AutohealAdmin"]
+    values = { arns = ["arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_AutohealAdmin_0123456789abcdef"] }
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}

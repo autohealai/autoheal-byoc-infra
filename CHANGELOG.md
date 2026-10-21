@@ -14,7 +14,7 @@ the same as on 2.2.1, and the Azure `global.infra` keeps contract version
 the 1.x AWS modules' interfaces are gone.
 
 Needs, on AWS: an autoheal chart that accepts `global.infra.cloud: aws`
-(contract 2.1.0; 1.0.0-rc.5 or later), and an api-server-go image that reads
+(contract 2.1.0; 1.0.0-rc.9 or later), and an api-server-go image that reads
 `TENANT_BUCKET_PREFIX` and `SECRET_MANAGER_AWS_SECRET_PREFIX`. Older images
 name tenant buckets and runtime secrets outside what the IAM roles allow.
 
@@ -31,8 +31,8 @@ name tenant buckets and runtime secrets outside what the IAM roles allow.
   public, private, data and runner subnets, a NAT gateway per zone (or one, or
   none with `private_endpoints_enabled`), VPC flow logs, an S3 gateway endpoint
   and optional interface endpoints.
-- `compositions/aws`: EKS with a managed node group, access entries for
-  `cluster_admin_principal_arns`, envelope encryption of Kubernetes secrets,
+- `compositions/aws`: EKS with a managed node group, access entries,
+  envelope encryption of Kubernetes secrets,
   control plane logs, and the managed add-ons the chart needs
   (`eks-pod-identity-agent`, `aws-secrets-store-csi-driver-provider`,
   `aws-ebs-csi-driver`, plus the defaults). `api_server_authorized_ip_ranges`
@@ -83,6 +83,24 @@ name tenant buckets and runtime secrets outside what the IAM roles allow.
   state with `use_lockfile`, so no DynamoDB table.
 - `modules/aws/aurora-postgres`, `modules/aws/kms`, `modules/aws/nlb`,
   `modules/aws/pod-identity` and `modules/aws/route53`.
+- `compositions/aws`: who may use the cluster we create. Admins
+  (`AmazonEKSClusterAdminPolicy`) and viewers (`AmazonEKSViewPolicy`, no
+  Secrets) by IAM ARN (`cluster_admin_principal_arns`,
+  `cluster_viewer_principal_arns`) or by IAM Identity Center permission set
+  (`cluster_admin_sso_permission_sets`, `cluster_viewer_sso_permission_sets`).
+  A permission set is resolved to the `AWSReservedSSO_<name>_<suffix>` role in
+  the account at plan time, and the plan stops when it is not assigned there
+  or a principal is listed twice.
+- `compositions/aws`: the `required_cluster_owner_actions` output. For a
+  brought cluster it lists what the cluster's owner must do, with the names
+  filled in: the deployer's access entry and IAM permissions, the Pod Identity
+  and Secrets Store CSI add-ons, the AWS Load Balancer Controller and, when
+  they apply, a path to a private API endpoint and image pull access. Same name
+  as in `compositions/azure`.
+- `examples/aws`: IAM Identity Center access with an SSO profile and a
+  break-glass role, the pipeline's OIDC role trusted only from the prod
+  environment, the edge modes (`loadbalancer` needs no Ingress controller) and
+  the LLM gateway block.
 - Tests for `compositions/aws` (`create`, `bring` and `validation`, against
   mocked providers).
 
@@ -110,6 +128,9 @@ name tenant buckets and runtime secrets outside what the IAM roles allow.
   group size is `instance_count` only (`min_size` and `max_size` are gone). Adds
   `tool_response_callback_url`, `architecture`, root volume settings, a
   permissions boundary and instance refresh settings. No SSH key.
+
+- CI: Terraform providers are cached across the module, composition and
+  example jobs, so a runner no longer runs out of disk.
 
 ### Removed
 - `compositions/aws-byoc` and `examples/aws-byoc`. An install on them is not

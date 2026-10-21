@@ -50,6 +50,17 @@ resource "terraform_data" "validate_inputs" {
       error_message = "The tenant bucket prefix ${local.tenant_bucket_prefix} is not a valid S3 name start: lowercase letters, digits and single hyphens only. Set tenant_bucket_prefix."
     }
     precondition {
+      condition = (
+        length(setintersection(var.cluster_admin_principal_arns, var.cluster_viewer_principal_arns)) == 0 &&
+        length(setintersection(var.cluster_admin_sso_permission_sets, var.cluster_viewer_sso_permission_sets)) == 0
+      )
+      error_message = "A role or permission set is listed both as a cluster admin and as a viewer. EKS allows one access entry per principal, so list each in one place."
+    }
+    precondition {
+      condition     = length(distinct([for e in values(local.cluster_access_entries) : e.principal_arn])) == length(local.cluster_access_entries)
+      error_message = "Two cluster access inputs resolve to the same IAM role: a permission set in cluster_admin_sso_permission_sets or cluster_viewer_sso_permission_sets is also listed by ARN. EKS allows one access entry per principal, so list each in one place."
+    }
+    precondition {
       condition     = length(local.registry_prefix) >= 2
       error_message = "The ECR repository prefix ${local.registry_prefix} is too short. Set registry_repository_prefix."
     }

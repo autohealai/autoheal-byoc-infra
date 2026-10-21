@@ -103,6 +103,12 @@ to the cluster security group when that is empty.
 | `gateway-api`, `istio`, `ingress` | `edge_address`; listed in `required_dns_records` while it is empty | runner only |
 | `none` | nothing; no records | runner only |
 
+The default needs nothing in the cluster besides the AWS Load Balancer
+Controller: no Ingress controller, Gateway or Istio. The other modes are for a
+cluster that already runs one and should front Autoheal too; the chart then
+creates the Ingress, HTTPRoute or Istio resources, and `edge_address` is the
+address of that entry point.
+
 In `loadbalancer` mode TLS ends at the proxy, with `tls_certificate`.
 `edge_exposure` picks an `internal` load balancer (default, reachable from the
 VPC CIDR or `edge_allowed_cidr_blocks`) or an `internet-facing` one in the
@@ -132,6 +138,28 @@ With `create_pod_identity_associations = false` the roles are created and
 create-pod-identity-association` commands for an administrator. The workloads
 cannot reach AWS until they exist. `iam_permissions_boundary_arn` is attached to
 every role we create.
+
+## Cluster access
+
+The EKS cluster we create uses access entries only (no `aws-auth` ConfigMap).
+The identity that runs the apply is cluster admin. Everyone else is listed:
+
+| Input | Access policy | For |
+|-------|---------------|-----|
+| `cluster_admin_sso_permission_sets` | AmazonEKSClusterAdminPolicy | IAM Identity Center permission sets, by name, e.g. `AutohealAdmin` |
+| `cluster_viewer_sso_permission_sets` | AmazonEKSViewPolicy | permission sets for on-call and audit; workloads and pod logs, no Secrets |
+| `cluster_admin_principal_arns` | AmazonEKSClusterAdminPolicy | IAM roles or users by ARN, e.g. a break-glass role |
+| `cluster_viewer_principal_arns` | AmazonEKSViewPolicy | IAM roles or users by ARN |
+
+A permission set shows up in each account it is assigned to as a role named
+`AWSReservedSSO_<name>_<random suffix>` under `/aws-reserved/sso.amazonaws.com/`.
+The plan looks the role up by the permission set name and stops when it finds
+none (the permission set is not assigned to `account_id`) or more than one. The
+suffix never goes into a file, and when the role is recreated the next apply
+replaces its access entry.
+
+A brought cluster's access is its owner's: these inputs are ignored, and
+`required_cluster_owner_actions` lists what the deployer needs.
 
 ## Secrets Manager entries
 
@@ -241,6 +269,7 @@ launch template starts an instance refresh.
 | `cluster` | `cloud`, `name`, `region`, `endpoint`, base64 `ca_certificate`, `vpc_id`. No credential. |
 | `required_role_assignments` | Pod Identity association commands for an administrator, filled when `create_pod_identity_associations = false`. |
 | `required_dns_records` | Records for a person to create (`name`, `type`, `value`), filled when we do not create them. |
+| `required_cluster_owner_actions` | What the owner of a brought cluster must do, as readable lines: an access entry and IAM permissions for the deployer, the Pod Identity agent and Secrets Store CSI add-ons, the AWS Load Balancer Controller, and, when they apply, a path to a private API endpoint and image pull access for the nodes. Filled only with `existing_eks_cluster_arn`. |
 | `network` | `vpc_id`, `vpc_cidr_block`, `private_subnet_ids`, `runner_subnet_ids`, `data_subnet_ids`, `public_subnet_ids`. |
 
 `autoheal_values` keys:
@@ -279,6 +308,7 @@ terraform test
 ```
 
 `tests/` plans each case against mocked providers: `create.tftest.hcl` (case 1,
-each edge mode and the optional blocks), `bring.tftest.hcl` (case 2, the hybrid
-case and each guard on a brought resource) and `validation.tftest.hcl` (the
-plan-time checks on inputs).
+each edge mode, the optional blocks and cluster access), `bring.tftest.hcl`
+(case 2, the hybrid case, each guard on a brought resource and the owner's
+actions for a brought cluster) and `validation.tftest.hcl` (the plan-time checks
+on inputs).

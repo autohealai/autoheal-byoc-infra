@@ -387,6 +387,10 @@ account requires a permissions boundary on new roles, set
 an administrator creates the Pod Identity associations listed in the
 `required_role_assignments` output instead.
 
+For prod we recommend its own AWS account, IAM Identity Center for people and
+an OIDC role for the pipeline that only the protected prod environment can
+assume. "Who can use the cluster" in `examples/aws/README.md` shows the setup.
+
 Pick a region where EKS, Aurora PostgreSQL and ElastiCache are all offered, and
 check the On-Demand vCPU quota for the node group (default three `m7i.xlarge`)
 and the runner instances (one `m7i.xlarge`). A first apply takes roughly 30
@@ -422,10 +426,16 @@ later; no DynamoDB table is needed.
 - `prod/infra/terragrunt.hcl`: `namespace`, `environment`, `account_id`,
   `region`, `hostname`, `existing_dns_zone_id` (the Route 53 hosted zone that
   holds the hostname), `edge_mode` and `edge_exposure`, the `existing_*` ARNs
-  (the table in `examples/aws/README.md`), sizing, and who reaches the cluster
-  API: `cluster_admin_principal_arns`, and `api_server_authorized_ip_ranges` set
-  to the public egress address of the machine that runs Terraform (or
-  `private_cluster_enabled = true` when it runs inside the VPC).
+  (the table in `examples/aws/README.md`), sizing, who may use the cluster
+  (`cluster_admin_sso_permission_sets` and `cluster_viewer_sso_permission_sets`
+  for IAM Identity Center, `cluster_admin_principal_arns` and
+  `cluster_viewer_principal_arns` for IAM roles), and from where:
+  `api_server_authorized_ip_ranges` set to the public egress address of the
+  machine that runs Terraform (or `private_cluster_enabled = true` when it runs
+  inside the VPC).
+- `edge_mode`: keep `loadbalancer` unless the cluster already runs an Ingress
+  controller, a Gateway or Istio. It needs none of them; Terraform creates a
+  Network Load Balancer for the proxy.
 - Secrets, as environment variables, never in a file:
 
   ```bash
@@ -461,6 +471,7 @@ the hosted zone, and so on).
 ```bash
 terragrunt output required_role_assignments   # empty when Terraform made the associations
 terragrunt output required_dns_records        # empty when Terraform made the records
+terragrunt output required_cluster_owner_actions  # empty unless you brought the cluster
 terragrunt output -raw autoheal_values_yaml   # what the chart receives; no secrets
 ```
 

@@ -38,7 +38,11 @@ Store CSI driver with the AWS provider (`aws-secrets-store-csi-driver-provider`
 add-on) and an AWS Load Balancer Controller. Without a controller of its own,
 keep `aws_load_balancer_controller = { enabled = true }` in
 `prod/app/terragrunt.hcl` and leave `create_load_balancer_controller_role` on in
-the infra folder.
+the infra folder. The `required_cluster_owner_actions` output lists everything
+the cluster's owner must do for this install, with the names filled in: the
+access entry and IAM permissions for the identity that runs the apply, the
+add-ons, the controller and, when they apply, a path to a private API endpoint
+and image pull access for the nodes. Run a plan and hand the list over.
 
 ## Before the first run
 
@@ -48,7 +52,7 @@ the infra folder.
    PowerUserAccess plus the IAM rights to create roles, policies and instance
    profiles. When your account requires a permissions boundary on new roles,
    set `iam_permissions_boundary_arn`. That identity becomes a cluster admin of
-   the EKS cluster we create; add others with `cluster_admin_principal_arns`.
+   the EKS cluster we create; see "Who can use the cluster" for everyone else.
 3. Edit the names in `root.hcl`, then create the state bucket once:
 
    ```bash
@@ -61,6 +65,74 @@ the infra folder.
    encryption and TLS-only access, and blocks public access. Give the pipeline
    identity read and write access to the bucket.
 4. Edit `prod/infra/terragrunt.hcl` and `prod/app/values-customer.yaml`.
+
+## Who can use the cluster
+
+Keep prod in its own AWS account, give people IAM Identity Center access, and
+let the pipeline assume a role through OIDC. No one needs long-lived access keys.
+
+- People. Name the Identity Center permission sets in
+  `cluster_admin_sso_permission_sets` and `cluster_viewer_sso_permission_sets`
+  in `prod/infra/terragrunt.hcl`. Each must be assigned to the prod account.
+  Identity Center creates a role for it there, named
+  `AWSReservedSSO_<permission set>_<suffix>`; the plan looks it up by name and
+  stops if it is missing. Admins get `AmazonEKSClusterAdminPolicy`. Viewers get
+  `AmazonEKSViewPolicy`: workloads, events and pod logs, but not Secrets.
+- Break-glass. List one IAM role outside Identity Center in
+  `cluster_admin_principal_arns`, for when Identity Center is unavailable.
+  Require MFA to assume it and alarm on its use.
+- The pipeline. Create a role that your CI (GitHub Actions, GitLab, Azure
+  DevOps) assumes through OIDC, and trust it only from the protected prod
+  environment, for example `repo:acme/autoheal-deploy:environment:prod` as the
+  GitHub `sub` claim, not from every branch. That role runs the apply and is the
+  cluster's creator admin.
+
+A person logs in like this, with the start URL and account of your
+organization:
+
+```ini
+# ~/.aws/config
+[sso-session acme]
+sso_start_url           = https://acme.awsapps.com/start
+sso_region              = us-east-1
+sso_registration_scopes = sso:account:access
+
+[profile acme-prod]
+sso_session    = acme
+sso_account_id = 111111111111
+sso_role_name  = AutohealAdmin
+region         = us-west-2
+```
+
+```bash
+aws sso login --profile acme-prod
+cd prod/infra
+aws eks update-kubeconfig --profile acme-prod --region us-west-2 \
+  --name "$(terragrunt output -json cluster | jq -r .name)"
+```
+
+These inputs apply to a cluster we create. The owner of a brought cluster
+manages its access entries.
+
+## How traffic reaches Autoheal
+
+The default, `edge_mode = "loadbalancer"`, needs no Ingress controller, Gateway
+API implementation or Istio. Terraform creates a Network Load Balancer for the
+proxy, internal unless `edge_exposure = "internet-facing"`, and the DNS records
+for it. The chart binds the proxy to that load balancer's target groups through
+the AWS Load Balancer Controller, and the proxy terminates TLS with the
+certificate in `tls-certificate` and `tls-private-key`.
+
+When the cluster already runs an edge, use it instead: set `edge_mode` to
+`ingress`, `gateway-api` or `istio` in `prod/infra/terragrunt.hcl` and set
+`edge_address` to that edge's address, so the DNS records point there. Then set
+`global.edge.mode` to the same value in `prod/app/values-customer.yaml` and
+uncomment its block. That edge terminates TLS, and it must reach the proxy over
+HTTP/2 on the auth host, because Zitadel serves gRPC there.
+
+Every mode needs the AWS Load Balancer Controller, because the runner instances
+reach Temporal and api-server-go's tool result listener through an internal
+Network Load Balancer, which the chart binds the same way.
 
 ## Secrets
 
@@ -80,6 +152,11 @@ the secrets KMS key:
 | `TF_VAR_github_app_webhook_secret` | `github-app-webhook-secret` | When you connect a GitHub App |
 | `TF_VAR_llm_gateway_api_key` | `gateway-api-key` | When the chart's LLM gateway is on, with any kind except `custom`. For a gateway that ignores it, such as Portkey OSS, any value. |
 | `TF_VAR_llm_gateway_extra_headers` | `gateway-extra-headers` | When the gateway needs extra headers; a JSON object of strings, for example `{"x-portkey-config":"<config JSON>"}` |
+
+To send model calls through an LLM gateway you run, such as Portkey, see
+"Optional: an LLM gateway" in autoheal-byoc-infra's `docs/getting-started.md`.
+It lists the gateway secrets to set and the `global.llm.gateway` block for
+`values-customer.yaml`.
 
 Terraform generates and stores the rest (database passwords, the Redis AUTH
 token, the JWT key, the Zitadel master key, the first admin password, the OAuth
@@ -117,7 +194,7 @@ with them:
 ```bash
 cd prod/infra && terragrunt output -raw autoheal_values_yaml > values-infra.yaml
 helm upgrade --install autoheal oci://public.ecr.aws/e4h3h0d9/charts/autoheal \
-  --version 1.0.0 -n autoheal --create-namespace \
+  --version 1.0.0-rc.9 -n autoheal --create-namespace \
   -f values-infra.yaml -f ../app/values-customer.yaml --atomic --wait --timeout 20m
 ```
 

@@ -8,6 +8,14 @@ on:
 permissions:
   contents: read
 
+# One provider cache for every folder. Without it each module and composition
+# downloads its own copy of the providers, and the AWS provider alone is about
+# 700 MB, so the runner's disk fills up. The modules have no lock file, so
+# Terraform may only use the cache with the second variable set.
+env:
+  TF_PLUGIN_CACHE_DIR: /home/runner/.terraform.d/plugin-cache
+  TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE: "true"
+
 jobs:
   static:
     name: fmt / validate / lint / security / docs
@@ -18,6 +26,8 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.9.8"
+
+      - run: mkdir -p "$TF_PLUGIN_CACHE_DIR"
 
       - name: fmt
         run: terraform fmt -check -recursive
@@ -104,6 +114,7 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.9.8"
+      - run: mkdir -p "$TF_PLUGIN_CACHE_DIR"
       # init + validate only — no cloud credentials, so these do not plan against a real
       # subscription. Wire OIDC credentials here and switch to `terraform plan` (then an
       # apply/destroy tier) once a sandbox subscription is available.

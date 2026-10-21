@@ -18,7 +18,7 @@ inputs = {
   environment      = "prod"
   account_id       = "111111111111"
   region           = "us-west-2"
-  autoheal_version = local.v.chart_version # the runner instances pull app/runner-go:chart-1.0.0
+  autoheal_version = local.v.chart_version # the runner instances pull app/runner-go:chart-<chart_version>
 
   # We never create a hosted zone, only the records in it. If the zone is not
   # in Route 53 (Cloudflare, Infoblox), remove this line and set
@@ -59,10 +59,19 @@ inputs = {
   # create_pod_identity_associations = false
   # iam_permissions_boundary_arn     = "arn:aws:iam::111111111111:policy/platform-boundary"
 
-  # Who may administer the cluster besides the identity running the apply, and
-  # from where. Set private_cluster_enabled = true when the pipeline runs inside
-  # the VPC.
-  cluster_admin_principal_arns    = ["arn:aws:iam::111111111111:role/platform-admins"]
+  # Who may use the cluster besides the identity running the apply. Name IAM
+  # Identity Center permission sets that are assigned to this account; people
+  # then log in with `aws sso login`. Admins get AmazonEKSClusterAdminPolicy,
+  # viewers AmazonEKSViewPolicy (workloads and pod logs, no Secrets). List IAM
+  # roles by ARN instead, such as a break-glass role for when Identity Center
+  # is unavailable.
+  cluster_admin_sso_permission_sets  = ["AutohealAdmin"]
+  cluster_viewer_sso_permission_sets = ["AutohealReadOnly"]
+  # cluster_admin_principal_arns     = ["arn:aws:iam::111111111111:role/break-glass"]
+  # cluster_viewer_principal_arns    = ["arn:aws:iam::111111111111:role/support"]
+
+  # From where the API server is reachable. Set private_cluster_enabled = true
+  # when the pipeline runs inside the VPC.
   api_server_authorized_ip_ranges = ["203.0.113.10/32"]
 
   # Sizing
@@ -78,10 +87,13 @@ inputs = {
   hostname = "autoheal.acme.example"
 
   # How traffic reaches the Autoheal proxy. loadbalancer: we create an NLB for it
-  # and point DNS there. For gateway-api, istio or ingress, set edge_address to
-  # the address of that edge instead.
+  # and point DNS there. It needs no Ingress controller, Gateway or Istio. Use
+  # gateway-api, istio or ingress only when the cluster already runs one, and set
+  # edge_address to that edge's address so the DNS records point there.
   edge_mode     = "loadbalancer"
   edge_exposure = "internal" # internet-facing needs edge_allowed_cidr_blocks
+  # edge_mode    = "ingress"
+  # edge_address = "k8s-ingress-0123456789.elb.us-west-2.amazonaws.com"
 
   # Models through Bedrock with the agents' Pod Identity roles, so no API key.
   # For another provider, set this to false and pass TF_VAR_llm_api_key.

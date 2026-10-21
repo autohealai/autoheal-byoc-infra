@@ -40,6 +40,9 @@ mock_provider "aws" {
   mock_data "aws_vpc" {
     defaults = { cidr_block = "10.20.0.0/16" }
   }
+  mock_data "aws_iam_session_context" {
+    defaults = { issuer_arn = "arn:aws:iam::123456789012:role/deployer" }
+  }
   mock_data "aws_eks_cluster" {
     defaults = {
       endpoint              = "https://ABCDEF.gr7.us-west-2.eks.amazonaws.com"
@@ -164,6 +167,58 @@ run "everything_brought" {
       length(terraform_data.kms_guard) == 1
     )
     error_message = "Every brought resource should be checked."
+  }
+
+  assert {
+    condition = (
+      length(output.required_cluster_owner_actions) == 6 &&
+      strcontains(output.required_cluster_owner_actions[0], "acme-eks for the deployer (arn:aws:iam::123456789012:role/deployer)") &&
+      strcontains(output.required_cluster_owner_actions[1], "eks:CreatePodIdentityAssociation") &&
+      strcontains(output.required_cluster_owner_actions[1], "sg-0cluster0000000000") &&
+      strcontains(output.required_cluster_owner_actions[1], "TCP 7233, 8083, 8443, 8090") &&
+      strcontains(output.required_cluster_owner_actions[2], "eks-pod-identity-agent and aws-secrets-store-csi-driver-provider") &&
+      strcontains(output.required_cluster_owner_actions[3], "global.infra.targetGroups") &&
+      strcontains(output.required_cluster_owner_actions[4], "private API endpoint of acme-eks") &&
+      strcontains(output.required_cluster_owner_actions[5], "123456789012.dkr.ecr.us-west-2.amazonaws.com/autoheal")
+    )
+    error_message = "required_cluster_owner_actions should list the access entry, IAM, add-ons, controller, private endpoint and registry."
+  }
+}
+
+run "brought_cluster_public_endpoint" {
+  command = plan
+
+  variables {
+    edge_mode                            = "istio"
+    create_load_balancer_controller_role = true
+    create_pod_identity_associations     = false
+    existing_registry_url                = ""
+    create_registry                      = true
+  }
+
+  override_data {
+    target = data.aws_eks_cluster.existing[0]
+    values = {
+      endpoint              = "https://ABCDEF.gr7.us-west-2.eks.amazonaws.com"
+      status                = "ACTIVE"
+      certificate_authority = [{ data = "Q0E=" }]
+      vpc_config = [{
+        vpc_id                    = "vpc-0123456789abcdef0"
+        cluster_security_group_id = "sg-0cluster0000000000"
+        endpoint_public_access    = true
+      }]
+    }
+  }
+
+  assert {
+    condition = (
+      length(output.required_cluster_owner_actions) == 5 &&
+      !strcontains(output.required_cluster_owner_actions[1], "eks:CreatePodIdentityAssociation") &&
+      endswith(output.required_cluster_owner_actions[1], "TCP 7233, 8083") &&
+      strcontains(output.required_cluster_owner_actions[3], "aws_load_balancer_controller.enabled = true") &&
+      strcontains(output.required_cluster_owner_actions[4], "acme-prod-autoheal-ecr-pull-through")
+    )
+    error_message = "A public endpoint, our controller role and our registry should change the owner's list."
   }
 }
 

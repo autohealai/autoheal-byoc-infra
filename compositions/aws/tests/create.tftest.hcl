@@ -394,3 +394,60 @@ run "private_vpc" {
     error_message = "A VPC with no NAT gateway, endpoints and a registry should plan."
   }
 }
+
+run "cluster_access" {
+  command = plan
+
+  variables {
+    cluster_admin_principal_arns       = ["arn:aws:iam::123456789012:role/break-glass"]
+    cluster_viewer_principal_arns      = ["arn:aws:iam::123456789012:role/audit"]
+    cluster_admin_sso_permission_sets  = ["AutohealAdmin"]
+    cluster_viewer_sso_permission_sets = ["Ops.View+1"]
+  }
+
+  override_data {
+    target = data.aws_iam_roles.sso["sso-admin-AutohealAdmin"]
+    values = { arns = ["arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/us-west-2/AWSReservedSSO_AutohealAdmin_0123456789abcdef"] }
+  }
+
+  override_data {
+    target = data.aws_iam_roles.sso["sso-viewer-Ops.View+1"]
+    values = { arns = ["arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_Ops.View+1_fedcba9876543210"] }
+  }
+
+  assert {
+    condition = (
+      data.aws_iam_roles.sso["sso-admin-AutohealAdmin"].name_regex == "^AWSReservedSSO_AutohealAdmin_[0-9a-f]+$" &&
+      data.aws_iam_roles.sso["sso-viewer-Ops.View+1"].name_regex == "^AWSReservedSSO_Ops\\.View\\+1_[0-9a-f]+$" &&
+      data.aws_iam_roles.sso["sso-admin-AutohealAdmin"].path_prefix == "/aws-reserved/sso.amazonaws.com/"
+    )
+    error_message = "Permission sets should be looked up by role name, with regex operators escaped."
+  }
+
+  assert {
+    condition = local.cluster_access_entries == {
+      "arn:aws:iam::123456789012:role/break-glass" = {
+        principal_arn = "arn:aws:iam::123456789012:role/break-glass"
+        policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+      }
+      "arn:aws:iam::123456789012:role/audit" = {
+        principal_arn = "arn:aws:iam::123456789012:role/audit"
+        policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy"
+      }
+      "sso-admin-AutohealAdmin" = {
+        principal_arn = "arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/us-west-2/AWSReservedSSO_AutohealAdmin_0123456789abcdef"
+        policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+      }
+      "sso-viewer-Ops.View+1" = {
+        principal_arn = "arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_Ops.View+1_fedcba9876543210"
+        policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy"
+      }
+    }
+    error_message = "Access entries should give admins the cluster admin policy and viewers the view policy."
+  }
+
+  assert {
+    condition     = length(output.required_cluster_owner_actions) == 0
+    error_message = "A cluster we create needs nothing from an owner."
+  }
+}

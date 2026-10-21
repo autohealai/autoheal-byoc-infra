@@ -6,6 +6,8 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-10-21
+
 AWS moves to the 2.x shape: `compositions/aws` replaces the 1.x
 `compositions/aws-byoc`, with the same two-folder layout, `existing_*` inputs
 and outputs as `compositions/azure`. Azure installs see no change: the plan is
@@ -13,10 +15,11 @@ the same as on 2.2.1, and the Azure `global.infra` keeps contract version
 2.0.0. Major version because `compositions/aws-byoc`, `examples/aws-byoc` and
 the 1.x AWS modules' interfaces are gone.
 
-Needs, on AWS: an autoheal chart that accepts `global.infra.cloud: aws`
-(contract 2.1.0; 1.0.0-rc.9 or later), and an api-server-go image that reads
-`TENANT_BUCKET_PREFIX` and `SECRET_MANAGER_AWS_SECRET_PREFIX`. Older images
-name tenant buckets and runtime secrets outside what the IAM roles allow.
+Needs, on AWS: autoheal chart 1.0.0-rc.9 or later. It accepts
+`global.infra.cloud: aws` (contract 2.1.0) and carries api-server-go 0.7.701,
+which reads `TENANT_BUCKET_PREFIX` and `SECRET_MANAGER_AWS_SECRET_PREFIX`.
+Older api-server-go images name tenant buckets and runtime secrets outside what
+the IAM roles allow.
 
 ### Added
 - `compositions/aws`: one AWS composition for every case. Each building block
@@ -105,6 +108,8 @@ name tenant buckets and runtime secrets outside what the IAM roles allow.
   mocked providers).
 
 ### Changed
+- `examples/azure/*/versions.hcl`, the README and the docs pin v3.0.0. The
+  Azure examples stay on chart 1.0.0-rc.8.
 - `modules/aws/vpc`: `cidr_block` replaces `vpc_cidr`. Adds data and runner
   subnet tiers, `nat_gateway_mode`, flow logs and VPC endpoints.
 - `modules/aws/eks`: `subnet_ids` replaces `private_subnet_ids` and

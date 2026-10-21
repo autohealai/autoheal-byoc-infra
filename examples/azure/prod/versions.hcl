@@ -1,5 +1,5 @@
 # Two numbers for the whole environment. Changing them is how you upgrade.
 locals {
-  infra_version = "2.2.1"      # autoheal-byoc-infra tag
+  infra_version = "3.0.0"      # autoheal-byoc-infra tag
   chart_version = "1.0.0-rc.8" # every service, Temporal, Zitadel, the proxy, runner-go
 }

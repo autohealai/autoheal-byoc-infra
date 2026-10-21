@@ -177,7 +177,7 @@ The Azure side is complete.
 - Connect to your copy of this repository (a fork or a mirror).
 - Set the **Terraform Working Directory** to `compositions/azure`.
 - Set the **VCS branch** to a branch of your copy that holds the release you
-  install, for example a branch made from the `v2.2.1` tag. To upgrade, move
+  install, for example a branch made from the `v3.0.0` tag. To upgrade, move
   that branch to the next tag.
 - Name the workspace `autoheal-infra-prod`. The name must be the same as
   `<WORKSPACE>` in Step 4.

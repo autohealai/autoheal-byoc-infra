@@ -18,7 +18,9 @@ Two folders in a repository you own, each with its own state:
   infra folder outputs and your own `values-customer.yaml`.
 
 You drive both with **Terragrunt**, a thin wrapper around Terraform, from your
-laptop for a first try or from a pipeline for a real install.
+laptop for a first try or from a pipeline for a real install. On Azure you can
+also run both with Terraform alone, for example from Azure DevOps: use
+`examples/azure/terraform` and [azure-devops.md](azure-devops.md) instead.
 
 ---
 
@@ -29,7 +31,7 @@ laptop for a first try or from a pipeline for a real install.
 | Tool | What it is for | Install |
 |------|----------------|---------|
 | Terraform (1.7 or later) | creates the infrastructure | https://developer.hashicorp.com/terraform/install |
-| Terragrunt | runs each folder with its backend and inputs | https://terragrunt.gruntwork.io/docs/getting-started/install/ |
+| Terragrunt | runs each folder with its backend and inputs; not needed with `examples/azure/terraform` | https://terragrunt.gruntwork.io/docs/getting-started/install/ |
 | `az` CLI (Azure) | signs in to Azure | https://learn.microsoft.com/cli/azure/install-azure-cli |
 | `kubelogin` (Azure) | logs in to AKS with Entra ID for the chart install | https://azure.github.io/kubelogin/install.html |
 | `aws` CLI (AWS) | signs in to AWS and logs in to EKS for the chart install | https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html |
@@ -234,7 +236,9 @@ terragrunt apply
 
 The app folder logs in to the cluster with `kubelogin` using your `az login`
 session. In a pipeline that signs in with a federated identity, set
-`kubelogin_login_mode = "workloadidentity"` in `prod/app/terragrunt.hcl`.
+`kubelogin_login_mode = "workloadidentity"` in `prod/app/terragrunt.hcl`. In
+Azure DevOps, keep `azurecli` and run Terraform inside the `AzureCLI@2` task, as
+[azure-devops.md](azure-devops.md) does.
 
 To install with Helm or Flux instead of the app folder, see
 `examples/azure/README.md`.

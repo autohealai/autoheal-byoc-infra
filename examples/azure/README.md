@@ -13,6 +13,7 @@ prod/
 split/                       the same, for an AKS cluster in another subscription, connected VNets
 split-public/                the same, with public endpoints instead of connected VNets
 cop-standin/                 internal test stand-in for that cluster; not for customers
+terraform/                   the same as prod/, with Terraform alone and an Azure DevOps pipeline
 ```
 
 Each folder has its own state file (`autoheal/prod/infra`, `autoheal/prod/app`).
@@ -49,7 +50,8 @@ stop the plan with a message saying what to change.
 ## Before the first run
 
 1. Tools on the pipeline runner: Terraform 1.7 or later (or OpenTofu),
-   Terragrunt, the `az` CLI and `kubelogin`.
+   Terragrunt, the `az` CLI and `kubelogin`. `terraform/` needs no Terragrunt;
+   from Azure DevOps it needs Terraform 1.11 or later (`terraform/README.md`).
 2. Permissions for the identity that runs Terraform: Contributor on the
    subscription, plus User Access Administrator (or Owner) while
    `create_role_assignments = true`.
@@ -104,7 +106,9 @@ The app folder reads `autoheal_values` and `cluster` from the infra folder's
 state. Before the infra folder has been applied, its plan uses the placeholder
 outputs in the `dependency` block. The app folder logs in to AKS with
 `kubelogin`; set `kubelogin_login_mode = "workloadidentity"` when the pipeline
-signs in with a federated identity rather than `az login`.
+signs in with a federated identity rather than `az login`. In Azure DevOps, keep
+`azurecli` and run Terraform inside the `AzureCLI@2` task, as
+`terraform/pipelines/terraform.yml` does.
 
 ## Upgrading
 

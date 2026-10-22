@@ -127,3 +127,33 @@ jobs:
             terraform -chdir="$d" init -backend=false >/dev/null
             terraform -chdir="$d" validate
           done
+
+  azure-terraform-example:
+    name: validate examples/azure/terraform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The lowest version the example allows (Azure DevOps sign-in needs 1.11).
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.11.4"
+      - run: mkdir -p "$TF_PLUGIN_CACHE_DIR"
+      # The example pins each composition to a release tag. Point it at this
+      # checkout instead, so the check covers the compositions in this change,
+      # then validate without a backend. Its lock files must stay copies of the
+      # compositions' lock files.
+      - name: validate
+        run: |
+          set -euo pipefail
+          for pair in infra:azure app:app; do
+            d="examples/azure/terraform/${pair%%:*}"
+            c="${pair##*:}"
+            cmp "compositions/$c/.terraform.lock.hcl" "$d/.terraform.lock.hcl" \
+              || { echo "::error::copy compositions/$c/.terraform.lock.hcl to $d"; exit 1; }
+            sed -i -E "s#git::https://github\.com/autohealai/autoheal-byoc-infra\.git//compositions/$c\?ref=[^\"]+#../../../../compositions/$c#" "$d/main.tf"
+            grep -q "source = \"../../../../compositions/$c\"" "$d/main.tf" \
+              || { echo "::error::no compositions/$c source line in $d/main.tf"; exit 1; }
+            echo "== validate $d =="
+            terraform -chdir="$d" init -backend=false -input=false >/dev/null
+            terraform -chdir="$d" validate
+          done

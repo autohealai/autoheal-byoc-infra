@@ -1,8 +1,9 @@
 # autoheal-byoc-infra
 
-Terraform and Terragrunt code for the infrastructure Autoheal runs on inside a
-customer's own cloud (BYOC): Azure and AWS, with the same structure on both. GCP
-is planned.
+Terraform code for the infrastructure Autoheal runs on inside a customer's own
+cloud (BYOC): Azure and AWS, with the same structure on both. GCP is planned.
+The examples run it with Terragrunt; `examples/azure/terraform` runs it with
+Terraform alone.
 
 A deployment has two folders, each with its own state:
 
@@ -29,8 +30,10 @@ compositions/       Full wiring, one per cloud, plus the app install.
                     Balancer Controller on EKS.
 examples/
   azure/            A deployment repository to copy: root.hcl, prod/infra, prod/app.
+  azure/terraform/  The same with Terraform alone, plus an Azure DevOps pipeline.
   aws/              The same for AWS.
-docs/               MODULE_STANDARD.md (contributor contract), getting-started.md.
+docs/               MODULE_STANDARD.md (contributor contract), getting-started.md,
+                    azure-devops.md, terraform-enterprise.md.
 scripts/            bootstrap-state-azure.sh and bootstrap-state-aws.sh (one-time
                     state storage account or bucket).
 ```
@@ -46,14 +49,18 @@ cd prod/infra && terragrunt apply   # cloud resources, vault entries, DNS, runne
 cd ../app     && terragrunt apply   # the chart
 ```
 
+Without Terragrunt, for example from Azure DevOps, use `examples/azure/terraform`
+and [docs/azure-devops.md](docs/azure-devops.md).
+
 To send model calls through an LLM gateway you run, such as Portkey, see
 "Optional: an LLM gateway" in
 [docs/getting-started.md](docs/getting-started.md#optional-an-llm-gateway).
 
 ## Versioning
 
-One semver version for the whole repo. Pin a release tag; the examples read it
-from `versions.hcl`:
+One semver version for the whole repo. Pin a release tag; the Terragrunt
+examples read it from `versions.hcl`, and `examples/azure/terraform` has it in
+its two `source` lines:
 
 ```hcl
 source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure?ref=v3.0.0"

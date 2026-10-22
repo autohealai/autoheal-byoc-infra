@@ -13,7 +13,3 @@ provider "azurerm" {
   subscription_id                 = local.cluster_subscription_id
   resource_provider_registrations = "none"
 }
-
-provider "random" {}
-
-provider "tls" {}

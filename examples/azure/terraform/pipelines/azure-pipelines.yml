@@ -1,0 +1,79 @@
+# Plans and applies ../infra, then ../app. Each apply waits for an approval on
+# the autoheal-prod environment. docs/azure-devops.md in autoheal-byoc-infra
+# explains every name below.
+
+trigger: none
+
+# Self-hosted agents with a fixed outbound address (deployer_ip_ranges in
+# infra/main.tf) that can reach the AKS API. Each agent needs Terraform 1.11 or
+# later and the az CLI; the app stages install kubelogin.
+pool: autoheal-agents
+
+variables:
+  # The secrets (llm-api-key and the others you use). Link the group to a Key
+  # Vault so the values stay out of Azure DevOps.
+  - group: autoheal-prod-secrets
+
+  # The chart version. To upgrade, change it here, and the infra tag in the two
+  # source lines in infra/main.tf and app/main.tf.
+  - name: autohealVersion
+    value: 1.0.0-rc.8
+
+  # An Azure Resource Manager service connection that uses workload identity
+  # federation.
+  - name: serviceConnection
+    value: sc-autoheal-prod
+
+  # Where infra/ and app/ are in your repository.
+  - name: rootFolder
+    value: examples/azure/terraform
+
+  # The state storage account (scripts/bootstrap-state-azure.sh). The app
+  # folder reads the infra state with the same names (app/main.tf).
+  - name: stateResourceGroup
+    value: rg-acme-tfstate
+  - name: stateStorageAccount
+    value: stacmetfstate
+  - name: stateContainer
+    value: tfstate
+  - name: stateKeyPrefix
+    value: autoheal/prod
+
+stages:
+  - stage: infra_plan
+    jobs:
+      - job: plan
+        steps:
+          - template: terraform.yml
+            parameters: { folder: infra, command: plan }
+
+  - stage: infra_apply
+    jobs:
+      - deployment: apply
+        environment: autoheal-prod # add an Approvals check to this environment
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                - template: terraform.yml
+                  parameters: { folder: infra, command: apply }
+
+  - stage: app_plan
+    jobs:
+      - job: plan
+        steps:
+          - template: terraform.yml
+            parameters: { folder: app, command: plan }
+
+  - stage: app_apply
+    jobs:
+      - deployment: apply
+        environment: autoheal-prod
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                - template: terraform.yml
+                  parameters: { folder: app, command: apply }

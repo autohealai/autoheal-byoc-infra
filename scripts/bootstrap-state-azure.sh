@@ -4,8 +4,9 @@
 #
 # Terragrunt stores its state in an Azure Storage container, but Terraform cannot
 # create the account that holds its own state (chicken-and-egg). Run this ONCE,
-# after `az login`, before `terragrunt init`. It is idempotent: re-running against
-# an existing backend is a no-op, so it is safe to retry.
+# after `az login`, before `terragrunt init` or `terraform init`. It is
+# idempotent: re-running against an existing backend is a no-op, so it is safe
+# to retry.
 #
 # Usage:
 #   ./scripts/bootstrap-state-azure.sh \
@@ -16,8 +17,9 @@
 #     [--container     tfstate]
 #
 # The three names must match the remote_state config block in your root.hcl
-# (examples/azure/root.hcl). That block sets use_azuread_auth = true, so the
-# script also grants the signed-in identity Storage Blob Data Contributor on the
+# (examples/azure/root.hcl), or the -backend-config values with Terraform alone
+# (examples/azure/terraform). Both set use_azuread_auth = true, so the script
+# also grants the signed-in identity Storage Blob Data Contributor on the
 # account: Terraform reads and writes state with Entra ID, not the account key.
 
 set -euo pipefail
@@ -147,4 +149,11 @@ $ACCOUNT_ID.
 
 Next, from your copy of examples/azure:
   cd prod/infra && terragrunt plan
+
+Or with Terraform alone (examples/azure/terraform), pass the same names to init:
+  terraform init -backend-config=resource_group_name=$RESOURCE_GROUP \\
+    -backend-config=storage_account_name=$STORAGE_ACCOUNT \\
+    -backend-config=container_name=$CONTAINER \\
+    -backend-config=key=autoheal/prod/infra/terraform.tfstate \\
+    -backend-config=use_azuread_auth=true
 DONE

@@ -6,6 +6,35 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+Azure installs can run with Terraform alone, without Terragrunt. No change to
+any plan.
+
+### Added
+- `examples/azure/terraform`: the `prod` example as two plain Terraform root
+  folders. `infra` calls `compositions/azure` as a module and passes its outputs
+  on; `app` reads them with `terraform_remote_state` and calls
+  `compositions/app`. The state backend names are passed to `terraform init`
+  with `-backend-config`. The lock files are copies of the compositions' lock
+  files, so you get the provider versions we test.
+- `examples/azure/terraform/pipelines`: an Azure DevOps pipeline that plans and
+  applies `infra`, then `app`, with an approval before each apply. It signs in
+  with a workload identity federation service connection and needs Terraform
+  1.11 or later, which renews the pipeline's short-lived sign-in token during a
+  long apply.
+- `docs/azure-devops.md`: the Azure DevOps setup step by step (agents, state,
+  service connection and roles, secrets, approvals, upgrade, troubleshooting).
+- CI validates `examples/azure/terraform` with Terraform 1.11 against the
+  compositions in the change, and checks that its lock files match the
+  compositions'.
+
+### Changed
+- `compositions/azure`: removed the empty `provider "random" {}` and
+  `provider "tls" {}` blocks. Terraform configures both the same way without
+  them, and a caller of the composition as a module no longer gets a warning
+  about them.
+- `docs/terraform-enterprise.md`: points to `examples/azure/terraform/app` for
+  running `compositions/app` in a second workspace.
+
 ## [3.0.0] - 2026-10-21
 
 AWS moves to the 2.x shape: `compositions/aws` replaces the 1.x

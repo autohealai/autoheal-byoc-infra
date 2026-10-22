@@ -1,0 +1,58 @@
+# One Terraform run in one folder. azure-pipelines.yml calls it four times.
+
+parameters:
+  - name: folder
+    type: string
+    values: [infra, app]
+  - name: command
+    type: string
+    values: [plan, apply]
+
+steps:
+  - ${{ if eq(parameters.folder, 'app') }}:
+      - task: KubeloginInstaller@0
+        displayName: install kubelogin
+
+  - task: AzureCLI@2
+    displayName: terraform ${{ parameters.command }} ${{ parameters.folder }}
+    inputs:
+      azureSubscription: $(serviceConnection)
+      scriptType: bash
+      scriptLocation: inlineScript
+      workingDirectory: $(System.DefaultWorkingDirectory)/$(rootFolder)/${{ parameters.folder }}
+      inlineScript: |
+        set -euo pipefail
+
+        # Terraform and the state backend sign in as the service connection.
+        # The token the task hands out lasts a few minutes, less than an apply,
+        # so they ask Azure DevOps for a new one when it expires. This needs
+        # Terraform 1.11 or later.
+        export ARM_CLIENT_ID="$AZURESUBSCRIPTION_CLIENT_ID"
+        export ARM_TENANT_ID="$AZURESUBSCRIPTION_TENANT_ID"
+        export ARM_ADO_PIPELINE_SERVICE_CONNECTION_ID="$AZURESUBSCRIPTION_SERVICE_CONNECTION_ID"
+        export ARM_USE_OIDC=true
+        export ARM_USE_CLI=false
+
+        terraform version
+        terraform init -input=false \
+          -backend-config="resource_group_name=$(stateResourceGroup)" \
+          -backend-config="storage_account_name=$(stateStorageAccount)" \
+          -backend-config="container_name=$(stateContainer)" \
+          -backend-config="key=$(stateKeyPrefix)/${{ parameters.folder }}/terraform.tfstate" \
+          -backend-config="use_azuread_auth=true"
+
+        # The apply stage plans again and applies that plan.
+        if [ "${{ parameters.command }}" = plan ]; then
+          terraform plan -input=false -lock-timeout=5m
+        else
+          terraform apply -input=false -lock-timeout=5m -auto-approve
+        fi
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+      SYSTEM_OIDCREQUESTURI: $(System.OidcRequestUri)
+      TF_VAR_autoheal_version: $(autohealVersion)
+      # Secrets go to the infra folder only. One line per secret you use, and
+      # none for a secret you do not set: Azure DevOps passes an undefined
+      # $(name) on as that literal text, which Terraform would store.
+      ${{ if eq(parameters.folder, 'infra') }}:
+        TF_VAR_llm_api_key: $(llm-api-key)

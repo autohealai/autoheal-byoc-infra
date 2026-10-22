@@ -321,7 +321,10 @@ You can also run `compositions/app` in a second workspace. It logs in to AKS
 with `kubelogin`, which the hosted workers do not have, so it needs a Terraform
 Enterprise agent with `kubelogin` installed. It also needs the `cluster` and
 `autoheal_values` outputs of the infra workspace as its `cluster` and
-`infra_values` inputs. This repository does not ship that wiring.
+`infra_values` inputs. `examples/azure/terraform/app/main.tf` shows that wiring
+with the state in a storage account; in Terraform Enterprise, read the infra
+workspace's outputs with the `tfe_outputs` data source instead of
+`terraform_remote_state`.
 
 ---
 

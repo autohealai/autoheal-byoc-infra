@@ -3,7 +3,8 @@
 # connected (cluster_network_path = public). Postgres and the vaults let in
 # acme's outbound addresses only, storage lets in acme's AKS subnet, Redis is
 # public, and Temporal is published on a static public IP in COP that only the
-# runner's NAT address may reach. Our VNet has only the runner subnet.
+# runner's NAT address may reach, or with runner_temporal_address forwarded by
+# acme's firewall to a private address. Our VNet has only the runner subnet.
 
 mock_provider "azurerm" {
   mock_data "azurerm_client_config" {
@@ -184,6 +185,11 @@ run "public_path" {
   }
 
   assert {
+    condition     = output.temporal_forwarding == null && local.runner_temporal_address == "20.30.40.50"
+    error_message = "Without runner_temporal_address there is no firewall rule, and the runner connects to the public IP."
+  }
+
+  assert {
     condition     = output.autoheal_values.global.edge.exposure == "internal"
     error_message = "The proxy stays internal unless edge_exposure is public."
   }
@@ -233,6 +239,109 @@ run "runner_address" {
     condition     = output.required_cluster_owner_actions[5] == "An NSG rule on the AKS subnet vnet-cop/snet-aks: allow the runner VMs' outbound address 198.51.100.7 to 20.30.40.50 on TCP 7233 and 8083, and deny every other source to that address on those ports"
     error_message = "The NSG rule lets the runner's NAT address reach the public Temporal address."
   }
+}
+
+# --- Temporal through the customer's firewall ---------------------------------
+
+# The runners connect to a name that resolves to acme's firewall, which forwards
+# 7233 and 8083 to a private address in the AKS subnet. The chart keeps its
+# internal load balancers there and compositions/app creates none.
+run "temporal_through_the_firewall" {
+  command = plan
+
+  variables {
+    runner_temporal_address = "temporal.autoheal.acme.example"
+    existing_network = {
+      aks_subnet_id = "/subscriptions/66666666-6666-6666-6666-666666666666/resourceGroups/rg-cop-net/providers/Microsoft.Network/virtualNetworks/vnet-cop/subnets/snet-aks"
+      temporal_ip   = "10.40.15.253"
+      proxy_ip      = "10.40.15.252"
+    }
+  }
+
+  override_module {
+    target = module.vnet
+    outputs = {
+      vnet_id                   = "/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.Network/virtualNetworks/acme-prod-autoheal"
+      vnet_name                 = "acme-prod-autoheal"
+      subnet_aks_id             = ""
+      subnet_db_id              = ""
+      subnet_pe_id              = ""
+      subnet_runner_id          = "/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.Network/virtualNetworks/acme-prod-autoheal/subnets/snet-runner"
+      aks_nsg_id                = ""
+      aks_nsg_name              = ""
+      runner_nat_public_ip      = "198.51.100.7"
+      pg_private_dns_zone_id    = ""
+      blob_private_dns_zone_id  = ""
+      vault_private_dns_zone_id = ""
+      redis_private_dns_zone_id = ""
+    }
+  }
+
+  assert {
+    condition = (
+      !can(output.autoheal_values.temporalFrontendLoadBalancer) &&
+      !can(output.autoheal_values.toolResponseLoadBalancer) &&
+      output.autoheal_values.global.infra.temporal.internalIP == "10.40.15.253"
+    )
+    error_message = "The chart keeps its internal Temporal load balancers on the private address."
+  }
+
+  assert {
+    condition = (
+      local.runner_temporal_address == "temporal.autoheal.acme.example" &&
+      local.tool_response_callback_url == "http://temporal.autoheal.acme.example:8083/api/v1/internal/sandbox-tool-responses"
+    )
+    error_message = "The runner connects to the name, for Temporal and the tool-response listener."
+  }
+
+  assert {
+    condition     = output.temporal_public_endpoint == null
+    error_message = "No public Temporal endpoint, so compositions/app creates no load balancer."
+  }
+
+  assert {
+    condition = (
+      output.temporal_forwarding.address == "temporal.autoheal.acme.example" &&
+      output.temporal_forwarding.target_ip == "10.40.15.253" &&
+      tolist(output.temporal_forwarding.ports) == tolist([7233, 8083]) &&
+      tolist(output.temporal_forwarding.allowed_source_ranges) == tolist(["198.51.100.7/32"])
+    )
+    error_message = "temporal_forwarding holds the firewall rule."
+  }
+
+  # By position: the NSG line (5) and the firewall line (6) in place of the
+  # static IP.
+  assert {
+    condition = (
+      length(output.required_cluster_owner_actions) == 10 &&
+      output.required_cluster_owner_actions[5] == "An NSG rule on the AKS subnet vnet-cop/snet-aks: allow your firewall, which forwards from the runner VMs' outbound address 198.51.100.7 (the source is the firewall's private address if it rewrites it) to 10.40.15.253 on TCP 7233 and 8083, and deny every other source to that address on those ports" &&
+      output.required_cluster_owner_actions[6] == "A rule on your firewall that forwards TCP 7233 and 8083 to 10.40.15.253, the chart's internal load balancers, from the runner VMs' outbound address 198.51.100.7 only. temporal.autoheal.acme.example must be the firewall's public address, or a DNS name that resolves to it" &&
+      output.required_cluster_owner_actions[7] == "The Microsoft.Storage service endpoint on the AKS subnet vnet-cop/snet-aks, and Network Contributor or a role with Microsoft.Network/virtualNetworks/subnets/joinViaServiceEndpoint/action on it for the deployer (object ID 12121212-1212-1212-1212-121212121212): the storage account lets that subnet in"
+    )
+    error_message = "Ten lines: the firewall rule in place of the static public IP."
+  }
+}
+
+# The firewall forwards to the chart's internal load balancers, so the address
+# must be private and in the AKS subnet.
+run "temporal_through_the_firewall_needs_a_private_ip" {
+  command = plan
+
+  variables {
+    runner_temporal_address = "temporal.autoheal.acme.example"
+  }
+
+  expect_failures = [terraform_data.validate_public_path, terraform_data.validate_addresses]
+}
+
+run "runner_temporal_address_is_a_name_or_address_only" {
+  command = plan
+
+  variables {
+    runner_temporal_address = "https://temporal.autoheal.acme.example:7233"
+  }
+
+  expect_failures = [var.runner_temporal_address]
 }
 
 # --- A public proxy -------------------------------------------------------------

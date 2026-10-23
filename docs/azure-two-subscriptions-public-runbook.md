@@ -74,6 +74,7 @@ The runbook has two roles. One person can do both:
   - [Key Vault service endpoint on the subnet](#key-vault-service-endpoint-on-the-subnet)
   - [The namespace holds another install](#the-namespace-holds-another-install)
   - [Other outbound types](#other-outbound-types)
+  - [Temporal behind your firewall](#temporal-behind-your-firewall)
   - [Keep Autoheal private](#keep-autoheal-private)
   - [A Portkey gateway](#a-portkey-gateway)
   - [Get a TLS certificate](#get-a-tls-certificate)
@@ -357,6 +358,9 @@ Make sure that:
   [The cluster uses the VNet that AKS made](#the-cluster-uses-the-vnet-that-aks-made).
 - `privateCluster` is not `true`, and `authorizedIpRanges` is empty. If not,
   see [Your machine cannot reach the API server](#your-machine-cannot-reach-the-api-server).
+- `outboundType` is `loadBalancer` or `managedNATGateway`. For
+  `userDefinedRouting`, where your firewall carries the outbound traffic of the
+  cluster, see [Temporal behind your firewall](#temporal-behind-your-firewall).
 
 Step 3 turns on the other features.
 
@@ -364,7 +368,10 @@ Step 3 turns on the other features.
 
 Skip this step when step 2 shows `true` for `oidcIssuer`, `workloadIdentity`
 and `keyVaultAddon`. Otherwise, run the command for each feature that does not
-show `true`:
+show `true`. The chart needs the Secrets Store CSI driver with the Azure Key
+Vault provider; the add-on is one way to run it. If you run them from your own
+install, skip the `keyVaultAddon` command: the plan of step 9a then shows a
+warning about the add-on, which you can ignore.
 
 ```bash
 az account set --subscription "$CLUSTER_SUB"
@@ -446,6 +453,9 @@ Storage in this region through the service endpoint.
 ## Step 5: Make the public IPs
 
 ### 5a. Make the static public IP for Temporal
+
+When your firewall carries the outbound traffic of the cluster, skip this step
+and see [Temporal behind your firewall](#temporal-behind-your-firewall).
 
 The IP goes in the node resource group of the cluster, in the cluster
 subscription. Azure may warn about a coming change to zones; it does not affect
@@ -1280,6 +1290,8 @@ before you apply step 9a.
 | Step 8d shows `Set TF_VAR_tls_certificate`                                            | `jq` did not find the certificate files                                                      | Check `TLS_CERT_FILE` and `TLS_KEY_FILE` in step 1b. See [Get a TLS certificate](#get-a-tls-certificate)       |
 | Step 9a fails with `registering resource provider ... connection may have been reset` | A network break while Terraform registered the resource providers                            | Run the command again                                                                                          |
 | Step 9a stops on "workload_egress_ip_ranges" or "temporal_ip"                         | An input from step 8b is missing or private                                                  | Set it as the message says                                                                                     |
+| Step 9a warns that the cluster does not have the Key Vault secrets provider add-on | The add-on is off | Do step 3, or go on if your own install runs the Secrets Store CSI driver with the Azure Key Vault provider |
+| Step 11b fails with `no matches for kind "SecretProviderClass"` | The cluster runs no Secrets Store CSI driver | Do step 3 |
 | Step 9a fails with 403 on Key Vault entries                                           | `deployer_ip_ranges` is not the address of the apply host                                    | Find the address again (step 8a) and update the input                                                          |
 | Step 9a fails to add the subnet to the storage account                                | No service endpoint, or no Network Contributor on the subnet                                 | Do step 4d, or the last grant of step 6b                                                                       |
 | Step 9a fails to read the cluster or the subnet                                       | Role grants not in effect yet, or given to another identity                                  | Wait 10 minutes and apply again. With Terraform Enterprise: check that `DEPLOYER_ID` is the workspace identity |
@@ -1507,9 +1519,89 @@ export EGRESS_IPS="<address>/32"   # several: separate them with spaces
 ```
 
 If that firewall serves other workloads, they share these addresses, and the
-firewalls of Postgres and the Key Vaults let them in too.
+firewalls of Postgres and the Key Vaults let them in too. With
+`userDefinedRouting`, also see
+[Temporal behind your firewall](#temporal-behind-your-firewall).
 
 - [Outbound types in AKS](https://learn.microsoft.com/azure/aks/egress-outboundtype)
+
+### Temporal behind your firewall
+
+With `outboundType` `userDefinedRouting`, a route sends all the traffic of the
+AKS subnet to your firewall. A public load balancer in the cluster then does not
+work: its reply to the runner leaves through the firewall, which never saw the
+request and drops it. Instead, Temporal stays on a private address in the AKS
+subnet, and your firewall forwards the runner's traffic to it. The replies go
+back out through the same firewall.
+
+The proxy's public load balancer has the same problem. Keep the proxy private,
+as in [Keep Autoheal private](#keep-autoheal-private), and do that first: the
+command below skips `$PROXY_IP`.
+
+These steps change:
+
+**Step 5a.** Instead of a public IP, pick a free private address in the AKS
+subnet for Temporal, and set the address that the runner VMs connect to: a
+public address of your firewall, or a DNS name for it:
+
+```bash
+export SUBNET_PREFIX=$(az network vnet subnet show --ids "$AKS_SUBNET_ID" \
+  --query "addressPrefix || addressPrefixes[0]" -o tsv)
+unset TEMPORAL_IP
+for n in $(seq 2 20); do
+  IP=$(python3 -c 'import ipaddress,sys; print(ipaddress.ip_network(sys.argv[1])[-int(sys.argv[2])])' "$SUBNET_PREFIX" "$n")
+  [ "$IP" = "${PROXY_IP:-}" ] && continue
+  if [ "$(az network vnet check-ip-address --subscription "$CLUSTER_SUB" -g "$(echo "$AKS_SUBNET_ID" | cut -d/ -f5)" \
+        -n "$(echo "$AKS_SUBNET_ID" | cut -d/ -f9)" --ip-address "$IP" --query available -o tsv)" = "true" ]; then
+    export TEMPORAL_IP="$IP"; break
+  fi
+done
+echo "TEMPORAL_IP=${TEMPORAL_IP:-none found}"
+export FIREWALL_ADDRESS="<public address of your firewall, or a DNS name for it>"
+```
+
+**Step 8b.** After the block, add the firewall address to the inputs:
+
+```bash
+echo "runner_temporal_address = \"$FIREWALL_ADDRESS\"" >> "$WORK_DIR/inputs.hcl"
+```
+
+**Step 9a.** The runner address is in the `temporal_forwarding` output, not in
+`temporal_public_endpoint`, which is now empty:
+
+```bash
+terragrunt output temporal_forwarding   # the rule for your firewall
+export RUNNER_IP=$(terragrunt output -json temporal_forwarding | jq -r '.allowed_source_ranges[0]' | cut -d/ -f1)
+echo "$RUNNER_IP"
+```
+
+With Terraform Enterprise, take it from `temporal_forwarding.allowed_source_ranges`.
+
+**After step 9a.** On your firewall, forward TCP 7233 and 8083 from
+`$FIREWALL_ADDRESS` to `$TEMPORAL_IP`, the same ports, and accept only
+`$RUNNER_IP` as the source. On Azure Firewall this is a DNAT rule for each port.
+
+**Step 10.** Add the rules as written. If your firewall changes the source
+address of the traffic it forwards, use its private address in place of
+`$RUNNER_IP` in `allow-autoheal-runner`. Leave out `allow-autoheal-proxy`, as
+for a private proxy.
+
+**Step 11b.** The chart puts its own internal load balancers on `$TEMPORAL_IP`,
+and no public load balancer is made. With Terraform Enterprise, skip part 2.
+
+**Step 12.** In 12a, check the internal load balancers in place of the public
+ones:
+
+```bash
+kubectl get svc -n "$K8S_NAMESPACE" temporal-frontend-lb api-server-go-internal-lb   # EXTERNAL-IP is $TEMPORAL_IP
+```
+
+In 12b, the log must show a connection to `$FIREWALL_ADDRESS:7233`. In 12c,
+test `$FIREWALL_ADDRESS` in place of `$TEMPORAL_IP`.
+
+**Resume in a new shell.** `TEMPORAL_IP` is not an Azure resource, so set it and
+`FIREWALL_ADDRESS` again by hand, and read `RUNNER_IP` from
+`temporal_forwarding`.
 
 ### Keep Autoheal private
 

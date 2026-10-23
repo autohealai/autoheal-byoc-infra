@@ -6,6 +6,25 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- `compositions/azure`: `runner_temporal_address`, a DNS name or IPv4 address
+  the runner VMs connect to for Temporal (7233) and the tool-response listener
+  (8083), in place of `temporal_ip`. On the public path
+  (`cluster_network_path = "public"`) it means the customer's firewall forwards
+  both ports to `temporal_ip`, which is then a private address in the AKS
+  subnet: the chart keeps its internal load balancers,
+  `temporal_public_endpoint` is null so `compositions/app` creates no public
+  load balancer, and the new `temporal_forwarding` output holds the firewall
+  rule. For clusters whose outbound traffic goes through a firewall on
+  user-defined routes, where a public load balancer's replies are dropped.
+
+### Changed
+- `compositions/azure`: a brought cluster without the Key Vault secrets
+  provider add-on gets a plan warning (`check.keyvault_csi_driver`) instead of
+  a stop. The chart needs the Secrets Store CSI driver with the Azure Key Vault
+  provider, which a cluster owner may run from their own install. Without it the
+  app apply stops on the missing `SecretProviderClass` kind.
+
 ## [3.0.0] - 2026-10-21
 
 AWS moves to the 2.x shape: `compositions/aws` replaces the 1.x

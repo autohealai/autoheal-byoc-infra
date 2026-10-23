@@ -35,7 +35,8 @@ known addresses.
   Storage lets in your AKS subnet and our deploy host.
 - The runner VMs are in the data subscription. They connect to Temporal in your
   cluster on a static public IP. That IP lets in only the outbound address of
-  the runner VMs.
+  the runner VMs. If a firewall carries the outbound traffic of your cluster,
+  the firewall forwards this traffic to a private address instead (see below).
 - Users and webhooks from your integrations reach the Autoheal proxy over HTTPS
   on a second static public IP. With only one public IP, the proxy and Temporal
   share it: their ports do not overlap.
@@ -48,7 +49,7 @@ known addresses.
 |------|----------------------|-------------------|
 | AKS cluster | Yes (yours) | |
 | The Autoheal namespace and the Autoheal pods | Yes | |
-| Static public IP for Temporal | Yes (you make it) | |
+| Static public IP for Temporal, or a forwarding rule on your firewall | Yes (you make it) | |
 | Static public IP for the Autoheal proxy, or the Temporal IP for both | Yes (you make it) | |
 | VNet for the runner VMs, with a NAT gateway | | Yes |
 | Runner VMs | | Yes |
@@ -64,7 +65,9 @@ resource group of your cluster, as for any Service of type LoadBalancer.
 ## What you do
 
 1. Turn on the OIDC issuer and workload identity on the cluster.
-2. Turn on the Key Vault secrets provider add-on on the cluster.
+2. Run the Secrets Store CSI driver with the Azure Key Vault provider on the
+   cluster: turn on the Key Vault secrets provider add-on, or keep your own
+   install of them.
 3. Make a namespace for Autoheal, for example `autoheal`.
 4. Give our deployer these roles:
 
@@ -82,7 +85,8 @@ resource group of your cluster, as for any Service of type LoadBalancer.
 5. Turn on the `Microsoft.Storage` service endpoint on the AKS subnet.
 6. Make two Standard static public IPs in the node resource group of the
    cluster (`MC_...`): one for Temporal and one for the Autoheal proxy. With
-   only one IP, both use it.
+   only one IP, both use it. If a firewall carries the outbound traffic of the
+   cluster, see "Temporal behind your firewall" below instead.
 7. Send us the cluster resource ID, the AKS subnet resource ID, the static
    public IPs, the public outbound addresses of the cluster and the name of the
    namespace.
@@ -110,8 +114,9 @@ real names, IDs and addresses.
    both `terragrunt.hcl` files.
 4. Apply `split-public/infra`. It makes the resources in the data subscription
    only.
-5. Send you the runner address from the `temporal_public_endpoint` output, and
-   the `required_cluster_owner_actions` output.
+5. Send you the runner address from the `temporal_public_endpoint` output (or
+   `temporal_forwarding`, with a firewall), and the
+   `required_cluster_owner_actions` output.
 6. Apply `split-public/app` after you add the NSG rules. It installs the
    Autoheal chart in the Autoheal namespace, with the load balancers for the
    proxy and for Temporal on the static public IPs.
@@ -129,6 +134,22 @@ real names, IDs and addresses.
 
 For an upgrade, we do items 4 and 6 of "What we do" again. You do not have to
 give new permissions.
+
+## Temporal behind your firewall
+
+Some clusters send all their outbound traffic to a firewall on a route
+(`outboundType` `userDefinedRouting`). A public load balancer in such a cluster
+does not work: its replies leave through the firewall, which drops them. Then:
+
+- You pick a free private address in the AKS subnet for Temporal, in place of
+  its static public IP. The chart puts its internal load balancers there.
+- You send us a public address of your firewall, or a DNS name for it. The
+  runner VMs connect to it.
+- After our first apply, you add a rule on your firewall: forward TCP 7233 and
+  8083 from that address to the private address, from the runner address only.
+  Our `temporal_forwarding` output shows the rule with the real addresses.
+- The proxy stays private, on a private address in the AKS subnet, for the same
+  reason.
 
 ## Limits
 

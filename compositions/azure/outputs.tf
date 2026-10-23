@@ -13,6 +13,9 @@
 #                              only for a brought cluster
 #   temporal_public_endpoint   the public Temporal address and who may reach it,
 #                              filled only on the public path
+#   temporal_forwarding        what the customer's firewall forwards to Temporal,
+#                              filled only on the public path with
+#                              runner_temporal_address
 #   network                    the VNet and subnets Autoheal runs in, created or
 #                              brought
 #
@@ -58,9 +61,19 @@ output "required_cluster_owner_actions" {
 }
 
 output "temporal_public_endpoint" {
-  description = "Public path only (cluster_network_path = public), else null: ip, the static public IP for Temporal (7233) and the tool-response listener (8083), and allowed_source_ranges, the runner's NAT address. Pass to compositions/app, which creates the two load balancers and their network policies."
-  value = local.public_path ? {
+  description = "Public path only (cluster_network_path = public) without runner_temporal_address, else null: ip, the static public IP for Temporal (7233) and the tool-response listener (8083), and allowed_source_ranges, the runner's NAT address. Pass to compositions/app, which creates the two load balancers and their network policies."
+  value = local.temporal_public_lb ? {
     ip                    = local.temporal_ip
+    allowed_source_ranges = ["${local.runner_egress_ip}/32"]
+  } : null
+}
+
+output "temporal_forwarding" {
+  description = "Public path with runner_temporal_address only, else null: the rule for the customer's firewall. address, the name or address the runners connect to, which must be or resolve to the firewall's public address; ports, Temporal (7233) and the tool-response listener (8083); target_ip, existing_network.temporal_ip, where the chart's internal load balancers listen; allowed_source_ranges, the runner's NAT address."
+  value = local.temporal_via_firewall ? {
+    address               = var.runner_temporal_address
+    ports                 = [7233, 8083]
+    target_ip             = local.temporal_ip
     allowed_source_ranges = ["${local.runner_egress_ip}/32"]
   } : null
 }

@@ -1,8 +1,9 @@
 # Runner VMs: runner-go on a VM scale set in the runner subnet, created in this
 # apply. They connect to Temporal at the reserved internal address, which the chart
 # later pins the Temporal load balancer to, and post sandbox tool results to the
-# api-server-go internal listener on port 8083 of the same address. Until the
-# chart is installed the runner keeps retrying.
+# api-server-go internal listener on port 8083 of the same address. With
+# runner_temporal_address they connect to that name or address instead. Until
+# the chart is installed the runner keeps retrying.
 #
 # The image is <registry>/app/runner-go:chart-<autoheal_version>, the layout the
 # chart uses for its own images. The registry is the composition's ACR when
@@ -27,7 +28,7 @@ module "runner" {
   # message in validation.tf instead of the provider's ID parse error.
   subnet_id = local.runner_subnet_id != "" ? local.runner_subnet_id : null
 
-  temporal_host              = "${local.temporal_ip}:7233"
+  temporal_host              = "${local.runner_temporal_address}:7233"
   tool_response_callback_url = local.tool_response_callback_url
   runner_image               = local.runner_image
   sandbox_image              = var.runner_sandbox_image
@@ -56,7 +57,7 @@ module "runner" {
 locals {
   # The chart puts the api-server-go internal listener on the Temporal address,
   # port 8083 (api-server-go-internal-lb). The runners post tool results there.
-  tool_response_callback_url = "http://${local.temporal_ip}:8083/api/v1/internal/sandbox-tool-responses"
+  tool_response_callback_url = "http://${local.runner_temporal_address}:8083/api/v1/internal/sandbox-tool-responses"
 
   runner_image_repository = var.runner_image_repository != "" ? var.runner_image_repository : (
     local.acr_enabled ? "${local.acr_login_server}/app/runner-go" : "public.ecr.aws/e4h3h0d9/app/runner-go"

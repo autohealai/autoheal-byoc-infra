@@ -163,8 +163,12 @@ resource "terraform_data" "validate_public_path" {
       error_message = "cluster_network_path = \"public\": leave existing_network.runner_subnet_id, postgres_subnet_id and endpoint_subnet_id empty. We create the runner's VNet with a NAT gateway, and the cluster's load balancers let in only that NAT address."
     }
     precondition {
-      condition     = !local.temporal_ip_private
-      error_message = "cluster_network_path = \"public\": existing_network.temporal_ip (${local.temporal_ip}) must be the Standard static public IP for Temporal in the cluster's node resource group, not a private address."
+      condition     = !local.temporal_public_lb || !local.temporal_ip_private
+      error_message = "cluster_network_path = \"public\": existing_network.temporal_ip (${local.temporal_ip}) must be the Standard static public IP for Temporal in the cluster's node resource group, not a private address. If your firewall forwards Temporal to the cluster instead, set runner_temporal_address."
+    }
+    precondition {
+      condition     = !local.temporal_via_firewall || local.temporal_ip_private
+      error_message = "runner_temporal_address is set on cluster_network_path = \"public\", so your firewall forwards Temporal to existing_network.temporal_ip (${local.temporal_ip}): it must be a free private address in the AKS subnet, where the chart puts its internal load balancers."
     }
   }
 }
@@ -177,8 +181,9 @@ locals {
 
   # An address is in the subnet when the network address of address/prefix equals
   # the subnet's network address. (cidrcontains needs Terraform 1.8.)
-  # On the public path the Temporal address is a public IP, not in the subnet.
-  temporal_ip_in_subnet = local.brought_aks_prefix == "" || local.public_path ? true : (
+  # With a public Temporal load balancer the address is a public IP, not in the
+  # subnet.
+  temporal_ip_in_subnet = local.brought_aks_prefix == "" || local.temporal_public_lb ? true : (
     cidrhost(local.brought_aks_prefix, 0) == cidrhost("${local.temporal_ip}/${local.brought_aks_bits}", 0)
   )
   # A public proxy address is a public IP, not in the subnet.
@@ -289,8 +294,7 @@ resource "terraform_data" "storage_hns_guard" {
   }
 }
 
-# The chart mounts the vault with the CSI driver add-on and authenticates with
-# workload identity, which needs the OIDC issuer.
+# The chart authenticates with workload identity, which needs the OIDC issuer.
 resource "terraform_data" "cluster_guard" {
   count = local.create_cluster ? 0 : 1
 
@@ -299,10 +303,18 @@ resource "terraform_data" "cluster_guard" {
       condition     = try(data.azurerm_kubernetes_cluster.existing[0].oidc_issuer_enabled, true) != false
       error_message = "AKS cluster ${local.existing.aks.name} has no OIDC issuer. Turn it on, with workload identity: az aks update --enable-oidc-issuer --enable-workload-identity."
     }
-    precondition {
-      condition     = length(try(data.azurerm_kubernetes_cluster.existing[0].key_vault_secrets_provider, [{}])) > 0
-      error_message = "AKS cluster ${local.existing.aks.name} does not have the Key Vault secrets provider add-on. Turn it on: az aks enable-addons --addons azure-keyvault-secrets-provider."
-    }
+  }
+}
+
+# The chart mounts the vault with the Secrets Store CSI driver and its Azure Key
+# Vault provider. The AKS add-on is one way to run them; a cluster owner may
+# install them another way, which the cluster resource does not show. So a
+# cluster without the add-on gets a warning, not a stop. Without the driver the
+# app apply stops on the missing SecretProviderClass kind.
+check "keyvault_csi_driver" {
+  assert {
+    condition     = local.create_cluster || length(try(data.azurerm_kubernetes_cluster.existing[0].key_vault_secrets_provider, [{}])) > 0
+    error_message = "AKS cluster ${try(local.existing.aks.name, "")} does not have the Key Vault secrets provider add-on. The chart needs the Secrets Store CSI driver with the Azure Key Vault provider. If the cluster runs them from another install, ignore this. Otherwise turn the add-on on: az aks enable-addons --addons azure-keyvault-secrets-provider."
   }
 }
 

@@ -55,7 +55,9 @@ objects.
 ## What you do
 
 1. Turn on the OIDC issuer and workload identity on the cluster.
-2. Turn on the Key Vault secrets provider add-on on the cluster.
+2. Run the Secrets Store CSI driver with the Azure Key Vault provider on the
+   cluster: turn on the Key Vault secrets provider add-on, or keep your own
+   install of them.
 3. Make a namespace for Autoheal, for example `autoheal`.
 4. Give our deployer these roles:
 

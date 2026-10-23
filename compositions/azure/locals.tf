@@ -34,6 +34,12 @@ locals {
   # Public endpoints instead of a VNet connection to the cluster's subscription
   # (validation.tf allows it only for a cluster in another subscription).
   public_path = var.cluster_network_path == "public"
+  # On the public path the runners reach Temporal either on a public load
+  # balancer that compositions/app creates, or, with runner_temporal_address,
+  # through the customer's firewall, which forwards to the chart's internal load
+  # balancer.
+  temporal_via_firewall = local.public_path && var.runner_temporal_address != ""
+  temporal_public_lb    = local.public_path && !local.temporal_via_firewall
 
   # A brought Redis is either Azure Managed Redis or Azure Cache for Redis.
   brought_redis_kind = var.existing_redis_id == "" ? "" : (
@@ -110,10 +116,13 @@ locals {
   proxy_ip = var.edge_mode != "loadbalancer" ? "" : (
     local.create_network ? cidrhost(local.created_subnets.aks, -2) : try(var.existing_network.proxy_ip, "")
   )
+  # What the runner VMs connect to for Temporal and the tool-response listener:
+  # the name or address the customer gives, else the Temporal address.
+  runner_temporal_address = var.runner_temporal_address != "" ? var.runner_temporal_address : local.temporal_ip
   # A public proxy listens on a static public IP in the node resource group,
   # which may also be the public Temporal address.
   public_edge              = var.edge_mode == "loadbalancer" && var.edge_exposure == "public"
-  proxy_shares_temporal_ip = local.public_edge && local.public_path && local.proxy_ip == local.temporal_ip
+  proxy_shares_temporal_ip = local.public_edge && local.temporal_public_lb && local.proxy_ip == local.temporal_ip
 
   # VNet ID of a brought network, from the AKS subnet ID.
   brought_vnet_id = local.create_network ? "" : join("/", slice(split("/", var.existing_network.aks_subnet_id), 0, 9))

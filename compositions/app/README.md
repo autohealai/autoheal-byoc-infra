@@ -25,7 +25,9 @@ in only the runner's NAT address (`loadBalancerSourceRanges`, with
 `externalTrafficPolicy: Local` to keep the client address), and a network
 policy for each admits that address only. The infra values turn off the
 chart's internal load balancers for the same two services. See
-`examples/azure/split-public/app`.
+`examples/azure/split-public/app`. With `runner_temporal_address` set, the
+customer's firewall forwards the two ports to the chart's internal load
+balancers instead: the output is null and nothing is created here.
 
 This is the only composition with the `helm` and `kubernetes` providers. Keeping
 them out of the cloud compositions means the cluster does not have to exist when
@@ -123,7 +125,7 @@ inputs = {
 | `chart_repository` | string | `oci://public.ecr.aws/e4h3h0d9/charts` | OCI or HTTPS chart repository, or a local chart path. |
 | `namespace` | string | `autoheal` | Namespace for the release, created when missing unless `create_namespace = false`. Must match `service_accounts.namespace` in the infra folder. |
 | `create_namespace` | bool | `true` | Create the namespace when missing. Set `false` when the deployer has rights in that namespace only. |
-| `temporal_public_endpoint` | object | `null` | The infra composition's `temporal_public_endpoint` output (`ip`, `allowed_source_ranges`), set only on its public path. Creates the public Temporal and tool-response load balancers and their network policies. |
+| `temporal_public_endpoint` | object | `null` | The infra composition's `temporal_public_endpoint` output (`ip`, `allowed_source_ranges`), set only on its public path without `runner_temporal_address`. Creates the public Temporal and tool-response load balancers and their network policies. |
 | `release_name` | string | `autoheal` | Helm release name. |
 | `kubelogin_login_mode` | string | `azurecli` | `kubelogin --login` mode on AKS: `azurecli`, `workloadidentity`, `spn`, `msi`, `devicecode` or `interactive`. Ignored on AWS. |
 | `timeout` | number | `1200` | Seconds Helm waits for the release before it rolls back. |

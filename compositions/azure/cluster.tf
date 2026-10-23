@@ -6,9 +6,10 @@
 # the AKS subnet of a brought network. That grant is what lets the chart pin the
 # Temporal and proxy internal load balancers to the reserved addresses.
 #
-# A brought cluster is never managed here. validation.tf checks it has the
-# add-on and the OIDC issuer. It may be in another subscription of the same
-# tenant; it is read there through the azurerm.cluster provider.
+# A brought cluster is never managed here. validation.tf checks it has the OIDC
+# issuer, and warns when it lacks the add-on, since the CSI driver may come from
+# another install. It may be in another subscription of the same tenant; it is
+# read there through the azurerm.cluster provider.
 
 module "aks" {
   source = "../../modules/azure/aks"
@@ -77,10 +78,13 @@ locals {
   cluster_namespace   = var.service_accounts.namespace
   aks_subnet_label    = local.create_network ? "" : "${split("/", var.existing_network.aks_subnet_id)[8]}/${split("/", var.existing_network.aks_subnet_id)[10]}"
   node_resource_group = try(data.azurerm_kubernetes_cluster.existing[0].node_resource_group, "")
-  # The runner's NAT address, which the public load balancers let in.
+  # The runner's NAT address, which the public load balancers or the customer's
+  # firewall let in.
   runner_egress_ip = local.create_vnet ? module.vnet[0].runner_nat_public_ip : ""
 
-  runner_source = local.public_path ? "the runner VMs' outbound address ${local.runner_egress_ip}" : local.create_vnet ? "the runner subnet (${local.created_subnets.runner})" : (
+  # Where Temporal traffic comes from. A firewall that forwards it may also
+  # rewrite the source to its own address.
+  runner_source = local.temporal_via_firewall ? "your firewall, which forwards from the runner VMs' outbound address ${local.runner_egress_ip} (the source is the firewall's private address if it rewrites it)" : local.public_path ? "the runner VMs' outbound address ${local.runner_egress_ip}" : local.create_vnet ? "the runner subnet (${local.created_subnets.runner})" : (
     local.create_network ? "" : "the runner subnet ${try("${split("/", var.existing_network.runner_subnet_id)[8]}/${split("/", var.existing_network.runner_subnet_id)[10]}", "")}"
   )
 
@@ -103,14 +107,19 @@ locals {
       "Reader on the AKS subnet ${local.aks_subnet_label} for the deployer (object ID ${local.deployer_object_id}): the plan checks that the reserved addresses are inside it",
       "The namespace ${local.cluster_namespace} in ${local.cluster_name}. When the deployer may not create namespaces, create it and set create_namespace = false in compositions/app",
       "A Kubernetes role for the deployer (object ID ${local.deployer_object_id}) in the namespace ${local.cluster_namespace}: Azure Kubernetes Service RBAC Admin at ${var.existing_aks_cluster_id}/namespaces/${local.cluster_namespace} with Azure RBAC, or a RoleBinding to the admin ClusterRole with Kubernetes RBAC",
-      "The OIDC issuer, workload identity and the Key Vault secrets provider add-on on ${local.cluster_name}",
+      "The OIDC issuer and workload identity on ${local.cluster_name}, and the Secrets Store CSI driver with the Azure Key Vault provider: the AKS add-on azure-keyvault-secrets-provider, or your own install",
       "An NSG rule on the AKS subnet ${local.aks_subnet_label}: allow ${local.runner_source} to ${local.temporal_ip} on TCP 7233 and 8083, and deny every other source to that address on those ports",
     ],
     local.cluster_in_other_subscription && !local.public_path ? [
       "A network path between ${local.brought_vnet_id} and ${local.workload_vnet_id}: VNet peering in both directions, or both VNets through your hub. Pods reach Postgres, Redis, storage and the vaults over it, and the runner VMs reach ${local.temporal_ip}",
     ] : [],
-    local.public_path ? [
+    local.temporal_public_lb ? [
       "A Standard static public IP ${local.temporal_ip} in ${local.node_resource_group}, the node resource group of ${local.cluster_name}: the public Temporal and tool-response load balancers${local.proxy_shares_temporal_ip ? " and the Autoheal proxy" : ""} use it",
+    ] : [],
+    local.temporal_via_firewall ? [
+      "A rule on your firewall that forwards TCP 7233 and 8083 to ${local.temporal_ip}, the chart's internal load balancers, from the runner VMs' outbound address ${local.runner_egress_ip} only. ${var.runner_temporal_address} must be the firewall's public address, or a DNS name that resolves to it",
+    ] : [],
+    local.public_path ? [
       "The Microsoft.Storage service endpoint on the AKS subnet ${local.aks_subnet_label}, and Network Contributor or a role with Microsoft.Network/virtualNetworks/subnets/joinViaServiceEndpoint/action on it for the deployer (object ID ${local.deployer_object_id}): the storage account lets that subnet in",
       "Fixed public outbound addresses for ${local.cluster_name}: ${join(", ", var.workload_egress_ip_ranges)}. Postgres and the Key Vaults let in only them",
     ] : [],

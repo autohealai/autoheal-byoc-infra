@@ -214,7 +214,7 @@ variable "existing_network" {
     private_dns_zone_ids = optional(map(string), {})
   })
   default     = null
-  description = "A network you already have. temporal_ip, and proxy_ip in loadbalancer mode, are free addresses in the AKS subnet that the chart pins its internal load balancers to; with cluster_network_path = public, temporal_ip is instead a Standard static public IP in the cluster's node resource group, and with edge_exposure = public, so is proxy_ip. runner_subnet_id is required; postgres_subnet_id is needed only when we create Postgres; endpoint_subnet_id only when we create Redis or private endpoints. The AKS subnet is in the cluster's subscription; the other subnets must be in subscription_id. For a cluster in another subscription, leave the other three empty and we create a VNet for them from network_cidr. Null means we create the network."
+  description = "A network you already have. temporal_ip, and proxy_ip in loadbalancer mode, are free addresses in the AKS subnet that the chart pins its internal load balancers to; with cluster_network_path = public, temporal_ip is instead a Standard static public IP in the cluster's node resource group (unless runner_temporal_address is set), and with edge_exposure = public, so is proxy_ip. runner_subnet_id is required; postgres_subnet_id is needed only when we create Postgres; endpoint_subnet_id only when we create Redis or private endpoints. The AKS subnet is in the cluster's subscription; the other subnets must be in subscription_id. For a cluster in another subscription, leave the other three empty and we create a VNet for them from network_cidr. Null means we create the network."
 
   validation {
     condition = var.existing_network == null ? true : alltrue([
@@ -245,11 +245,25 @@ variable "cluster_vnet_dns_link_enabled" {
 variable "cluster_network_path" {
   type        = string
   default     = "private"
-  description = "For a cluster in another subscription: how pods and runner VMs reach each other's subscription. private: the customer connects the two VNets (peering or a hub) and every service is reached through private endpoints. public: no VNet connection; Postgres and the Key Vaults allow only workload_egress_ip_ranges, storage allows the cluster's AKS subnet, Redis is public with its access key and TLS, and compositions/app exposes Temporal and the tool-response listener on existing_network.temporal_ip (a static public IP) to the runner's NAT address only. Fixed at create time for Postgres."
+  description = "For a cluster in another subscription: how pods and runner VMs reach each other's subscription. private: the customer connects the two VNets (peering or a hub) and every service is reached through private endpoints. public: no VNet connection; Postgres and the Key Vaults allow only workload_egress_ip_ranges, storage allows the cluster's AKS subnet, Redis is public with its access key and TLS, and compositions/app exposes Temporal and the tool-response listener on existing_network.temporal_ip (a static public IP) to the runner's NAT address only, or, with runner_temporal_address, the customer's firewall forwards them to existing_network.temporal_ip (a private address). Fixed at create time for Postgres."
 
   validation {
     condition     = contains(["private", "public"], var.cluster_network_path)
     error_message = "cluster_network_path must be private or public."
+  }
+}
+
+variable "runner_temporal_address" {
+  type        = string
+  default     = ""
+  description = "DNS name or IPv4 address the runner VMs connect to for Temporal (TCP 7233) and the tool-response listener (TCP 8083). Empty means the Temporal address (existing_network.temporal_ip, or the reserved address in a network we create). Set it when the runners reach Temporal by a name, such as a private DNS record for temporal_ip. With cluster_network_path = public it also means your firewall forwards both ports from this address to existing_network.temporal_ip, a free private address in the AKS subnet: the chart keeps its internal load balancers there and no public load balancer is created. A name or address only, without a scheme, port or path."
+
+  validation {
+    condition = var.runner_temporal_address == "" || (
+      length(var.runner_temporal_address) <= 253 &&
+      can(regex("^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$", var.runner_temporal_address))
+    )
+    error_message = "runner_temporal_address must be a DNS name such as temporal.autoheal.acme.example or an IPv4 address, without a scheme, port or path."
   }
 }
 
@@ -300,7 +314,7 @@ variable "key_vault_network_default_action" {
 variable "existing_aks_cluster_id" {
   type        = string
   default     = ""
-  description = "Resource ID of an AKS cluster you already have. It must run the Key Vault secrets provider add-on and have the OIDC issuer on. Needs existing_network. It may be in another subscription of the same Entra tenant: we then only read it and its AKS subnet there, and create nothing in that subscription."
+  description = "Resource ID of an AKS cluster you already have. It must have the OIDC issuer and workload identity on, and run the Secrets Store CSI driver with the Azure Key Vault provider (the AKS add-on azure-keyvault-secrets-provider, or your own install). Needs existing_network. It may be in another subscription of the same Entra tenant: we then only read it and its AKS subnet there, and create nothing in that subscription."
 
   validation {
     condition     = var.existing_aks_cluster_id == "" || can(regex("(?i)^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.ContainerService/managedClusters/[^/]+$", var.existing_aks_cluster_id))

@@ -66,7 +66,7 @@ variable "temporal_public_endpoint" {
     allowed_source_ranges = list(string)
   })
   default     = null
-  description = "The temporal_public_endpoint output of compositions/azure, set only with cluster_network_path = public. Creates public load balancers for Temporal (7233) and the tool-response listener (8083) on ip, open only to allowed_source_ranges, with network policies to match. Null creates nothing."
+  description = "The temporal_public_endpoint output of compositions/azure, set only with cluster_network_path = public and no runner_temporal_address. Creates public load balancers for Temporal (7233) and the tool-response listener (8083) on ip, open only to allowed_source_ranges, with network policies to match. Null creates nothing."
 
   validation {
     condition     = var.temporal_public_endpoint == null ? true : length(var.temporal_public_endpoint.allowed_source_ranges) > 0

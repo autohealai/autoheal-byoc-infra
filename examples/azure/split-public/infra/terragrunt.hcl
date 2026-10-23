@@ -41,13 +41,21 @@ inputs = {
     # The AKS subnet of that cluster.
     aks_subnet_id = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-cop-net/providers/Microsoft.Network/virtualNetworks/vnet-cop/subnets/snet-aks"
     # A Standard static public IP the cluster owner creates in the cluster's
-    # node resource group. The runner VMs connect here.
+    # node resource group. The runner VMs connect here. When a firewall carries
+    # the cluster's outbound traffic, a free private address in snet-aks
+    # instead, with runner_temporal_address below.
     temporal_ip = "20.30.40.50"
     # A second Standard static public IP in the node resource group, for the
     # Autoheal proxy. Users and webhooks connect here; DNS points here. To use
     # one IP for both, set it to temporal_ip: the ports do not overlap.
     proxy_ip = "20.30.40.60"
   }
+
+  # Only when a firewall carries the cluster's outbound traffic: the firewall's
+  # public address, or a DNS name for it. The runner VMs connect here, and the
+  # firewall forwards TCP 7233 and 8083 to temporal_ip (temporal_forwarding
+  # output). Keep the proxy internal then.
+  # runner_temporal_address = "temporal.autoheal.acme.example"
 
   # The proxy listens on proxy_ip, open to the internet. For a proxy that only
   # your network reaches, set internal and a free address in snet-aks.

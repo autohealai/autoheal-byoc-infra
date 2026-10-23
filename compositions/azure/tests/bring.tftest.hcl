@@ -531,7 +531,10 @@ run "old_postgres_is_rejected" {
   expect_failures = [terraform_data.postgres_guard]
 }
 
-run "cluster_without_csi_addon_is_rejected" {
+# The CSI driver may come from the cluster owner's own install, which the cluster
+# resource does not show. So a cluster without the add-on gets a warning and the
+# plan goes on.
+run "cluster_without_csi_addon_warns" {
   command = plan
 
   override_data {
@@ -543,7 +546,40 @@ run "cluster_without_csi_addon_is_rejected" {
     }
   }
 
-  expect_failures = [terraform_data.cluster_guard]
+  expect_failures = [check.keyvault_csi_driver]
+
+  assert {
+    condition     = output.autoheal_values.global.secrets.mode == "keyvault-csi"
+    error_message = "The plan goes on without the add-on."
+  }
+}
+
+# The runners connect to a private DNS name for the Temporal address. Nothing
+# else changes: the chart's internal load balancers stay on that address.
+run "runner_reaches_temporal_by_name" {
+  command = plan
+
+  variables {
+    runner_temporal_address = "temporal.autoheal.internal.acme.example"
+  }
+
+  assert {
+    condition = (
+      local.runner_temporal_address == "temporal.autoheal.internal.acme.example" &&
+      local.tool_response_callback_url == "http://temporal.autoheal.internal.acme.example:8083/api/v1/internal/sandbox-tool-responses"
+    )
+    error_message = "The runner connects to the name, for Temporal and the tool-response listener."
+  }
+
+  assert {
+    condition = (
+      output.autoheal_values.global.infra.temporal.internalIP == "10.50.4.11" &&
+      !can(output.autoheal_values.temporalFrontendLoadBalancer) &&
+      output.temporal_public_endpoint == null &&
+      output.temporal_forwarding == null
+    )
+    error_message = "The chart keeps its internal load balancers on temporal_ip; there is no public endpoint or firewall rule."
+  }
 }
 
 run "missing_admin_password" {

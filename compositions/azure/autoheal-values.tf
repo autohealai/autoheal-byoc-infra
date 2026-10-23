@@ -12,8 +12,9 @@
 #                  existing_acr_id): its login server. The chart then pulls
 #                  <registry>/app/<name> and <registry>/external/<name>.
 #   temporalFrontendLoadBalancer, toolResponseLoadBalancer
-#                  suggestion, only on the public path: both off, because
-#                  compositions/app creates public load balancers for them
+#                  suggestion, only on the public path without
+#                  runner_temporal_address: both off, because compositions/app
+#                  creates public load balancers for them
 #                  (temporal_public_endpoint output).
 #   temporal, zitadel
 #                  copies of the database host and the login hostname at the
@@ -147,8 +148,8 @@ locals {
     )
     },
     # The chart's internal load balancers cannot serve runners that reach the
-    # cluster over the internet.
-    local.public_path ? {
+    # cluster over the internet, unless the customer's firewall forwards to them.
+    local.temporal_public_lb ? {
       temporalFrontendLoadBalancer = { enabled = false }
       toolResponseLoadBalancer     = { enabled = false }
     } : {},

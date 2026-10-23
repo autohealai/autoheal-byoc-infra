@@ -17,7 +17,7 @@ One file per building block.
 | File | Creates, or reads when brought |
 |------|--------------------------------|
 | `network.tf` | Resource group, VNet with AKS, Postgres, private endpoint and runner subnets, the runner's NAT gateway, an NSG on the AKS subnet for the Temporal address, Postgres private DNS zone. For a cluster in another subscription, a VNet without the AKS subnet and NSG, and on the public path with the runner subnet only. Brought: `existing_resource_group_id`, `existing_network`. |
-| `cluster.tf` | AKS with the OIDC issuer, workload identity, Entra ID RBAC and the Key Vault CSI driver add-on. Brought: `existing_aks_cluster_id`, possibly in another subscription, and the `required_cluster_owner_actions` list. |
+| `cluster.tf` | AKS with the OIDC issuer, workload identity, Entra ID RBAC and the Key Vault CSI driver add-on. Brought: `existing_aks_cluster_id`, possibly in another subscription, and the `required_cluster_owner_actions` list. A brought cluster without the add-on gets a plan warning, not a stop, since the CSI driver may come from another install. |
 | `postgres.tf` | PostgreSQL Flexible Server and its admin password. Brought: `existing_postgres_id`. |
 | `redis.tf` | Azure Managed Redis. Brought: `existing_redis_id` (Managed Redis or Azure Cache for Redis). |
 | `storage.tf` | Storage account and the blob container. Brought: `existing_storage_account_id`. |
@@ -28,7 +28,7 @@ One file per building block.
 | `secrets.tf` | Every secret the chart reads, generated or passed in, written to the vault. |
 | `private-endpoints.tf` | Private endpoints for both vaults, storage and Redis, and the privatelink zones. |
 | `dns.tf` | A records for the three hostnames in your existing zone. |
-| `runner.tf` | runner-go on a VM scale set, connected to the reserved Temporal address. |
+| `runner.tf` | runner-go on a VM scale set, connected to the reserved Temporal address, or to `runner_temporal_address`. |
 | `validation.tf` | Plan-time checks with plain messages. |
 | `autoheal-values.tf` | The `autoheal_values` hand-off to the chart. |
 | `moved.tf` | State moves from the v1 compositions. |
@@ -40,7 +40,7 @@ One file per building block.
 | 1. We create everything | `network_cidr`, `existing_dns_zone_id` (or `create_dns_records = false`) |
 | 2a. You bring everything, our Terraform runs | `existing_network` and every `existing_*` ID, usually `create_role_assignments = false` |
 | 2b. Your cluster in another subscription, everything else in `subscription_id`, connected VNets | `existing_aks_cluster_id` in the other subscription, `existing_network` with only `aks_subnet_id`, `temporal_ip` and `proxy_ip`, and `network_cidr` for the VNet we create beside it. See below. |
-| 2c. As 2b, with public endpoints instead of connected VNets | As 2b, plus `cluster_network_path = "public"`, `workload_egress_ip_ranges`, and `temporal_ip` set to a static public IP. See below. |
+| 2c. As 2b, with public endpoints instead of connected VNets | As 2b, plus `cluster_network_path = "public"`, `workload_egress_ip_ranges`, and `temporal_ip` set to a static public IP, or with `runner_temporal_address` a private address that your firewall forwards to. See below. |
 | 3. Mixed | `existing_network` and `existing_dns_zone_id`; we create the rest |
 
 Impossible mixes stop the plan with a message saying what to change, for example
@@ -111,9 +111,22 @@ subscription whose VNet nobody connects to ours.
   runner's NAT address. The app creates two public load balancers on that IP,
   open only to the NAT address, and a network policy for each. Temporal and the
   tool results are not encrypted on that path.
+- With `runner_temporal_address`, the runners reach Temporal through the
+  customer's firewall instead, for a cluster whose outbound traffic goes through
+  that firewall on user-defined routes. `temporal_ip` is then a free private
+  address in the AKS subnet, where the chart keeps its internal load balancers,
+  and `temporal_public_endpoint` is null, so `compositions/app` creates nothing.
+  The firewall forwards TCP 7233 and 8083 from its public address to
+  `temporal_ip` and accepts only the runner's NAT address;
+  `runner_temporal_address` is that public address or a DNS name for it. The
+  `temporal_forwarding` output holds the rule and
+  `required_cluster_owner_actions` lists it. Replies go back out through the same
+  firewall, so the routes stay as they are. The traffic is not encrypted on this
+  path either.
 - `validation.tf` checks that the cluster is in another subscription, that
   `workload_egress_ip_ranges` is set, that no runner, Postgres or endpoint
-  subnet is given, and that `temporal_ip` is not a private address.
+  subnet is given, and that `temporal_ip` is a public address, or with
+  `runner_temporal_address` a private address in the AKS subnet.
 - With `edge_exposure = "public"`, `proxy_ip` may be `temporal_ip`: one public
   IP for the proxy (443, 80) and the runner's ports (7233, 8083).
 
@@ -135,6 +148,12 @@ should reach it. In a network we create, an NSG on the AKS subnet allows ports
 7233 and 8083 on the Temporal address from the runner subnet and denies them
 from everywhere else. In a brought network, ask your network team for the same
 rule.
+
+The runners connect to `temporal_ip` itself unless `runner_temporal_address` is
+set: a DNS name, such as a private DNS record for `temporal_ip` that the runner
+subnet resolves, or another IPv4 address. It is used for both ports
+(`<address>:7233` and `http://<address>:8083/...`). On the public path it also
+means your firewall forwards to Temporal (above).
 
 ## Edge modes
 
@@ -273,8 +292,9 @@ disk the first chat waits on those writes.
 | `cluster` | `cloud`, `name`, `resource_group`, `subscription_id` (the cluster's), `endpoint`, base64 `ca_certificate`. No credential. |
 | `required_role_assignments` | Grants for an administrator, filled when `create_role_assignments = false`. |
 | `required_dns_records` | Records for a person to create (`name`, `type`, `value`), filled when we do not create them. |
-| `required_cluster_owner_actions` | What the owner of a brought cluster does, as readable lines. Filled when `existing_aks_cluster_id` is set; the network path and DNS lines only for a cluster in another subscription, and the static IP, service endpoint and outbound address lines only on the public path. |
-| `temporal_public_endpoint` | Public path only, else null: `ip` (the static public IP for Temporal) and `allowed_source_ranges` (the runner's NAT address). Pass to `compositions/app`. |
+| `required_cluster_owner_actions` | What the owner of a brought cluster does, as readable lines. Filled when `existing_aks_cluster_id` is set; the network path and DNS lines only for a cluster in another subscription, and the service endpoint and outbound address lines only on the public path, with the static IP line, or the firewall rule line with `runner_temporal_address`. |
+| `temporal_public_endpoint` | Public path without `runner_temporal_address` only, else null: `ip` (the static public IP for Temporal) and `allowed_source_ranges` (the runner's NAT address). Pass to `compositions/app`. |
+| `temporal_forwarding` | Public path with `runner_temporal_address` only, else null: the rule for your firewall. `address` (what the runners connect to), `ports` (7233, 8083), `target_ip` (`temporal_ip`) and `allowed_source_ranges` (the runner's NAT address). |
 | `network` | `vnet_id`, `vnet_name`, `resource_group_name`, `address_space` (the VNet of the runner and private endpoints), `cluster_vnet_id` (the AKS subnet's VNet, the same VNet unless the cluster is in another subscription), `aks_subnet_id`, `runner_subnet_id`, `private_endpoint_subnet_id`. For a brought VNet the VNet is not read, so `address_space` is empty. |
 
 `autoheal_values` keys:

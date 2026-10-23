@@ -1,5 +1,5 @@
 output "client_id" {
-  description = "Client id stamped on the app service account (azure.workload.identity/client-id annotation). Maps to the cross-cloud output contract 'runner_identity'."
+  description = "Client id stamped on the app service account (azure.workload.identity/client-id annotation)."
   value       = azurerm_user_assigned_identity.app.client_id
 }
 

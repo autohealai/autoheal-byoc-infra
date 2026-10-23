@@ -8,7 +8,7 @@ variable "cluster" {
     region         = optional(string, "")
     vpc_id         = optional(string, "")
   })
-  description = "The cluster output of the infra composition: cloud (azure or aws), name, API endpoint, base64 CA certificate, and resource_group (Azure) or region and vpc_id (AWS)."
+  description = "The cluster output of the infra composition, or of compositions/azure-cluster for an AKS cluster you bring: cloud (azure or aws), name, API endpoint, base64 CA certificate, and resource_group (Azure) or region and vpc_id (AWS)."
 
   validation {
     condition     = contains(["azure", "aws"], var.cluster.cloud)
@@ -34,7 +34,7 @@ variable "customer_values" {
 
 variable "chart_version" {
   type        = string
-  description = "Autoheal chart version, e.g. 1.0.0. Every service, Temporal, Zitadel, the proxy and runner-go share it. Keep it equal to autoheal_version in the infra folder (versions.hcl in the examples)."
+  description = "Autoheal chart version, e.g. 1.0.0. Every service, Temporal, Zitadel and the proxy share it (chart_version in versions.hcl in the examples)."
 
   validation {
     condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$", var.chart_version))
@@ -58,20 +58,6 @@ variable "create_namespace" {
   type        = bool
   default     = true
   description = "Create the namespace when it is missing. Set false when the cluster owner created it and the deployer has rights in that namespace only (for example Azure Kubernetes Service RBAC Admin scoped to it): creating a namespace needs a cluster-wide right."
-}
-
-variable "temporal_public_endpoint" {
-  type = object({
-    ip                    = string
-    allowed_source_ranges = list(string)
-  })
-  default     = null
-  description = "The temporal_public_endpoint output of compositions/azure, set only with cluster_network_path = public. Creates public load balancers for Temporal (7233) and the tool-response listener (8083) on ip, open only to allowed_source_ranges, with network policies to match. Null creates nothing."
-
-  validation {
-    condition     = var.temporal_public_endpoint == null ? true : length(var.temporal_public_endpoint.allowed_source_ranges) > 0
-    error_message = "temporal_public_endpoint.allowed_source_ranges must name at least one address: an empty list would open the load balancers to everyone."
-  }
 }
 
 variable "release_name" {
@@ -105,5 +91,5 @@ variable "aws_load_balancer_controller" {
     values        = optional(string, "")
   })
   default     = {}
-  description = "Install the AWS Load Balancer Controller in kube-system before the chart (EKS only; ignored on Azure). Set enabled = true when compositions/aws created the cluster or its controller role (create_load_balancer_controller_role); leave it false on a cluster that already runs one. values is a YAML document merged over the composition's settings, for example image.repository for a private VPC without a NAT gateway."
+  description = "Install the AWS Load Balancer Controller in kube-system before the chart (EKS only; ignored on Azure). Set enabled = true in loadbalancer mode when compositions/aws created the cluster or its controller role (create_load_balancer_controller_role); leave it false on a cluster that already runs one, or with another edge mode. values is a YAML document merged over the composition's settings, for example image.repository for a private VPC without a NAT gateway."
 }

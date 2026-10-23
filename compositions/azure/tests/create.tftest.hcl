@@ -1,7 +1,7 @@
 # Case 1: we build everything. Runs a real plan against mocked providers, so no
-# subscription is touched. Covers the hand-off values, the reserved addresses,
-# each edge mode, the DNS records and their listing, and the input checks that
-# apply when everything is created.
+# subscription is touched. Covers the hand-off values, the reserved proxy
+# address, each edge mode, the DNS records and their listing, and the input
+# checks that apply when everything is created.
 #
 # Under a mocked provider, data sources return the defaults below as known values
 # and created resources have unknown computed attributes at plan time, so the
@@ -62,33 +62,12 @@ mock_provider "azurerm" {
   mock_resource "azurerm_container_registry" {
     defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.ContainerRegistry/registries/cracme" }
   }
-  mock_resource "azurerm_nat_gateway" {
-    defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.Network/natGateways/ng-acme" }
-  }
-  mock_resource "azurerm_public_ip" {
-    defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.Network/publicIPAddresses/pip-acme" }
-  }
-  mock_resource "azurerm_network_security_group" {
-    defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.Network/networkSecurityGroups/nsg-acme" }
-  }
   mock_resource "azurerm_postgresql_flexible_server" {
     defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.DBforPostgreSQL/flexibleServers/psql-acme" }
   }
 }
 
-# The cluster's subscription (providers.tf). Only the brought cluster and its AKS
-# subnet are read through it, and this case brings neither.
-mock_provider "azurerm" {
-  alias = "cluster"
-}
-
 mock_provider "random" {}
-
-mock_provider "tls" {
-  mock_resource "tls_private_key" {
-    defaults = { public_key_openssh = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPdIPEGmxag1iAM9TJa938oKt9VfcpW75Ta8FpAEpXUT acme-test" }
-  }
-}
 
 # With create_role_assignments = false the plan reads each workload principal's
 # grants. Here an administrator has made them all at the subscription. (OpenTofu
@@ -164,7 +143,6 @@ variables {
   subscription_id      = "00000000-0000-0000-0000-000000000000"
   location             = "centralus"
   hostname             = "autoheal.acme.example"
-  autoheal_version     = "1.0.0"
   existing_dns_zone_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-dns/providers/Microsoft.Network/dnszones/acme.example"
   deployer_ip_ranges   = ["203.0.113.10"]
 
@@ -175,9 +153,14 @@ variables {
 run "loadbalancer_defaults" {
   command = plan
 
+  # Contract 3.0.0 dropped global.infra.temporal with the runner.
   assert {
-    condition     = output.autoheal_values.global.infra.version == "2.0.0" && output.autoheal_values.global.infra.cloud == "azure"
-    error_message = "global.infra.version must be 2.0.0 and cloud azure."
+    condition = (
+      output.autoheal_values.global.infra.version == "3.0.0" &&
+      output.autoheal_values.global.infra.cloud == "azure" &&
+      !contains(keys(output.autoheal_values.global.infra), "temporal")
+    )
+    error_message = "global.infra.version must be 3.0.0 and cloud azure, with no temporal key."
   }
 
   assert {
@@ -190,20 +173,10 @@ run "loadbalancer_defaults" {
   }
 
   # The AKS subnet of 10.60.0.0/16 is 10.60.0.0/20; Azure keeps .255, so the
-  # proxy takes .254 and Temporal .253.
-  assert {
-    condition     = output.autoheal_values.global.infra.temporal.internalIP == "10.60.15.253"
-    error_message = "temporal.internalIP must be the third address from the end of the AKS subnet."
-  }
-
+  # proxy takes .254.
   assert {
     condition     = output.autoheal_values.global.infra.edge.internalIP == "10.60.15.254"
     error_message = "edge.internalIP must be the second address from the end of the AKS subnet in loadbalancer mode."
-  }
-
-  assert {
-    condition     = local.temporal_ip == "10.60.15.253"
-    error_message = "The runner must connect to the reserved Temporal address."
   }
 
   assert {
@@ -252,6 +225,18 @@ run "loadbalancer_defaults" {
     error_message = "cluster must carry the endpoint and CA certificate."
   }
 
+  # The federation of a created cluster's identities is made here, so there is
+  # nothing for compositions/azure-cluster and nothing for a cluster owner.
+  assert {
+    condition     = output.federation == null && length(output.required_cluster_owner_actions) == 0
+    error_message = "federation must be null and required_cluster_owner_actions empty for a cluster we create."
+  }
+
+  assert {
+    condition     = local.oidc_issuer == "https://oidc.prod-aks.azure.example/00000000-0000-0000-0000-000000000000/"
+    error_message = "The identities of a created cluster trust its OIDC issuer."
+  }
+
   assert {
     condition     = length(output.required_role_assignments) == 0 && length(output.required_dns_records) == 0
     error_message = "Nothing is listed when we make the grants and the records."
@@ -265,8 +250,7 @@ run "loadbalancer_defaults" {
     error_message = "The three records are created in the zone."
   }
 
-  # The chart's default entry names (docs/secrets.md in the chart). The
-  # generated runner SSH key is not among them: it stays in the state.
+  # The chart's default entry names (docs/secrets.md in the chart).
   assert {
     condition = toset(keys(azurerm_key_vault_secret.entry)) == toset([
       "postgres-admin-password", "api-server-db-password", "agents-db-password", "temporal-db-password",
@@ -307,14 +291,10 @@ run "loadbalancer_defaults" {
     condition = (
       tolist(output.network.address_space) == tolist(["10.60.0.0/16"]) &&
       output.network.resource_group_name == "rg-acme-prod-autoheal" &&
-      output.network.vnet_name == module.vnet[0].vnet_name
+      output.network.vnet_name == module.vnet[0].vnet_name &&
+      !contains(keys(output.network), "runner_subnet_id")
     )
-    error_message = "network describes the VNet we create and its address space."
-  }
-
-  assert {
-    condition     = local.runner_image == "public.ecr.aws/e4h3h0d9/app/runner-go:chart-1.0.0" && !local.runner_uses_acr
-    error_message = "Without a registry the runner pulls app/runner-go:chart-<autoheal_version> from the public registry, with no ACR login."
+    error_message = "network describes the VNet we create and its address space, with no runner subnet."
   }
 
   # Without a registry no image key is suggested, so the chart's default public
@@ -352,16 +332,6 @@ run "loadbalancer_defaults" {
   assert {
     condition     = local.runtime_key_vault_purge_protection_enabled == false
     error_message = "The runtime vault follows the install vault's purge protection, off by default."
-  }
-
-  assert {
-    condition     = local.tool_response_callback_url == "http://10.60.15.253:8083/api/v1/internal/sandbox-tool-responses"
-    error_message = "The runner posts tool results to the api-server-go internal listener on the Temporal address."
-  }
-
-  assert {
-    condition     = module.vnet[0].aks_nsg_name == "${module.vnet[0].vnet_name}-aks-nsg"
-    error_message = "A network we create gets the AKS subnet NSG for the Temporal address."
   }
 
   assert {
@@ -637,15 +607,9 @@ run "custom_hostnames_and_registry" {
     auth_app_hostname       = "login-app.acme.example"
     create_registry         = true
     create_role_assignments = false
-    runner_image_tag        = "test-1"
   }
 
   # The registry we create is acmeprodautoheal.azurecr.io.
-  assert {
-    condition     = local.runner_image == "acmeprodautoheal.azurecr.io/app/runner-go:test-1" && local.runner_uses_acr
-    error_message = "With a registry the runner pulls app/runner-go from it and logs in to it; runner_image_tag overrides the tag."
-  }
-
   assert {
     condition = (
       output.autoheal_values.global.imageRegistry == "acmeprodautoheal.azurecr.io" &&
@@ -674,8 +638,8 @@ run "custom_hostnames_and_registry" {
   }
 
   assert {
-    condition     = length(output.required_role_assignments) == 9
-    error_message = "A created cluster, vault and registry with create_role_assignments = false lists all nine grants."
+    condition     = length(output.required_role_assignments) == 8
+    error_message = "A created cluster, vault and registry with create_role_assignments = false lists all eight grants."
   }
 
   assert {
@@ -709,27 +673,9 @@ run "existing_registry" {
     condition = (
       length(module.acr) == 0 &&
       output.autoheal_values.global.imageRegistry == "crmirror.azurecr.io" &&
-      output.autoheal_values.zitadel.imageRegistry == "crmirror.azurecr.io" &&
-      local.runner_image == "crmirror.azurecr.io/app/runner-go:chart-1.0.0" &&
-      local.runner_uses_acr
+      output.autoheal_values.zitadel.imageRegistry == "crmirror.azurecr.io"
     )
-    error_message = "A brought registry sets global.imageRegistry, the copies and the runner image from its login server."
-  }
-}
-
-# runner_image_repository wins over the computed default. A repository outside
-# the registry needs no ACR login.
-run "runner_image_override" {
-  command = plan
-
-  variables {
-    create_registry         = true
-    runner_image_repository = "mirror.acme.example/autoheal/runner-go"
-  }
-
-  assert {
-    condition     = local.runner_image == "mirror.acme.example/autoheal/runner-go:chart-1.0.0" && !local.runner_uses_acr
-    error_message = "runner_image_repository overrides the runner image; no ACR login for another registry."
+    error_message = "A brought registry sets global.imageRegistry and the copies from its login server."
   }
 }
 
@@ -825,15 +771,6 @@ run "cmk_needs_role_assignments" {
 run "brought_cluster_needs_a_network" {
   command = plan
 
-  # A suitable cluster, so only the missing network fails.
-  override_data {
-    target = data.azurerm_kubernetes_cluster.existing
-    values = {
-      oidc_issuer_enabled        = true
-      key_vault_secrets_provider = [{ secret_rotation_enabled = false, secret_rotation_interval = "2m", secret_identity = [] }]
-    }
-  }
-
   variables {
     existing_aks_cluster_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-platform/providers/Microsoft.ContainerService/managedClusters/aks-platform"
   }
@@ -849,16 +786,6 @@ run "bad_edge_mode" {
   }
 
   expect_failures = [var.edge_mode]
-}
-
-run "bad_version" {
-  command = plan
-
-  variables {
-    autoheal_version = "latest"
-  }
-
-  expect_failures = [var.autoheal_version]
 }
 
 # A public proxy needs a static public IP that the cluster owner makes in the

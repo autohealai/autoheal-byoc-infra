@@ -11,9 +11,10 @@
 #                  bedrock_access_enabled.
 #   agents_worker  agents-py-http and agents-py-worker. Read and write the
 #                  buckets. Bedrock when bedrock_access_enabled.
-#   lb_controller  kube-system/aws-load-balancer-controller, when we create the
-#                  cluster (create_load_balancer_controller_role). Registers pod
-#                  IPs in our target groups only.
+#   lb_controller  kube-system/aws-load-balancer-controller, in loadbalancer
+#                  mode when we create the cluster
+#                  (create_load_balancer_controller_role). Registers pod IPs in
+#                  the edge load balancer's target groups only.
 #
 # With create_pod_identity_associations = false the roles are still created and
 # the required_role_assignments output lists the associations to make.
@@ -154,8 +155,11 @@ data "aws_iam_policy_document" "bedrock" {
 
 # The controller only reconciles the chart's TargetGroupBindings: it reads load
 # balancer and network state and registers pod IPs in our target groups. It
-# cannot create or change load balancers or security groups.
+# cannot create or change load balancers or security groups. Read only with the
+# role, so the target group list is never empty.
 data "aws_iam_policy_document" "lb_controller" {
+  count = local.create_lb_controller_role ? 1 : 0
+
   #trivy:ignore:AVD-AWS-0057 Describe calls have no resource-level scope.
   statement {
     sid = "Describe"
@@ -255,7 +259,7 @@ module "lb_controller_identity" {
   permissions_boundary_arn = var.iam_permissions_boundary_arn
 
   inline_policies = {
-    lb-controller = data.aws_iam_policy_document.lb_controller.json
+    lb-controller = data.aws_iam_policy_document.lb_controller[0].json
   }
 }
 

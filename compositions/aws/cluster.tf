@@ -73,18 +73,23 @@ locals {
 
   brought_cluster_endpoint_public = local.create_cluster ? true : data.aws_eks_cluster.existing[0].vpc_config[0].endpoint_public_access != false
 
-  # Ports the load balancers send traffic to on the nodes (load-balancers.tf).
-  lb_target_ports = concat([7233, 8083], local.create_edge_lb ? [8443, 8090] : [])
+  # Ports the edge load balancer sends traffic to on the nodes
+  # (load-balancers.tf). Empty unless edge_mode is loadbalancer.
+  lb_target_ports = local.create_edge_lb ? [8443, 8090] : []
 
   cluster_owner_actions = local.create_cluster ? [] : concat(
     [
-      "An EKS access entry on ${local.cluster_name} for the deployer (${local.deployer_arn}) with AmazonEKSClusterAdminPolicy: compositions/app reads the cluster, creates the namespace ${local.sa_namespace} and installs the chart. To keep the deployer to that namespace, use AmazonEKSAdminPolicy scoped to ${local.sa_namespace} plus a Role there, bound to a Kubernetes group on the access entry, for targetgroupbindings.elbv2.k8s.aws and secretproviderclasses.secrets-store.csi.x-k8s.io, which the access policy does not cover. Then create the namespace yourself and set create_namespace = false in compositions/app",
-      "IAM permissions for the deployer (${local.deployer_arn}): eks:DescribeCluster${var.create_pod_identity_associations ? ", eks:CreatePodIdentityAssociation and eks:DeletePodIdentityAssociation" : ""} on ${local.cluster_name}, and ec2:AuthorizeSecurityGroupIngress and ec2:RevokeSecurityGroupIngress on ${local.node_security_group_id}: the apply lets the load balancers in on TCP ${join(", ", local.lb_target_ports)}",
+      "An EKS access entry on ${local.cluster_name} for the deployer (${local.deployer_arn}) with AmazonEKSClusterAdminPolicy: compositions/app reads the cluster, creates the namespace ${local.sa_namespace} and installs the chart. To keep the deployer to that namespace, use AmazonEKSAdminPolicy scoped to ${local.sa_namespace} plus a Role there, bound to a Kubernetes group on the access entry, for ${local.create_edge_lb ? "targetgroupbindings.elbv2.k8s.aws and " : ""}secretproviderclasses.secrets-store.csi.x-k8s.io, which the access policy does not cover. Then create the namespace yourself and set create_namespace = false in compositions/app",
+      "IAM permissions for the deployer (${local.deployer_arn}): eks:DescribeCluster${var.create_pod_identity_associations ? ", eks:CreatePodIdentityAssociation and eks:DeletePodIdentityAssociation" : ""} on ${local.cluster_name}${local.create_edge_lb ? ", and ec2:AuthorizeSecurityGroupIngress and ec2:RevokeSecurityGroupIngress on ${local.node_security_group_id}: the apply lets the edge load balancer in on TCP ${join(", ", local.lb_target_ports)}" : ""}",
       "The EKS add-ons eks-pod-identity-agent and aws-secrets-store-csi-driver-provider on ${local.cluster_name}: the workloads get AWS credentials through Pod Identity, and the secrets-sync hook reads Secrets Manager through the Secrets Store CSI driver",
-      local.create_lb_controller_role
-      ? "The AWS Load Balancer Controller in kube-system with the service account aws-load-balancer-controller, which the role we created is bound to: set aws_load_balancer_controller.enabled = true in compositions/app, or run your own install with that service account. The chart binds its Services to our target groups through it"
-      : "The AWS Load Balancer Controller (v2.x, with the TargetGroupBinding resource) on ${local.cluster_name}, allowed to register targets in the target groups under global.infra.targetGroups in autoheal_values. Its standard IAM policy allows that. The chart binds its Services to them through it",
     ],
+    # The controller binds the edge load balancer's target groups, so only in
+    # loadbalancer mode.
+    local.create_edge_lb ? [
+      local.create_lb_controller_role
+      ? "The AWS Load Balancer Controller in kube-system with the service account aws-load-balancer-controller, which the role we created is bound to: set aws_load_balancer_controller.enabled = true in compositions/app, or run your own install with that service account. The chart binds the proxy Service to our target groups through it"
+      : "The AWS Load Balancer Controller (v2.x, with the TargetGroupBinding resource) on ${local.cluster_name}, allowed to register targets in the target groups under global.infra.targetGroups in autoheal_values. Its standard IAM policy allows that. The chart binds the proxy Service to them through it",
+    ] : [],
     local.brought_cluster_endpoint_public ? [] : [
       "A network path to the private API endpoint of ${local.cluster_name} from where compositions/app runs, and TCP 443 from there allowed on the cluster security group ${local.cluster_security_group_id}",
     ],

@@ -26,8 +26,8 @@ locals {
   # --- Subscriptions --------------------------------------------------------
 
   # Everything we create goes in subscription_id. A brought cluster may sit in
-  # another subscription of the same tenant; it and its AKS subnet are then only
-  # read there, through the azurerm.cluster provider (providers.tf).
+  # another subscription of the same tenant. This composition never reads it:
+  # compositions/azure-cluster does, and federates the identities to it.
   cluster_subscription_id       = local.create_cluster ? var.subscription_id : split("/", var.existing_aks_cluster_id)[2]
   cluster_in_other_subscription = lower(local.cluster_subscription_id) != lower(var.subscription_id)
 
@@ -93,54 +93,49 @@ locals {
   # --- Subnets and reserved addresses ---------------------------------------
 
   # Subnet layout of the network we create. For a /16 this is the v1 layout:
-  # AKS 10.60.0.0/20, Postgres 10.60.16.0/24, private endpoints 10.60.17.0/24,
-  # runner 10.60.19.0/24.
+  # AKS 10.60.0.0/20, Postgres 10.60.16.0/24, private endpoints 10.60.17.0/24.
+  # 10.60.19.0/24 held the runner subnet before 4.0.0; the others keep their
+  # place.
   created_subnets = {
     aks      = cidrsubnet(var.network_cidr, 4, 0)
     postgres = cidrsubnet(var.network_cidr, 8, 16)
     endpoint = cidrsubnet(var.network_cidr, 8, 17)
-    runner   = cidrsubnet(var.network_cidr, 8, 19)
   }
 
-  # In a network we create, the reserved addresses are near the top of the AKS
-  # subnet, away from the node addresses Azure hands out from the bottom. The last
-  # address is reserved by Azure, so Temporal takes the third from the end and the
-  # proxy the second from the end.
-  temporal_ip = local.create_network ? cidrhost(local.created_subnets.aks, -3) : var.existing_network.temporal_ip
+  # In a network we create, the proxy address is near the top of the AKS subnet,
+  # away from the node addresses Azure hands out from the bottom. The last
+  # address is reserved by Azure, so the proxy takes the second from the end.
   proxy_ip = var.edge_mode != "loadbalancer" ? "" : (
     local.create_network ? cidrhost(local.created_subnets.aks, -2) : try(var.existing_network.proxy_ip, "")
   )
-  # A public proxy listens on a static public IP in the node resource group,
-  # which may also be the public Temporal address.
-  public_edge              = var.edge_mode == "loadbalancer" && var.edge_exposure == "public"
-  proxy_shares_temporal_ip = local.public_edge && local.public_path && local.proxy_ip == local.temporal_ip
+  # A public proxy listens on a static public IP in the node resource group.
+  public_edge = var.edge_mode == "loadbalancer" && var.edge_exposure == "public"
 
   # VNet ID of a brought network, from the AKS subnet ID.
   brought_vnet_id = local.create_network ? "" : join("/", slice(split("/", var.existing_network.aks_subnet_id), 0, 9))
 
   # A cluster in another subscription keeps only its AKS subnet there. The
-  # runner, Postgres and private endpoint subnets must be in subscription_id,
-  # since Azure puts a private endpoint, a delegated subnet and a VM's network
-  # interface in the subscription of their VNet. When none of them is given we
-  # create a VNet for them from network_cidr, without an AKS subnet.
+  # Postgres and private endpoint subnets must be in subscription_id, since
+  # Azure puts a private endpoint and a delegated subnet in the subscription of
+  # their VNet. When neither is given we create a VNet for them from
+  # network_cidr, without an AKS subnet. The public path needs none.
   brought_workload_subnets = local.create_network ? false : anytrue([
-    for id in [var.existing_network.runner_subnet_id, var.existing_network.postgres_subnet_id, var.existing_network.endpoint_subnet_id] : id != ""
+    for id in [var.existing_network.postgres_subnet_id, var.existing_network.endpoint_subnet_id] : id != ""
   ])
-  create_workload_network = !local.create_network && local.cluster_in_other_subscription && !local.brought_workload_subnets
+  create_workload_network = !local.create_network && local.cluster_in_other_subscription && !local.brought_workload_subnets && !local.public_path
   create_vnet             = local.create_network || local.create_workload_network
 
-  # The VNet of the runner, Postgres and private endpoints: the one we create, or
-  # the VNet of the given subnets for a cluster in another subscription (they
-  # share one VNet), or the AKS subnet's VNet. The private DNS zones we create
-  # are linked to it.
+  # The VNet of Postgres and the private endpoints: the one we create, or the
+  # VNet of the given subnets for a cluster in another subscription (they share
+  # one VNet), or the AKS subnet's VNet. Empty on the public path. The private
+  # DNS zones we create are linked to it.
   workload_vnet_id = local.create_vnet ? module.vnet[0].vnet_id : (
     local.cluster_in_other_subscription ? try(join("/", slice(split("/", coalesce(
-      var.existing_network.runner_subnet_id, var.existing_network.endpoint_subnet_id, var.existing_network.postgres_subnet_id,
+      var.existing_network.endpoint_subnet_id, var.existing_network.postgres_subnet_id,
     )), 0, 9)), "") : local.brought_vnet_id
   )
 
   aks_subnet_id      = local.create_network ? module.vnet[0].subnet_aks_id : var.existing_network.aks_subnet_id
-  runner_subnet_id   = local.create_vnet ? module.vnet[0].subnet_runner_id : var.existing_network.runner_subnet_id
   postgres_subnet_id = local.create_vnet ? module.vnet[0].subnet_db_id : var.existing_network.postgres_subnet_id
   endpoint_subnet_id = local.create_vnet ? module.vnet[0].subnet_pe_id : var.existing_network.endpoint_subnet_id
 
@@ -195,7 +190,6 @@ locals {
   cluster_name = local.create_cluster ? module.aks[0].cluster_name : local.existing.aks.name
   cluster_rg   = local.create_cluster ? local.resource_group_name : local.existing.aks.rg
   cluster_id   = local.create_cluster ? module.aks[0].cluster_id : var.existing_aks_cluster_id
-  oidc_issuer  = local.create_cluster ? module.aks[0].oidc_issuer_url : data.azurerm_kubernetes_cluster.existing[0].oidc_issuer_url
 
   postgres_host = local.create_postgres ? module.postgres[0].host : data.azurerm_postgresql_flexible_server.existing[0].fqdn
   postgres_admin_login = local.create_postgres ? module.postgres[0].administrator_login : (

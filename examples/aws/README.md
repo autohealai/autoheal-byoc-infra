@@ -23,7 +23,7 @@ building block takes an `existing_*` ID; uncomment the ones you already have.
 | You bring | Set |
 |-----------|-----|
 | Nothing (we create the VPC, EKS, Aurora, ElastiCache, S3, KMS keys) | `network_cidr` |
-| Your network | `existing_network` (VPC and subnet IDs). The nodes' security group must allow the NLBs on the target ports; see the chart's `docs/prerequisites.md`. |
+| Your network | `existing_network` (VPC and subnet IDs). In `loadbalancer` mode the nodes' security group must allow the edge NLB on the target ports; see the chart's `docs/prerequisites.md`. |
 | Your cluster, database, cache, buckets, key or registry | `existing_eks_cluster_arn`, `existing_postgres_arn`, `existing_redis_arn`, `existing_attachments_bucket_arn`, `existing_artifacts_bucket_arn`, `existing_kms_key_arn`, `existing_registry_url` |
 | Pod Identity associations made by your administrators | `create_pod_identity_associations = false`, then run the commands in the `required_role_assignments` output |
 | DNS outside Route 53 | `create_dns_records = false`, then create the records in the `required_dns_records` output |
@@ -35,14 +35,15 @@ change.
 
 A brought EKS cluster needs the `eks-pod-identity-agent` add-on, the Secrets
 Store CSI driver with the AWS provider (`aws-secrets-store-csi-driver-provider`
-add-on) and an AWS Load Balancer Controller. Without a controller of its own,
-keep `aws_load_balancer_controller = { enabled = true }` in
-`prod/app/terragrunt.hcl` and leave `create_load_balancer_controller_role` on in
-the infra folder. The `required_cluster_owner_actions` output lists everything
-the cluster's owner must do for this install, with the names filled in: the
-access entry and IAM permissions for the identity that runs the apply, the
-add-ons, the controller and, when they apply, a path to a private API endpoint
-and image pull access for the nodes. Run a plan and hand the list over.
+add-on) and, in `loadbalancer` mode, an AWS Load Balancer Controller. Without a
+controller of its own, keep `aws_load_balancer_controller = { enabled = true }`
+in `prod/app/terragrunt.hcl` and leave `create_load_balancer_controller_role` on
+in the infra folder. The `required_cluster_owner_actions` output lists
+everything the cluster's owner must do for this install, with the names filled
+in: the access entry and IAM permissions for the identity that runs the apply,
+the add-ons and, when they apply, the controller, a path to a private API
+endpoint and image pull access for the nodes. Run a plan and hand the list
+over.
 
 ## Before the first run
 
@@ -130,9 +131,9 @@ When the cluster already runs an edge, use it instead: set `edge_mode` to
 uncomment its block. That edge terminates TLS, and it must reach the proxy over
 HTTP/2 on the auth host, because Zitadel serves gRPC there.
 
-Every mode needs the AWS Load Balancer Controller, because the runner instances
-reach Temporal and api-server-go's tool result listener through an internal
-Network Load Balancer, which the chart binds the same way.
+Only `loadbalancer` mode needs the AWS Load Balancer Controller. With another
+mode, remove `aws_load_balancer_controller` from `prod/app/terragrunt.hcl`; the
+infra folder then creates no role for the controller.
 
 ## Secrets
 
@@ -177,7 +178,8 @@ The app folder reads `autoheal_values` and `cluster` from the infra folder's
 state. Before the infra folder has been applied, its plan uses the placeholder
 outputs in the `dependency` block. The app folder logs in to EKS with
 `aws eks get-token`, so the pipeline's AWS identity must be a cluster admin.
-It installs the AWS Load Balancer Controller first, then the chart.
+In `loadbalancer` mode it installs the AWS Load Balancer Controller first, then
+the chart.
 
 ## Upgrading
 
@@ -187,9 +189,9 @@ run both folders again. Read the release notes in autoheal-byoc-infra's
 
 ## Installing with Helm or Flux instead
 
-Run only the infra folder, install the AWS Load Balancer Controller (or use the
-cluster's own), then write the infra values to a file and install the chart
-with them:
+Run only the infra folder, install the AWS Load Balancer Controller in
+`loadbalancer` mode (or use the cluster's own), then write the infra values to a
+file and install the chart with them:
 
 ```bash
 cd prod/infra && terragrunt output -raw autoheal_values_yaml > values-infra.yaml

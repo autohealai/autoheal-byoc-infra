@@ -148,50 +148,13 @@ variable "dns_record_ttl" {
 }
 
 # ---------------------------------------------------------------------------
-# Versions and images
-# ---------------------------------------------------------------------------
-
-variable "autoheal_version" {
-  type        = string
-  description = "Autoheal release (the chart version). The runner VMs pull app/runner-go:chart-<autoheal_version> unless runner_image_tag is set."
-
-  validation {
-    condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$", var.autoheal_version))
-    error_message = "autoheal_version must be a release version such as 1.0.0."
-  }
-}
-
-variable "runner_image_repository" {
-  type        = string
-  default     = ""
-  description = "Repository the runner VMs pull runner-go from. Empty means <registry>/app/runner-go: the ECR mirror when there is one, else public.ecr.aws/e4h3h0d9. The VMs retry the pull until the image exists."
-}
-
-variable "runner_image_tag" {
-  type        = string
-  default     = ""
-  description = "Tag of the runner-go image. Empty means chart-<autoheal_version>. Changing it rolls the runner VMs."
-
-  validation {
-    condition     = can(regex("^([A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?$", var.runner_image_tag))
-    error_message = "runner_image_tag must be a valid image tag, or empty."
-  }
-}
-
-variable "runner_sandbox_image" {
-  type        = string
-  default     = ""
-  description = "Fully qualified sandbox image the runner VMs pre-pull at boot. Empty skips the pre-pull."
-}
-
-# ---------------------------------------------------------------------------
 # Network
 # ---------------------------------------------------------------------------
 
 variable "network_cidr" {
   type        = string
   default     = "10.60.0.0/16"
-  description = "CIDR of the VPC we create. Per availability zone: a private subnet for nodes and pods (the first eighth, then the next ones), and small runner, data and public subnets in the upper half. Ignored when existing_network is set."
+  description = "CIDR of the VPC we create. Per availability zone: a private subnet for nodes and pods (the first eighth, then the next ones), and small data and public subnets in the upper half. Ignored when existing_network is set."
 
   validation {
     condition     = can(cidrhost(var.network_cidr, 0)) && tonumber(split("/", var.network_cidr)[1]) >= 16 && tonumber(split("/", var.network_cidr)[1]) <= 19
@@ -213,7 +176,7 @@ variable "availability_zones" {
 variable "nat_gateway_mode" {
   type        = string
   default     = "per_az"
-  description = "NAT gateways of the VPC we create: per_az (one per zone, survives a zone outage), single (one, cheaper) or none (no internet egress; the runner sandboxes and image pulls from public registries then need another path)."
+  description = "NAT gateways of the VPC we create: per_az (one per zone, survives a zone outage), single (one, cheaper) or none (no internet egress; image pulls from public registries then need another path)."
 
   validation {
     condition     = contains(["per_az", "single", "none"], var.nat_gateway_mode)
@@ -224,15 +187,13 @@ variable "nat_gateway_mode" {
 variable "existing_network" {
   type = object({
     vpc_id = string
-    # Nodes, pods and the internal load balancers. One per zone, at least two.
+    # Nodes, pods and an internal edge load balancer. One per zone, at least two.
     private_subnet_ids = list(string)
-    # Runner VMs. Empty means private_subnet_ids. Needs a route to the internet.
-    runner_subnet_ids = optional(list(string), [])
     # Aurora and ElastiCache, when we create them. Empty means private_subnet_ids.
     data_subnet_ids = optional(list(string), [])
     # Needed only for an internet-facing edge load balancer.
     public_subnet_ids = optional(list(string), [])
-    # Security group of the cluster's nodes, which the load balancers and the
+    # Security group of the cluster's nodes, which the edge load balancer and the
     # data stores we create must allow. Empty means the EKS cluster security group.
     node_security_group_id = optional(string, "")
   })
@@ -246,7 +207,6 @@ variable "existing_network" {
       alltrue([
         for id in concat(
           var.existing_network.private_subnet_ids,
-          var.existing_network.runner_subnet_ids,
           var.existing_network.data_subnet_ids,
           var.existing_network.public_subnet_ids,
         ) : can(regex("^subnet-[0-9a-f]+$", id))
@@ -276,7 +236,7 @@ variable "private_endpoint_services" {
 variable "existing_eks_cluster_arn" {
   type        = string
   default     = ""
-  description = "ARN of an EKS cluster you already have, in this account and region. It needs the eks-pod-identity-agent add-on, the Secrets Store CSI driver with the AWS provider (aws-secrets-store-csi-driver-provider add-on) and an AWS Load Balancer Controller (or install_aws_load_balancer_controller in compositions/app). Needs existing_network."
+  description = "ARN of an EKS cluster you already have, in this account and region. It needs the eks-pod-identity-agent add-on, the Secrets Store CSI driver with the AWS provider (aws-secrets-store-csi-driver-provider add-on) and, in loadbalancer mode, an AWS Load Balancer Controller (or aws_load_balancer_controller in compositions/app). Needs existing_network."
 
   validation {
     condition     = var.existing_eks_cluster_arn == "" || can(regex("^arn:aws[a-z-]*:eks:[a-z0-9-]+:[0-9]{12}:cluster/[A-Za-z0-9][A-Za-z0-9_-]*$", var.existing_eks_cluster_arn))
@@ -342,7 +302,7 @@ variable "existing_kms_key_arn" {
 variable "existing_registry_url" {
   type        = string
   default     = ""
-  description = "Registry and path of an image mirror you already have, e.g. 123456789012.dkr.ecr.us-west-2.amazonaws.com/autoheal. It must hold the images under app/ and external/, the chart's layout. The nodes and runner VMs pull from it with their instance roles when it is ECR in this account. Empty and create_registry = false means images come from the public registry."
+  description = "Registry and path of an image mirror you already have, e.g. 123456789012.dkr.ecr.us-west-2.amazonaws.com/autoheal. It must hold the images under app/ and external/, the chart's layout. The nodes pull from it with their instance role when it is ECR in this account. Empty and create_registry = false means images come from the public registry."
 
   validation {
     condition     = var.existing_registry_url == "" || can(regex("^[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)*$", var.existing_registry_url))
@@ -536,7 +496,7 @@ variable "create_load_balancer_controller_role" {
   type        = bool
   default     = null
   nullable    = true
-  description = "Create the IAM role and Pod Identity association for the AWS Load Balancer Controller (kube-system/aws-load-balancer-controller), limited to registering targets in our target groups. null means true when we create the cluster. A brought cluster usually has its own controller, whose role must allow elasticloadbalancing:RegisterTargets on our target groups."
+  description = "Create the IAM role and Pod Identity association for the AWS Load Balancer Controller (kube-system/aws-load-balancer-controller), limited to registering targets in the edge load balancer's target groups. null means true when we create the cluster. Ignored unless edge_mode is loadbalancer: the other edge modes need no controller. A brought cluster usually has its own controller, whose role must allow elasticloadbalancing:RegisterTargets on our target groups."
 }
 
 variable "kms_key_administrator_arns" {
@@ -776,45 +736,6 @@ variable "redis_node_count" {
     condition     = var.redis_node_count >= 1 && var.redis_node_count <= 6
     error_message = "redis_node_count must be between 1 and 6."
   }
-}
-
-# ---------------------------------------------------------------------------
-# Runner VMs
-# ---------------------------------------------------------------------------
-
-variable "runner_node_count" {
-  type        = number
-  default     = 1
-  description = "Number of runner VMs."
-}
-
-variable "runner_instance_type" {
-  type        = string
-  default     = "m7i.xlarge"
-  description = "Instance type of the runner VMs. The default matches Autoheal's hosted runners (4 vCPU, 16 GiB)."
-}
-
-variable "runner_architecture" {
-  type        = string
-  default     = "x86_64"
-  description = "CPU architecture of runner_instance_type: x86_64 or arm64. The runner and sandbox images must exist for it."
-
-  validation {
-    condition     = contains(["x86_64", "arm64"], var.runner_architecture)
-    error_message = "runner_architecture must be x86_64 or arm64."
-  }
-}
-
-variable "runner_root_volume_size_gb" {
-  type        = number
-  default     = 200
-  description = "Root volume size of the runner VMs in GiB. gp3 with 3000 IOPS at any size, the disk speed of Autoheal's hosted runners."
-}
-
-variable "runner_max_concurrent_activities" {
-  type        = number
-  default     = 20
-  description = "Activities each runner VM runs at once. 20 matches Autoheal's hosted runners on the default 4 vCPU, 16 GiB size."
 }
 
 # ---------------------------------------------------------------------------

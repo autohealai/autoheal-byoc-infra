@@ -6,6 +6,96 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+Breaking: 4.0.0. This repository no longer creates the sandbox runner, on
+Azure or AWS. The runner VMs, the reserved Temporal address and everything that
+existed only for them are gone. Sandboxes do not run on an install from this
+release until a runner runs elsewhere.
+
+Needs: an autoheal chart that does not require the Temporal load balancer
+values (`global.infra.version` 3.0.0 is accepted by any chart with
+`min-infra-version` 2.0.0, but chart 1.0.0-rc.10 still requires
+`temporal.internalIP` on Azure, and on AWS `global.infra.targetGroups.temporal`
+and `toolResponse` while `temporalFrontendLoadBalancer` and
+`toolResponseLoadBalancer` are on, which is its default). Install that chart
+before the 4.0.0 infra apply; see "Upgrading" below.
+
+### Removed
+- Azure: `modules/azure/runner-vmss`, and from `compositions/azure` the runner
+  VMSS, its identity grants, the runner subnet, its NAT gateway and NSG, the
+  SSH key, and the NSG on the AKS subnet that only allowed the runner to reach
+  Temporal. On the public path (cluster in another subscription with no private
+  network) the VNet existed only for the runner and is not created.
+- AWS: `modules/aws/runner-asg`, and from `compositions/aws` the runner Auto
+  Scaling group, its launch template, role and security group, the runner
+  subnets of the VPC we create, and the internal load balancer the runner
+  used (Temporal on 7233, the api-server-go tool results listener on 8083).
+- Inputs: `autoheal_version`, `runner_image_repository`, `runner_image_tag`,
+  `runner_sandbox_image`, `runner_node_count`, `runner_max_concurrent_activities`;
+  Azure `runner_vm_size`, `runner_os_disk_size_gb`, `runner_admin_ssh_public_key`,
+  `existing_network.runner_subnet_id` and `existing_network.temporal_ip`; AWS
+  `runner_instance_type`, `runner_architecture`, `runner_root_volume_size_gb`
+  and `existing_network.runner_subnet_ids`. Delete them from your inputs.
+  Terraform ignores the old `existing_network` attributes, and ignores or warns
+  about the old variables, depending on how they are passed.
+- `modules/aws/vpc`: the `runner_subnet_cidrs` input and the `runner_subnet_ids`
+  output.
+- Outputs: `temporal_public_endpoint` (Azure) and `network.runner_subnet_id`
+  (Azure) / `network.runner_subnet_ids` (AWS). `compositions/app` no longer
+  takes `temporal_public_endpoint`.
+- `autoheal_values`: the runner load balancer values (`temporal.internalIP` and
+  the suggested `temporalFrontendLoadBalancer` and `toolResponseLoadBalancer`
+  on Azure, the `temporal` and `toolResponse` target groups on AWS). AWS
+  `global.infra.targetGroups` is present only with `edge_mode = "loadbalancer"`.
+
+### Changed
+- `global.infra.version` (the infra contract) is 3.0.0 on both clouds.
+- AWS: the AWS Load Balancer Controller role is created only with
+  `edge_mode = "loadbalancer"`. In the other modes
+  `create_load_balancer_controller_role` is ignored, and an apply destroys a
+  role made before. `required_cluster_owner_actions` lists the controller and
+  the node security group ingress only in that mode.
+- Azure, cluster you bring (`existing_aks_cluster_id`): `compositions/azure`
+  never reads it. It takes only the name and resource group from the ID, needs
+  no access to the cluster's subscription (the `azurerm.cluster` provider is
+  gone), and makes no federated credentials. Its `cluster` output has an empty
+  endpoint and CA certificate, and a new `federation` output lists the
+  identities to federate.
+- Azure, cluster you bring: the checks that needed to read the cluster or its
+  subnet are gone: that `existing_network.proxy_ip` is inside the AKS subnet,
+  and the AcrPull grant for the kubelet identity. `required_cluster_owner_actions`
+  lists the AcrPull grant instead.
+- Azure, public path: the storage account ignores its subnet network rules. The
+  cluster owner adds the rule for the AKS subnet with the command in
+  `required_cluster_owner_actions`, and later applies leave it alone.
+- Examples: `examples/azure/split` and `examples/azure/split-public` have a
+  `cluster` folder between `infra` and `app`, and `app` takes `cluster` from
+  it. `examples/azure/cop-standin` no longer makes the runner subnet, the
+  Temporal address or the grants they needed.
+
+### Added
+- `compositions/azure-cluster`: the cluster step for an AKS cluster you bring.
+  It reads the cluster in its own subscription, stops when the OIDC issuer is
+  off, warns when the Key Vault secrets provider add-on is off, creates one
+  federated credential per chart service account, and outputs `cluster` with
+  the endpoint and CA certificate for `compositions/app`.
+  `import_federated_credentials` adopts the credentials 3.x made.
+
+### Fixed
+- `compositions/aws` tests pass on OpenTofu 1.11. The mocks give well-formed IDs
+  and ARNs; before, OpenTofu filled them with random strings that the
+  validation rules rejected.
+
+### Upgrading from 3.x
+1. Install the chart that does not require the Temporal values, with the
+   Temporal load balancers off.
+2. Delete the removed inputs and apply the infra unit. The plan destroys the
+   runner and the resources listed under Removed. With a brought AKS cluster it
+   also destroys the federated credentials, unless you move them first (see
+   `compositions/azure-cluster/README.md`).
+3. Brought AKS cluster: apply `compositions/azure-cluster` (the new `cluster`
+   folder), then point the app unit's `cluster` at it.
+4. Apply the app unit.
+
 ## [3.0.0] - 2026-10-21
 
 AWS moves to the 2.x shape: `compositions/aws` replaces the 1.x

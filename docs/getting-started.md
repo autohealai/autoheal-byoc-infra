@@ -11,9 +11,8 @@ Two folders in a repository you own, each with its own state:
 
 - `prod/infra` creates the cloud resources, or reads the ones you already have:
   network, Kubernetes cluster (AKS or EKS), PostgreSQL, Redis, storage, the
-  secret store (Key Vault or Secrets Manager), workload identities, the runner
-  VMs, DNS records, and every secret the application reads, written to the
-  secret store.
+  secret store (Key Vault or Secrets Manager), workload identities, DNS
+  records, and every secret the application reads, written to the secret store.
 - `prod/app` installs the Autoheal chart into the cluster with the values the
   infra folder outputs and your own `values-customer.yaml`.
 
@@ -75,7 +74,7 @@ done
 
 Pick a region where PostgreSQL Flexible Server, Azure Managed Redis and AKS are
 all offered, and check the regional vCPU quota for the node pool (default two to
-four `Standard_D4s_v6` nodes) and the runner VMs (one `Standard_D4s_v6`).
+four `Standard_D4s_v6` nodes).
 
 > **Cost and time.** `apply` creates billable resources. A first apply takes
 > roughly 20 to 30 minutes; the cluster and Redis are the slow parts. `plan` is
@@ -89,7 +88,7 @@ you already have, set its `existing_*` ID in `prod/infra/terragrunt.hcl`:
 | You bring | Set |
 |-----------|-----|
 | Nothing | `network_cidr` (the range for the new network) |
-| Your network | `existing_network`: the AKS, runner, Postgres and private endpoint subnet IDs, and two free addresses in the AKS subnet (`temporal_ip`, and `proxy_ip` in `loadbalancer` mode) |
+| Your network | `existing_network`: the AKS, Postgres and private endpoint subnet IDs, and in `loadbalancer` mode a free address in the AKS subnet for the proxy (`proxy_ip`) |
 | Your cluster, database, cache, storage or vaults | `existing_aks_cluster_id`, `existing_postgres_id`, `existing_redis_id`, `existing_storage_account_id`, `existing_key_vault_id`, `existing_runtime_key_vault_id` |
 
 Is your AKS cluster in a subscription where Autoheal may only use one
@@ -98,6 +97,11 @@ Start from `examples/azure/split` (connected VNets) or
 `examples/azure/split-public` (public endpoints) instead of `prod`. For public
 endpoints on a cluster you already have,
 [the runbook](azure-two-subscriptions-public-runbook.md) gives every command.
+
+With `existing_aks_cluster_id` the infra folder never reads the cluster. A third
+folder, `cluster` (`compositions/azure-cluster`), runs between infra and app: it
+reads the cluster, federates the workload identities to it and gives the app
+folder the cluster's endpoint. `examples/azure/split` has it.
 
 We never create a DNS zone. Set `existing_dns_zone_id` to the Azure DNS zone that
 holds your hostname, or set `create_dns_records = false` and create the records
@@ -198,6 +202,16 @@ the vault, and so on).
 With `create_role_assignments = false` the first apply stops after creating the
 identities and prints the missing grants. Have them made, then run
 `terragrunt apply` again.
+
+With a cluster you bring, the cluster owner now does what
+`terragrunt output required_cluster_owner_actions` lists. Then apply the
+`cluster` folder:
+
+```bash
+cd ../cluster
+terragrunt apply
+terragrunt output federated_credentials   # one line per chart service account
+```
 
 ### Step 6: Check the outputs
 
@@ -369,8 +383,8 @@ downloads the chart with its docs.
 
 The same two folders as on Azure, from `examples/aws`. The infra folder creates
 the VPC, EKS, Aurora PostgreSQL, ElastiCache, the S3 buckets, the KMS keys, the
-Secrets Manager entries, the Pod Identity roles, the NLBs, the runner instances
-and the Route 53 records, or reads the ones you bring.
+Secrets Manager entries, the Pod Identity roles, the NLBs and the Route 53
+records, or reads the ones you bring.
 
 ### Step 1: Sign in to AWS
 
@@ -392,9 +406,8 @@ an OIDC role for the pipeline that only the protected prod environment can
 assume. "Who can use the cluster" in `examples/aws/README.md` shows the setup.
 
 Pick a region where EKS, Aurora PostgreSQL and ElastiCache are all offered, and
-check the On-Demand vCPU quota for the node group (default three `m7i.xlarge`)
-and the runner instances (one `m7i.xlarge`). A first apply takes roughly 30
-minutes; EKS and Aurora are the slow parts.
+check the On-Demand vCPU quota for the node group (default three `m7i.xlarge`).
+A first apply takes roughly 30 minutes; EKS and Aurora are the slow parts.
 
 ### Step 2: Copy the example into your repository
 

@@ -3,7 +3,11 @@
 #
 #   autoheal_values            the chart's infra values, as an object
 #   autoheal_values_yaml       the same values as YAML text (values-infra.yaml)
-#   cluster                    what compositions/app needs to log in to the cluster
+#   cluster                    what compositions/app needs to log in to the cluster;
+#                              for a brought cluster compositions/azure-cluster
+#                              outputs the full details instead
+#   federation                 the identities a brought cluster must trust, for
+#                              compositions/azure-cluster
 #   required_role_assignments  grants an administrator must make, filled only when
 #                              create_role_assignments = false
 #   required_dns_records       records a person must create, filled only when we
@@ -11,8 +15,6 @@
 #   required_cluster_owner_actions
 #                              what the owner of a brought cluster must do, filled
 #                              only for a brought cluster
-#   temporal_public_endpoint   the public Temporal address and who may reach it,
-#                              filled only on the public path
 #   network                    the VNet and subnets Autoheal runs in, created or
 #                              brought
 #
@@ -29,7 +31,7 @@ output "autoheal_values_yaml" {
 }
 
 output "cluster" {
-  description = "Cluster connection details for compositions/app: cloud, name, resource_group, subscription_id, endpoint and base64 ca_certificate. subscription_id is the cluster's, which differs from subscription_id for a brought cluster in another subscription. Authentication is kubelogin with Entra ID; no credential is output."
+  description = "Cluster connection details for compositions/app: cloud, name, resource_group, subscription_id, endpoint and base64 ca_certificate. subscription_id is the cluster's, which differs from subscription_id for a brought cluster in another subscription. For a brought cluster endpoint and ca_certificate are empty, since the cluster is not read here: pass the cluster output of compositions/azure-cluster to compositions/app instead. Authentication is kubelogin with Entra ID; no credential is output."
   value = {
     cloud           = "azure"
     name            = local.cluster_name
@@ -53,20 +55,33 @@ output "required_dns_records" {
 }
 
 output "required_cluster_owner_actions" {
-  description = "What the owner of a brought cluster must do, as readable lines: the deployer's roles on the cluster, the namespace, the cluster features, the NSG rule for the Temporal address and, for a cluster in another subscription, the network path and private DNS between the two VNets, or on the public path the static public IP, the storage service endpoint and the fixed outbound addresses. Filled only when existing_aks_cluster_id is set."
+  description = "What the owner of a brought cluster must do, as readable lines: the deployer's roles on the cluster, the namespace, the cluster features, AcrPull for the nodes when there is a registry and, for a cluster in another subscription, the network path and private DNS between the two VNets, or on the public path the storage network rule for the AKS subnet and the fixed outbound addresses. Filled only when existing_aks_cluster_id is set."
   value       = local.cluster_owner_actions
 }
 
-output "temporal_public_endpoint" {
-  description = "Public path only (cluster_network_path = public), else null: ip, the static public IP for Temporal (7233) and the tool-response listener (8083), and allowed_source_ranges, the runner's NAT address. Pass to compositions/app, which creates the two load balancers and their network policies."
-  value = local.public_path ? {
-    ip                    = local.temporal_ip
-    allowed_source_ranges = ["${local.runner_egress_ip}/32"]
-  } : null
+output "federation" {
+  description = "Brought cluster only, else null: the input of compositions/azure-cluster. subscription_id, where the identities are, and per identity (secrets, api_server, agents_worker) its resource ID and the chart service accounts it trusts. compositions/azure-cluster federates each to the cluster's OIDC issuer. For a cluster we create the federation is made here."
+  value = local.create_cluster ? null : {
+    subscription_id = var.subscription_id
+    identities = {
+      secrets = {
+        identity_id      = module.secrets_identity.identity_id
+        service_accounts = local.federated_service_accounts.secrets
+      }
+      api_server = {
+        identity_id      = module.api_server_identity.identity_id
+        service_accounts = local.federated_service_accounts.api_server
+      }
+      agents_worker = {
+        identity_id      = module.agents_worker_identity.identity_id
+        service_accounts = local.federated_service_accounts.agents_worker
+      }
+    }
+  }
 }
 
 output "network" {
-  description = "The VNet and subnets Autoheal runs in: vnet_id, vnet_name, resource_group_name, address_space, cluster_vnet_id, aks_subnet_id, runner_subnet_id and private_endpoint_subnet_id. vnet_* describe the VNet of the runner and private endpoints; cluster_vnet_id is the AKS subnet's VNet, the same VNet unless the cluster is in another subscription. For a brought VNet address_space is empty, as the VNet is not read, and private_endpoint_subnet_id is empty when existing_network.endpoint_subnet_id is."
+  description = "The VNet and subnets Autoheal runs in: vnet_id, vnet_name, resource_group_name, address_space, cluster_vnet_id, aks_subnet_id and private_endpoint_subnet_id. vnet_* describe the VNet of Postgres and the private endpoints, empty on the public path; cluster_vnet_id is the AKS subnet's VNet, the same VNet unless the cluster is in another subscription. For a brought VNet address_space is empty, as the VNet is not read, and private_endpoint_subnet_id is empty when existing_network.endpoint_subnet_id is."
   value = {
     vnet_id                    = local.workload_vnet_id
     vnet_name                  = local.create_vnet ? module.vnet[0].vnet_name : try(split("/", local.workload_vnet_id)[8], "")
@@ -74,7 +89,6 @@ output "network" {
     address_space              = local.create_vnet ? [var.network_cidr] : []
     cluster_vnet_id            = local.create_network ? module.vnet[0].vnet_id : local.brought_vnet_id
     aks_subnet_id              = local.aks_subnet_id
-    runner_subnet_id           = local.runner_subnet_id
     private_endpoint_subnet_id = local.endpoint_subnet_id
   }
 }

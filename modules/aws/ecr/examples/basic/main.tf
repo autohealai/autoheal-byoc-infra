@@ -37,6 +37,6 @@ output "image_registry" {
 }
 
 output "ecr_pull_policy_arn" {
-  description = "Policy to attach to the node and runner roles."
+  description = "Policy to attach to the node role."
   value       = aws_iam_policy.ecr_pull.arn
 }

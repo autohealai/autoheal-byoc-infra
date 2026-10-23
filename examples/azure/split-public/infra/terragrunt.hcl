@@ -1,10 +1,10 @@
 # The cloud resources, for an AKS cluster in one subscription (the cluster
 # subscription) with everything else in another (the data subscription), and no
 # network connection between them. Pods reach the data services over their
-# public endpoints, which let in only the cluster's addresses. The runner VMs
-# reach Temporal on a static public IP in the cluster subscription, which lets
-# in only the runner's address. In the cluster subscription we only read the
-# cluster and its AKS subnet; we create nothing there. See
+# public endpoints, which let in only the cluster's addresses. This unit never
+# reads or changes anything in the cluster subscription, so it needs no access
+# there and the cluster need not exist yet. ../cluster reads the cluster after
+# this unit and federates the workload identities to it. See
 # docs/azure-two-subscriptions-public.md in autoheal-byoc-infra, and
 # docs/azure-two-subscriptions-public-runbook.md for every command.
 
@@ -18,15 +18,15 @@ terraform {
 }
 
 inputs = {
-  namespace        = "acme"
-  environment      = "prod"
-  location         = "eastus2"             # the cluster's region
-  autoheal_version = local.v.chart_version # the runner VMs pull app/runner-go:chart-<chart_version>
+  namespace   = "acme"
+  environment = "prod"
+  location    = "eastus2" # the cluster's region
 
   # The data subscription. Everything Terraform creates goes here.
   subscription_id = "11111111-2222-3333-4444-555555555555"
 
-  # The cluster, in the cluster subscription. We only read it.
+  # The cluster, in the cluster subscription. This unit takes only its name and
+  # resource group from the ID; ../cluster reads the cluster itself.
   existing_aks_cluster_id = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-cop/providers/Microsoft.ContainerService/managedClusters/aks-cop"
 
   # The Kubernetes namespace the cluster owner gives you. The workload
@@ -38,14 +38,13 @@ inputs = {
   cluster_network_path = "public"
 
   existing_network = {
-    # The AKS subnet of that cluster.
+    # The AKS subnet of that cluster. It is never read: the
+    # required_cluster_owner_actions output names it in the storage network
+    # rule and the NSG rule the cluster owner adds.
     aks_subnet_id = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-cop-net/providers/Microsoft.Network/virtualNetworks/vnet-cop/subnets/snet-aks"
     # A Standard static public IP the cluster owner creates in the cluster's
-    # node resource group. The runner VMs connect here.
-    temporal_ip = "20.30.40.50"
-    # A second Standard static public IP in the node resource group, for the
-    # Autoheal proxy. Users and webhooks connect here; DNS points here. To use
-    # one IP for both, set it to temporal_ip: the ports do not overlap.
+    # node resource group, for the Autoheal proxy. Users and webhooks connect
+    # here; DNS points here.
     proxy_ip = "20.30.40.60"
   }
 
@@ -61,10 +60,6 @@ inputs = {
   # storage let them in, so the apply can write the vault entries.
   deployer_ip_ranges = ["203.0.113.10/32"]
 
-  # Address range of the VNet we create in the data subscription for the runner
-  # VMs. It is never connected to the cluster's VNet.
-  network_cidr = "10.70.0.0/16"
-
   # The DNS zone for the hostnames, in the data subscription. If the zone is in
   # another subscription or outside Azure DNS, remove this line and set
   # create_dns_records = false; the required_dns_records output then lists the
@@ -77,8 +72,7 @@ inputs = {
   edge_mode = "loadbalancer"
 
   # Sizing
-  postgres_sku      = "GP_Standard_D4ds_v5"
-  runner_node_count = 2
+  postgres_sku = "GP_Standard_D4ds_v5"
 
   # The LLM API key is a secret, so it is not in this file. The pipeline passes
   # it as TF_VAR_llm_api_key and Terraform stores it in Key Vault as llm-api-key.

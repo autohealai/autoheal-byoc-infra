@@ -16,15 +16,6 @@ mock_provider "aws" {
   mock_data "aws_iam_policy_document" {
     defaults = { json = "{}", minified_json = "{}" }
   }
-  mock_data "aws_ssm_parameter" {
-    defaults = { insecure_value = "ami-0123456789abcdef0", value = "ami-0123456789abcdef0" }
-  }
-  mock_data "aws_ami" {
-    defaults = { architecture = "x86_64", root_device_name = "/dev/xvda" }
-  }
-  mock_data "aws_ec2_instance_type" {
-    defaults = { supported_architectures = ["x86_64"] }
-  }
   mock_data "aws_vpc_endpoint_service" {
     defaults = {
       service_name       = "com.amazonaws.us-west-2.s3"
@@ -35,7 +26,7 @@ mock_provider "aws" {
     defaults = { version = "v1.0.0-eksbuild.1" }
   }
   mock_data "aws_route53_zone" {
-    defaults = { name = "acme.example.", private_zone = false }
+    defaults = { name = "acme.example." }
   }
   mock_data "aws_vpc" {
     defaults = { cidr_block = "10.20.0.0/16" }
@@ -43,6 +34,8 @@ mock_provider "aws" {
   mock_data "aws_iam_session_context" {
     defaults = { issuer_arn = "arn:aws:iam::123456789012:role/deployer" }
   }
+  # (OpenTofu needs every attribute of a mocked object, here and in the
+  # vpc_config overrides below.)
   mock_data "aws_eks_cluster" {
     defaults = {
       endpoint              = "https://ABCDEF.gr7.us-west-2.eks.amazonaws.com"
@@ -56,6 +49,7 @@ mock_provider "aws" {
         endpoint_private_access   = true
         endpoint_public_access    = false
         public_access_cidrs       = []
+        control_plane_egress_mode = null
       }]
     }
   }
@@ -90,9 +84,50 @@ mock_provider "aws" {
   mock_data "aws_kms_key" {
     defaults = { enabled = true, key_spec = "SYMMETRIC_DEFAULT", key_usage = "ENCRYPT_DECRYPT" }
   }
+
+  # OpenTofu fills computed attributes with random strings at plan time, and the
+  # modules and the provider reject them where they check an AWS ID or ARN. These
+  # defaults give each created resource a well-formed one, and the EKS cluster the
+  # CA and OIDC issuer the eks module indexes into (OpenTofu mocks a block as one
+  # object). Terraform keeps them unknown until apply.
+  mock_resource "aws_vpc" {
+    defaults = { id = "vpc-0123456789abcdef0" }
+  }
+  mock_resource "aws_kms_key" {
+    defaults = { arn = "arn:aws:kms:us-west-2:123456789012:key/1234abcd-12ab-44cd-a6ef-1234567890ab" }
+  }
+  mock_resource "aws_iam_policy" {
+    defaults = { arn = "arn:aws:iam::123456789012:policy/acme-prod-autoheal" }
+  }
+  mock_resource "aws_iam_role" {
+    defaults = { arn = "arn:aws:iam::123456789012:role/acme-prod-autoheal" }
+  }
+  mock_resource "aws_cloudwatch_log_group" {
+    defaults = { arn = "arn:aws:logs:us-west-2:123456789012:log-group:acme-prod-autoheal" }
+  }
+  mock_resource "aws_eks_cluster" {
+    defaults = {
+      vpc_config            = { vpc_id = "vpc-0123456789abcdef0" }
+      certificate_authority = [{ data = "Q0E=" }]
+      identity              = [{ oidc = [{ issuer = "https://oidc.eks.us-west-2.amazonaws.com/id/ABCDEF" }] }]
+    }
+  }
+  mock_resource "aws_launch_template" {
+    defaults = { id = "lt-0123456789abcdef0" }
+  }
+  mock_resource "aws_lb" {
+    defaults = { arn = "arn:aws:elasticloadbalancing:us-west-2:123456789012:loadbalancer/net/acme-prod-autoheal-edge/0123456789abcdef" }
+  }
+  mock_resource "aws_lb_target_group" {
+    defaults = { arn = "arn:aws:elasticloadbalancing:us-west-2:123456789012:targetgroup/acme-prod-autoheal-edge/0123456789abcdef" }
+  }
 }
 
-mock_provider "random" {}
+mock_provider "random" {
+  mock_resource "random_password" {
+    defaults = { result = "mock-password-0123456789" }
+  }
+}
 
 variables {
   namespace            = "acme"
@@ -100,7 +135,6 @@ variables {
   account_id           = "123456789012"
   region               = "us-west-2"
   hostname             = "autoheal.acme.example"
-  autoheal_version     = "2.1.0"
   availability_zones   = ["us-west-2a", "us-west-2b", "us-west-2c"]
   existing_dns_zone_id = "Z0123456789ABCDEFGHIJ"
 
@@ -149,15 +183,9 @@ run "everything_brought" {
       output.cluster.endpoint == "https://ABCDEF.gr7.us-west-2.eks.amazonaws.com" &&
       output.network.vpc_id == "vpc-0123456789abcdef0" &&
       output.network.vpc_cidr_block == "10.20.0.0/16" &&
-      tolist(output.network.runner_subnet_ids) == tolist(["subnet-0a", "subnet-0b", "subnet-0c"]) &&
       tolist(output.network.data_subnet_ids) == tolist(["subnet-0a", "subnet-0b", "subnet-0c"])
     )
-    error_message = "Cluster and network should be the brought ones, with runner and data subnets falling back to private."
-  }
-
-  assert {
-    condition     = local.runner_ecr_host == "123456789012.dkr.ecr.us-west-2.amazonaws.com"
-    error_message = "A brought ECR registry should turn on the runner's ECR helper."
+    error_message = "Cluster and network should be the brought ones, with data subnets falling back to private."
   }
 
   assert {
@@ -173,9 +201,10 @@ run "everything_brought" {
     condition = (
       length(output.required_cluster_owner_actions) == 6 &&
       strcontains(output.required_cluster_owner_actions[0], "acme-eks for the deployer (arn:aws:iam::123456789012:role/deployer)") &&
+      strcontains(output.required_cluster_owner_actions[0], "targetgroupbindings.elbv2.k8s.aws") &&
       strcontains(output.required_cluster_owner_actions[1], "eks:CreatePodIdentityAssociation") &&
       strcontains(output.required_cluster_owner_actions[1], "sg-0cluster0000000000") &&
-      strcontains(output.required_cluster_owner_actions[1], "TCP 7233, 8083, 8443, 8090") &&
+      endswith(output.required_cluster_owner_actions[1], "TCP 8443, 8090") &&
       strcontains(output.required_cluster_owner_actions[2], "eks-pod-identity-agent and aws-secrets-store-csi-driver-provider") &&
       strcontains(output.required_cluster_owner_actions[3], "global.infra.targetGroups") &&
       strcontains(output.required_cluster_owner_actions[4], "private API endpoint of acme-eks") &&
@@ -214,20 +243,33 @@ run "brought_cluster_public_endpoint" {
       vpc_config = [{
         vpc_id                    = "vpc-0123456789abcdef0"
         cluster_security_group_id = "sg-0cluster0000000000"
+        subnet_ids                = ["subnet-0a", "subnet-0b"]
+        security_group_ids        = []
+        endpoint_private_access   = true
         endpoint_public_access    = true
+        public_access_cidrs       = []
+        control_plane_egress_mode = null
       }]
     }
   }
 
   assert {
     condition = (
-      length(output.required_cluster_owner_actions) == 5 &&
-      !strcontains(output.required_cluster_owner_actions[1], "eks:CreatePodIdentityAssociation") &&
-      endswith(output.required_cluster_owner_actions[1], "TCP 7233, 8083") &&
-      strcontains(output.required_cluster_owner_actions[3], "aws_load_balancer_controller.enabled = true") &&
-      strcontains(output.required_cluster_owner_actions[4], "acme-prod-autoheal-ecr-pull-through")
+      length(output.required_cluster_owner_actions) == 4 &&
+      !strcontains(output.required_cluster_owner_actions[0], "targetgroupbindings") &&
+      endswith(output.required_cluster_owner_actions[1], "eks:DescribeCluster on acme-eks") &&
+      strcontains(output.required_cluster_owner_actions[2], "eks-pod-identity-agent") &&
+      strcontains(output.required_cluster_owner_actions[3], "acme-prod-autoheal-ecr-pull-through")
     )
-    error_message = "A public endpoint, our controller role and our registry should change the owner's list."
+    error_message = "A public endpoint, istio mode and our registry should change the owner's list: no load balancer ports and no controller."
+  }
+
+  assert {
+    condition = (
+      length(module.lb_controller_identity) == 0 &&
+      !contains(keys(output.autoheal_values.global.infra), "targetGroups")
+    )
+    error_message = "Outside loadbalancer mode the controller role is not created, even when asked for."
   }
 }
 
@@ -269,8 +311,7 @@ run "hybrid_network_only" {
     condition = (
       length(module.vpc) == 0 && length(module.eks) == 1 && length(module.postgres) == 1 &&
       length(module.redis) == 1 && length(module.kms) == 5 &&
-      tolist(output.network.data_subnet_ids) == tolist(["subnet-0d", "subnet-0e", "subnet-0f"]) &&
-      tolist(output.network.runner_subnet_ids) == tolist(["subnet-0a", "subnet-0b", "subnet-0c"])
+      tolist(output.network.data_subnet_ids) == tolist(["subnet-0d", "subnet-0e", "subnet-0f"])
     )
     error_message = "A brought network should create everything else in it."
   }
@@ -306,7 +347,16 @@ run "cluster_in_other_vpc" {
     values = {
       status                = "ACTIVE"
       certificate_authority = [{ data = "Q0E=" }]
-      vpc_config            = [{ vpc_id = "vpc-0ffffffffffffffff", cluster_security_group_id = "sg-0cluster0000000000" }]
+      vpc_config = [{
+        vpc_id                    = "vpc-0ffffffffffffffff"
+        cluster_security_group_id = "sg-0cluster0000000000"
+        subnet_ids                = ["subnet-0a", "subnet-0b"]
+        security_group_ids        = []
+        endpoint_private_access   = true
+        endpoint_public_access    = false
+        public_access_cidrs       = []
+        control_plane_egress_mode = null
+      }]
     }
   }
 

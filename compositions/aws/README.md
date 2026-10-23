@@ -17,7 +17,7 @@ One file per building block.
 
 | File | Creates, or reads when brought |
 |------|--------------------------------|
-| `network.tf` | VPC with private, runner, data and public subnets per zone, NAT gateways, flow logs, the S3 gateway endpoint and optional interface endpoints. Brought: `existing_network`. |
+| `network.tf` | VPC with private, data and public subnets per zone, NAT gateways, flow logs, the S3 gateway endpoint and optional interface endpoints. Brought: `existing_network`. |
 | `kms.tf` | One customer managed key per purpose (eks, data, storage, secrets, logs), rotation on. Brought: `existing_kms_key_arn`, one key for all. |
 | `cluster.tf` | EKS with access entries, Secrets envelope encryption, control plane logs, a managed node group and the add-ons (VPC CNI, CoreDNS, kube-proxy, Pod Identity agent, EBS CSI driver, Secrets Store CSI driver with the AWS provider). Brought: `existing_eks_cluster_arn`. |
 | `postgres.tf` | Aurora PostgreSQL and its admin password. Brought: `existing_postgres_arn` (Aurora cluster or RDS instance). |
@@ -26,9 +26,8 @@ One file per building block.
 | `registry.tf` | ECR pull-through cache of the public Autoheal registry, only with `create_registry = true`. Brought: `existing_registry_url`. |
 | `identity.tf` | IAM roles, one per chart workload group, bound to the chart's service accounts through EKS Pod Identity. |
 | `secrets.tf` | Every secret the chart reads, generated or passed in, written to Secrets Manager. |
-| `load-balancers.tf` | The runner Network Load Balancer (Temporal and the tool result listener) and, in `loadbalancer` mode, the edge one. |
+| `load-balancers.tf` | The edge Network Load Balancer, in `loadbalancer` mode. |
 | `dns.tf` | Records for the three hostnames in your Route 53 zone. |
-| `runner.tf` | runner-go on an Auto Scaling group, connected to the runner load balancer. |
 | `validation.tf` | Plan-time checks with plain messages. |
 | `autoheal-values.tf` | The `autoheal_values` hand-off to the chart. |
 
@@ -61,52 +60,48 @@ the first three of the region). For a /16:
 
 | Subnets | CIDRs | Holds |
 |---------|-------|-------|
-| private | the first eighths, 10.60.0.0/19, 10.60.32.0/19, ... | nodes, pods (VPC CNI), internal load balancers |
-| runner | 10.60.128.0/24, ... | runner VMs |
+| private | the first eighths, 10.60.0.0/19, 10.60.32.0/19, ... | nodes, pods (VPC CNI), an internal edge load balancer |
 | data | 10.60.136.0/24, ... | Aurora, ElastiCache |
 | public | 10.60.144.0/24, ... | NAT gateways, an internet-facing edge load balancer |
 
 `nat_gateway_mode` is `per_az` by default, so a zone outage does not cut egress
 for the other zones; `single` is cheaper. `none` removes internet egress: it
-needs `private_endpoints_enabled = true` and a registry, and the runner
-sandboxes then have no internet access. VPC flow logs go to CloudWatch, encrypted
-with the logs key.
+needs `private_endpoints_enabled = true` and a registry. VPC flow logs go to
+CloudWatch, encrypted with the logs key.
 
 In a brought network, `existing_network` names the VPC, at least two private
-subnets and optionally runner, data and public subnets and the node security
-group. The subnets need no load balancer tags: Terraform creates our load
-balancers, not the controller.
+subnets and optionally data and public subnets and the node security group.
+The subnets need no load balancer tags: Terraform creates the edge load
+balancer, not the controller.
 
 ## Load balancers
 
-The runner VMs run outside the cluster and connect to Temporal, and post sandbox
-tool results to the api-server-go internal listener. Both go through the runner
-Network Load Balancer, internal, created in this apply so its DNS name is known
-before the chart is installed:
+In `loadbalancer` mode the edge Network Load Balancer is created in this apply,
+so its DNS name is known before the chart is installed:
 
 | Listener | Target | Health check |
 |----------|--------|--------------|
-| 7233 | Temporal frontend pods | TCP |
-| 8083 | api-server-go internal listener | HTTP `/health` |
+| 443 | proxy pods on 8443 (TLS ends at the proxy) | TCP |
+| 80 | proxy pods on 8090 (its redirect listener) | TCP |
 
-Only the runner security group may connect. The internal listener checks an HMAC
-key on each result, not the caller, so the security group is the access control.
-
-The chart binds its Services to the target groups with `TargetGroupBinding`
+The chart binds the proxy Service to the target groups with `TargetGroupBinding`
 resources (`global.infra.targetGroups`), and the AWS Load Balancer Controller
 registers the pod IPs. The controller does not create load balancers or
-security groups. Each load balancer has its own security group, and the node
+security groups. The load balancer has its own security group, and the node
 security group gets ingress from it on the target ports only. In a brought
 cluster these rules are added to `existing_network.node_security_group_id`, or
 to the cluster security group when that is empty.
+
+In the other edge modes we create no load balancer, and the cluster needs no
+AWS Load Balancer Controller.
 
 ## Edge modes
 
 | `edge_mode` | DNS records point at | `global.infra.targetGroups` |
 |-------------|----------------------|-----------------------------|
-| `loadbalancer` (default) | the edge Network Load Balancer (alias records) | adds `edgeHttps` (443 to the proxy's 8443) and `edgeHttp` (80 to 8090) |
-| `gateway-api`, `istio`, `ingress` | `edge_address`; listed in `required_dns_records` while it is empty | runner only |
-| `none` | nothing; no records | runner only |
+| `loadbalancer` (default) | the edge Network Load Balancer (alias records) | `edgeHttps` (443 to the proxy's 8443) and `edgeHttp` (80 to 8090) |
+| `gateway-api`, `istio`, `ingress` | `edge_address`; listed in `required_dns_records` while it is empty | not set |
+| `none` | nothing; no records | not set |
 
 The default needs nothing in the cluster besides the AWS Load Balancer
 Controller: no Ingress controller, Gateway or Istio. The other modes are for a
@@ -130,13 +125,13 @@ limit 1) and no long-lived AWS key exists anywhere.
 | secrets | `autoheal-hooks` | read `<secrets_prefix>*` and decrypt with the secrets key |
 | api-server | `api-server-go` | read and write the three buckets; keep the tenant bucket's versioning and lifecycle rules (and create it when `create_tenant_bucket = false`); manage secrets under `<runtime_secrets_prefix>/`; Bedrock |
 | agents-worker | `agents-py-http`, `agents-py-worker` | read and write the three buckets; Bedrock |
-| lb-controller | `kube-system/aws-load-balancer-controller` | describe load balancers and network state; register targets in our target groups only |
+| lb-controller | `kube-system/aws-load-balancer-controller` | describe load balancers and network state; register targets in the edge load balancer's target groups only |
 
 Bedrock (`InvokeModel`, `InvokeModelWithResponseStream`) is on by default, on
 every foundation model and inference profile in the account
-(`bedrock_resource_arns` narrows it). The lb-controller role is created with a
-cluster we create; a brought cluster's own controller needs
-`elasticloadbalancing:RegisterTargets` on our target groups.
+(`bedrock_resource_arns` narrows it). The lb-controller role is created in
+`loadbalancer` mode with a cluster we create; a brought cluster's own controller
+needs `elasticloadbalancing:RegisterTargets` on our target groups.
 
 With `create_pod_identity_associations = false` the roles are created and
 `required_role_assignments` lists the associations as `aws eks
@@ -247,25 +242,6 @@ and the matching Temporal and Zitadel repositories. With `existing_registry_url`
 the chart pulls from your mirror, which must hold the images under `app/` and
 `external/`. With neither the chart pulls from `public.ecr.aws/e4h3h0d9`.
 
-## Runner image
-
-The runner VMs pull `runner_image_repository:runner_image_tag`. The repository
-defaults to `<registry>/app/runner-go` with a registry and to
-`public.ecr.aws/e4h3h0d9/app/runner-go` without one; the tag defaults to
-`chart-<autoheal_version>`. When the image is in ECR the VMs pull with their
-instance role through the ECR credential helper. runner-go uses the same login
-to pull the sandbox image the first time a chat needs it; set
-`runner_sandbox_image` to pull it at boot instead. The VMs retry the pull until
-it succeeds.
-
-## Runner VMs
-
-The runner VMs match Autoheal's hosted runners: 4 vCPU and 16 GiB
-(`runner_instance_type`, default m7i.xlarge), 20 activities at once
-(`runner_max_concurrent_activities`) and a gp3 root volume with 3000 IOPS. They
-have no SSH key and no inbound rule; use SSM Session Manager. A change to the
-launch template starts an instance refresh.
-
 ## Outputs
 
 | Output | Contents |
@@ -275,14 +251,14 @@ launch template starts an instance refresh.
 | `cluster` | `cloud`, `name`, `region`, `endpoint`, base64 `ca_certificate`, `vpc_id`. No credential. |
 | `required_role_assignments` | Pod Identity association commands for an administrator, filled when `create_pod_identity_associations = false`. |
 | `required_dns_records` | Records for a person to create (`name`, `type`, `value`), filled when we do not create them. |
-| `required_cluster_owner_actions` | What the owner of a brought cluster must do, as readable lines: an access entry and IAM permissions for the deployer, the Pod Identity agent and Secrets Store CSI add-ons, the AWS Load Balancer Controller, and, when they apply, a path to a private API endpoint and image pull access for the nodes. Filled only with `existing_eks_cluster_arn`. |
+| `required_cluster_owner_actions` | What the owner of a brought cluster must do, as readable lines: an access entry and IAM permissions for the deployer, the Pod Identity agent and Secrets Store CSI add-ons, and, when they apply, the AWS Load Balancer Controller (`loadbalancer` mode), a path to a private API endpoint and image pull access for the nodes. Filled only with `existing_eks_cluster_arn`. |
 | `required_datastore_owner_actions` | What the owner of a brought database or Redis must do: a security group rule letting the pods in on its port. Filled only with `existing_postgres_arn` or `existing_redis_arn`. |
-| `network` | `vpc_id`, `vpc_cidr_block`, `private_subnet_ids`, `runner_subnet_ids`, `data_subnet_ids`, `public_subnet_ids`. |
+| `network` | `vpc_id`, `vpc_cidr_block`, `private_subnet_ids`, `data_subnet_ids`, `public_subnet_ids`. |
 
 `autoheal_values` keys:
 
 ```text
-global.infra.version                          infra contract version, 2.1.0
+global.infra.version                          infra contract version, 3.0.0
 global.infra.cloud                            aws
 global.infra.region
 global.infra.hosts.{app,auth,authApp}
@@ -291,7 +267,6 @@ global.infra.runtimeSecrets.{kind,region,prefix}   awssecretsmanager, no trailin
 global.infra.database.{host,port,adminUser,adminPasswordVaultEntry}
 global.infra.redis.{host,port}                when there is Redis
 global.infra.objectStore.{kind,bucket,artifactsBucket,tenantBucketPrefix}
-global.infra.targetGroups.{temporal,toolResponse}
 global.infra.targetGroups.{edgeHttps,edgeHttp}   loadbalancer mode only
 global.imageRegistry                          suggestion, with a registry
 global.addons.install                         suggestion: false, the EKS add-ons provide the CSI driver

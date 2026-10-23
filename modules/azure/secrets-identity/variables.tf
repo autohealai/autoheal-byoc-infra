@@ -13,7 +13,7 @@ variable "location" {
 
 variable "oidc_issuer_url" {
   type        = string
-  description = "OIDC issuer URL of the AKS cluster the federated credentials trust (modules/azure/aks output oidc_issuer_url, or the issuer of a brought cluster)."
+  description = "OIDC issuer URL of the AKS cluster the federated credentials trust. Unused when service_accounts is empty (the caller then federates the identity elsewhere)."
 }
 
 variable "key_vault_id" {

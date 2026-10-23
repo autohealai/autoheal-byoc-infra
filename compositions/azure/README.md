@@ -7,8 +7,10 @@ we read the resource with a data source and never change it.
 
 The composition does not install the chart. It outputs `autoheal_values` (the
 chart's infra values) and `cluster` (how to reach the cluster), which
-`compositions/app` takes as inputs. See `examples/azure` for a complete
-deployment repository.
+`compositions/app` takes as inputs. For a cluster you bring,
+`compositions/azure-cluster` runs between the two: it reads the cluster,
+federates the workload identities to it and outputs `cluster` instead. See
+`examples/azure` for a complete deployment repository.
 
 ## Files
 
@@ -16,19 +18,18 @@ One file per building block.
 
 | File | Creates, or reads when brought |
 |------|--------------------------------|
-| `network.tf` | Resource group, VNet with AKS, Postgres, private endpoint and runner subnets, the runner's NAT gateway, an NSG on the AKS subnet for the Temporal address, Postgres private DNS zone. For a cluster in another subscription, a VNet without the AKS subnet and NSG, and on the public path with the runner subnet only. Brought: `existing_resource_group_id`, `existing_network`. |
-| `cluster.tf` | AKS with the OIDC issuer, workload identity, Entra ID RBAC and the Key Vault CSI driver add-on. Brought: `existing_aks_cluster_id`, possibly in another subscription, and the `required_cluster_owner_actions` list. |
+| `network.tf` | Resource group, VNet with AKS, Postgres and private endpoint subnets, Postgres private DNS zone. For a cluster in another subscription, a VNet without the AKS subnet, and none on the public path. Brought: `existing_resource_group_id`, `existing_network`. |
+| `cluster.tf` | AKS with the OIDC issuer, workload identity, Entra ID RBAC and the Key Vault CSI driver add-on. Brought: `existing_aks_cluster_id`, possibly in another subscription and never read, and the `required_cluster_owner_actions` list. |
 | `postgres.tf` | PostgreSQL Flexible Server and its admin password. Brought: `existing_postgres_id`. |
 | `redis.tf` | Azure Managed Redis. Brought: `existing_redis_id` (Managed Redis or Azure Cache for Redis). |
 | `storage.tf` | Storage account and the blob container. Brought: `existing_storage_account_id`. |
 | `keyvault.tf` | The install vault and the runtime vault, both Azure RBAC. Brought: `existing_key_vault_id`, `existing_runtime_key_vault_id`. |
 | `registry.tf` | Container registry, only with `create_registry = true`. Brought: `existing_acr_id`. |
-| `identity.tf` | Workload identities, one per chart role, federated to the chart's service accounts. The secrets identity is federated to `autoheal-hooks` only. |
+| `identity.tf` | Workload identities, one per chart role, federated to the chart's service accounts of a cluster we create. For a brought cluster, `compositions/azure-cluster` federates them. The secrets identity is federated to `autoheal-hooks` only. |
 | `role-assignments.tf` | Grants, or the `required_role_assignments` list and the check that the grants exist. |
 | `secrets.tf` | Every secret the chart reads, generated or passed in, written to the vault. |
 | `private-endpoints.tf` | Private endpoints for both vaults, storage and Redis, and the privatelink zones. |
 | `dns.tf` | A records for the three hostnames in your existing zone. |
-| `runner.tf` | runner-go on a VM scale set, connected to the reserved Temporal address. |
 | `validation.tf` | Plan-time checks with plain messages. |
 | `autoheal-values.tf` | The `autoheal_values` hand-off to the chart. |
 | `moved.tf` | State moves from the v1 compositions. |
@@ -39,8 +40,8 @@ One file per building block.
 |------|--------|
 | 1. We create everything | `network_cidr`, `existing_dns_zone_id` (or `create_dns_records = false`) |
 | 2a. You bring everything, our Terraform runs | `existing_network` and every `existing_*` ID, usually `create_role_assignments = false` |
-| 2b. Your cluster in another subscription, everything else in `subscription_id`, connected VNets | `existing_aks_cluster_id` in the other subscription, `existing_network` with only `aks_subnet_id`, `temporal_ip` and `proxy_ip`, and `network_cidr` for the VNet we create beside it. See below. |
-| 2c. As 2b, with public endpoints instead of connected VNets | As 2b, plus `cluster_network_path = "public"`, `workload_egress_ip_ranges`, and `temporal_ip` set to a static public IP. See below. |
+| 2b. Your cluster in another subscription, everything else in `subscription_id`, connected VNets | `existing_aks_cluster_id` in the other subscription, `existing_network` with only `aks_subnet_id` and `proxy_ip`, and `network_cidr` for the VNet we create beside it. See below. |
+| 2c. As 2b, with public endpoints instead of connected VNets | As 2b without `network_cidr`, plus `cluster_network_path = "public"` and `workload_egress_ip_ranges`. See below. |
 | 3. Mixed | `existing_network` and `existing_dns_zone_id`; we create the rest |
 
 Impossible mixes stop the plan with a message saying what to change, for example
@@ -48,21 +49,40 @@ a brought cluster without `existing_network`, a vault on access policies, a
 storage account with hierarchical namespace, a Postgres server older than 15, a
 reserved address outside the AKS subnet, or records with no zone.
 
+## Cluster you bring
+
+This composition never reads a cluster you bring (`existing_aks_cluster_id`).
+It has no provider for the cluster's subscription and no data source on the
+cluster, so its apply needs no access to the cluster, and the cluster need not
+exist yet. It takes the cluster's name, resource group and subscription from the
+ID.
+
+The workload identities are created here but not federated. The `federation`
+output carries their IDs and the service accounts each trusts to
+`compositions/azure-cluster`, which runs next. It reads the cluster's OIDC
+issuer, checks that the cluster has the features Autoheal needs, creates the
+federated credentials, and outputs `cluster` with the endpoint and CA
+certificate for `compositions/app`. The `cluster` output here has them empty.
+
+Two things are not checked for a brought cluster, because they would need a
+read of the cluster or its subnet: the kubelet's AcrPull on the registry, and
+that `proxy_ip` is in the AKS subnet. `required_cluster_owner_actions` lists
+both for the cluster owner.
+
 ## Cluster in another subscription
 
 Case 2b, for a cluster owner who gives us one namespace and lets us create
 nothing in the cluster's subscription. `docs/azure-two-subscriptions.md` is the
 one-pager for the customer; `examples/azure/split` is the deployment.
 
-- The second `azurerm` provider, `azurerm.cluster`, points at the subscription
-  in `existing_aks_cluster_id` and registers no resource providers. Only two
-  data sources use it: the cluster and its AKS subnet. Every resource uses the
-  default provider, so nothing can be created in the cluster's subscription.
-- The runner, Postgres and private endpoints need a VNet in `subscription_id`:
-  Azure puts a private endpoint, a delegated subnet and a VM network interface
-  in the subscription of their VNet. With `runner_subnet_id`,
-  `postgres_subnet_id` and `endpoint_subnet_id` all empty we create that VNet
-  from `network_cidr`, without an AKS subnet or NSG. Given subnets must be in
+- The only `azurerm` provider points at `subscription_id`, so nothing can be
+  read or created in the cluster's subscription. The AKS subnet ID is used only
+  in `required_cluster_owner_actions` and, with
+  `cluster_vnet_dns_link_enabled`, as the VNet the DNS zones are linked to.
+- Postgres and the private endpoints need a VNet in `subscription_id`: Azure
+  puts a private endpoint and a delegated subnet in the subscription of their
+  VNet. With `postgres_subnet_id` and `endpoint_subnet_id` both empty we create
+  that VNet from `network_cidr`, without an AKS subnet. Given subnets must be in
   `subscription_id` and share one VNet.
 - The private DNS zones we create (Postgres and privatelink) are linked to that
   VNet. `cluster_vnet_dns_link_enabled = true` also links them to the cluster's
@@ -72,10 +92,9 @@ one-pager for the customer; `examples/azure/split` is the deployment.
   VNet must resolve them some other way.
 - We create no peering. `required_cluster_owner_actions` lists what the
   cluster owner does: the deployer's roles (Cluster User Role on the cluster,
-  Reader on the AKS subnet, RBAC Admin on the namespace), the namespace, the
-  cluster features, the NSG rule for the Temporal address, the network path
-  between the two VNets, the user path to the proxy, DNS, and the kubelet's
-  AcrPull with a registry.
+  RBAC Admin on the namespace), the namespace, the cluster features, the
+  network path between the two VNets, the user path to the proxy, DNS, and the
+  kubelet's AcrPull with a registry.
 - `compositions/app` installs with `create_namespace = false`, since a
   namespace-scoped role cannot create a namespace.
 - `validation.tf` checks that the AKS subnet is in the cluster's subscription
@@ -90,51 +109,35 @@ subscription whose VNet nobody connects to ours.
 `docs/azure-subscription-options.md` compares it with the other layouts, and
 `examples/azure/split-public` is the deployment.
 
-- Our VNet has only the runner subnet and its NAT gateway. No private endpoint,
-  private DNS zone or zone link is created; `private_endpoints_enabled` and
+- We create no VNet, private endpoint, private DNS zone or zone link;
+  `network_cidr`, `private_endpoints_enabled` and
   `cluster_vnet_dns_link_enabled` are ignored.
 - Postgres is created with public access and one firewall rule per
   `workload_egress_ip_ranges` entry. Azure fixes the network mode at create
   time, so moving between 2b and 2c replaces the server.
-- The Key Vaults keep their IP firewall (`deployer_ip_ranges` and
-  `workload_egress_ip_ranges`). The storage account also lets in the cluster's
-  AKS subnet: Azure Storage ignores IP rules for clients in its own region. The
-  cluster owner turns on the `Microsoft.Storage` service endpoint on that subnet
-  and lets the deployer join it.
+- The Key Vaults and the storage account keep their IP firewall
+  (`deployer_ip_ranges` and `workload_egress_ip_ranges`). Azure Storage ignores
+  IP rules for clients in its own region, so the storage account also needs a
+  network rule for the cluster's AKS subnet. The cluster owner turns on the
+  `Microsoft.Storage` service endpoint on that subnet and, after the apply, adds
+  the rule with the `az storage account network-rule add` command in
+  `required_cluster_owner_actions`. Terraform leaves the account's subnet rules
+  alone, so the rule survives later applies.
 - Azure Managed Redis has no IP firewall, so the Redis we create has a public
   endpoint protected by its access key and TLS only.
-- `existing_network.temporal_ip` is a Standard static public IP that the
-  cluster owner creates in the node resource group. `autoheal_values` turns off
-  the chart's internal Temporal and tool-response load balancers
-  (`temporalFrontendLoadBalancer`, `toolResponseLoadBalancer`), and the
-  `temporal_public_endpoint` output gives `compositions/app` the IP and the
-  runner's NAT address. The app creates two public load balancers on that IP,
-  open only to the NAT address, and a network policy for each. Temporal and the
-  tool results are not encrypted on that path.
 - `validation.tf` checks that the cluster is in another subscription, that
-  `workload_egress_ip_ranges` is set, that no runner, Postgres or endpoint
-  subnet is given, and that `temporal_ip` is not a private address.
-- With `edge_exposure = "public"`, `proxy_ip` may be `temporal_ip`: one public
-  IP for the proxy (443, 80) and the runner's ports (7233, 8083).
+  `workload_egress_ip_ranges` is set, and that no Postgres or endpoint subnet
+  is given.
 
-## Reserved addresses
+## Reserved address
 
-The runner VMs run outside the cluster and connect to Temporal at a fixed
-internal address. In a network we create, the composition reserves the third and
-second addresses from the end of the AKS subnet for Temporal and, in
-`loadbalancer` mode, the proxy. In a brought network your network team picks
-them (`existing_network.temporal_ip` and `proxy_ip`). They reach the chart as
-`global.infra.temporal.internalIP` and `global.infra.edge.internalIP`, and the
-DNS records point at the proxy address from the first apply.
-
-The chart also puts the api-server-go internal listener on the Temporal
-address, port 8083. The runners post sandbox tool results there
-(`SANDBOX_TOOL_RESPONSE_CALLBACK_URL`, set by the composition). The listener
-checks an HMAC key on each result, not the caller, so only the runner subnet
-should reach it. In a network we create, an NSG on the AKS subnet allows ports
-7233 and 8083 on the Temporal address from the runner subnet and denies them
-from everywhere else. In a brought network, ask your network team for the same
-rule.
+In `loadbalancer` mode the proxy's internal load balancer sits on a fixed
+address in the AKS subnet. In a network we create, the composition reserves the
+second address from the end of the AKS subnet. In a brought network your network
+team picks it (`existing_network.proxy_ip`). It reaches the chart as
+`global.infra.edge.internalIP`, and the DNS records point at it from the first
+apply. For a cluster we create in a brought network, the plan checks that the
+address is in the AKS subnet.
 
 ## Edge modes
 
@@ -172,8 +175,7 @@ grants and run it again.
 | Key Vault Secrets Officer on the install vault, for the deployer | Vault we create. On a brought vault it is made when `create_role_assignments = true`, and not listed otherwise: the vault owner gives you write access. |
 | Network Contributor on the VNet or AKS subnet, for the cluster identity, which creates the internal load balancers on the reserved addresses | Cluster we create |
 | Azure Kubernetes Service RBAC Cluster Admin on the cluster, for the deployer | Cluster we create |
-| AcrPull on the registry, for the runner | With a registry |
-| AcrPull on the registry, for the kubelet | With a registry. Made for a cluster we create. For a brought cluster it is listed and checked when `create_role_assignments = false`, and never made: the cluster owner usually has it already, and a duplicate grant fails the apply. |
+| AcrPull on the registry, for the kubelet | With a registry, for a cluster we create. For a brought cluster the kubelet identity is not read, so the grant is in `required_cluster_owner_actions` instead, and never made: the cluster owner usually has it already, and a duplicate grant fails the apply. |
 
 ## Vault entries
 
@@ -208,11 +210,6 @@ entries only when `values-customer.yaml` maps them in
 `api-server-go.secretEnv` (`GITHUB_APP_PRIVATE_KEY_BASE64`,
 `GITHUB_APP_WEBHOOK_SECRET`).
 
-When `runner_admin_ssh_public_key` is empty we generate the runner SSH key. Its
-private half is not written to the vault, which the secrets identity can read;
-it stays in the Terraform state (`tls_private_key.runner`). Pass your own public
-key to keep the private key out of the state.
-
 ## Runtime vault
 
 api-server-go stores the integration credentials users enter in the product in
@@ -242,45 +239,23 @@ images there before you install the chart. The login server is
 `<registry name>.azurecr.io`, so this assumes the Azure public cloud. With no
 registry the chart pulls from `public.ecr.aws/e4h3h0d9`.
 
-## Runner image
-
-The runner VMs pull `runner_image_repository:runner_image_tag`. The repository
-defaults to `<login server>/app/runner-go` with a registry and to
-`public.ecr.aws/e4h3h0d9/app/runner-go` without one; the tag defaults to
-`chart-<autoheal_version>`. They log in to the registry with their own identity
-when the image is in it. runner-go uses the same login to pull the sandbox image
-the first time a chat needs it; set `runner_sandbox_image` to pull it at boot
-instead. They boot during
-the apply and retry the pull with a backoff until it succeeds, so with a
-registry created in the same apply you can push the image afterwards; the
-runner starts within about five minutes of the push, with no reimage.
-
-## Runner VMs
-
-The runner VMs match Autoheal's hosted runners: 4 vCPU and 16 GiB
-(`runner_vm_size`), 20 activities at once (`runner_max_concurrent_activities`)
-and an OS disk of at least 3000 IOPS. Premium SSD speed grows with size, so
-`runner_os_disk_size_gb` defaults to 1024 GiB (P30, 5000 IOPS). After a boot the
-runner clones the data-source repos and unpacks the sandbox image; on a smaller
-disk the first chat waits on those writes.
-
 ## Outputs
 
 | Output | Contents |
 |--------|----------|
 | `autoheal_values` | The chart's infra values (below). Pass to `compositions/app` as `infra_values`. |
 | `autoheal_values_yaml` | The same as YAML, for a Helm or Flux install. |
-| `cluster` | `cloud`, `name`, `resource_group`, `subscription_id` (the cluster's), `endpoint`, base64 `ca_certificate`. No credential. |
+| `cluster` | `cloud`, `name`, `resource_group`, `subscription_id` (the cluster's), `endpoint`, base64 `ca_certificate`. No credential. For a brought cluster `endpoint` and `ca_certificate` are empty: take `cluster` from `compositions/azure-cluster`. |
+| `federation` | Brought cluster only, else null: `subscription_id` and, per workload identity, `identity_id` and the service accounts it trusts. Pass to `compositions/azure-cluster`. |
 | `required_role_assignments` | Grants for an administrator, filled when `create_role_assignments = false`. |
 | `required_dns_records` | Records for a person to create (`name`, `type`, `value`), filled when we do not create them. |
 | `required_cluster_owner_actions` | What the owner of a brought cluster does, as readable lines. Filled when `existing_aks_cluster_id` is set; the network path and DNS lines only for a cluster in another subscription, and the static IP, service endpoint and outbound address lines only on the public path. |
-| `temporal_public_endpoint` | Public path only, else null: `ip` (the static public IP for Temporal) and `allowed_source_ranges` (the runner's NAT address). Pass to `compositions/app`. |
-| `network` | `vnet_id`, `vnet_name`, `resource_group_name`, `address_space` (the VNet of the runner and private endpoints), `cluster_vnet_id` (the AKS subnet's VNet, the same VNet unless the cluster is in another subscription), `aks_subnet_id`, `runner_subnet_id`, `private_endpoint_subnet_id`. For a brought VNet the VNet is not read, so `address_space` is empty. |
+| `network` | `vnet_id`, `vnet_name`, `resource_group_name`, `address_space` (the VNet of Postgres and the private endpoints, empty on the public path), `cluster_vnet_id` (the AKS subnet's VNet, the same VNet unless the cluster is in another subscription), `aks_subnet_id`, `private_endpoint_subnet_id`. For a brought VNet the VNet is not read, so `address_space` is empty. |
 
 `autoheal_values` keys:
 
 ```text
-global.infra.version                          infra contract version, 2.0.0
+global.infra.version                          infra contract version, 3.0.0
 global.infra.cloud                            azure
 global.infra.hosts.{app,auth,authApp}
 global.infra.keyVault.{name,tenantId}
@@ -290,10 +265,7 @@ global.infra.database.{host,port,adminUser,adminPasswordVaultEntry}
 global.infra.redis.{host,port}                when there is Redis
 global.infra.objectStore.{kind,account,container}
 global.infra.edge.internalIP                  loadbalancer mode only
-global.infra.temporal.internalIP
 global.imageRegistry                          suggestion: the registry login server, with a registry
-temporalFrontendLoadBalancer.enabled          suggestion: false, on the public path
-toolResponseLoadBalancer.enabled              suggestion: false, on the public path
 global.addons.install                         suggestion: true when we created the cluster
 global.secrets.mode                           suggestion: keyvault-csi
 global.edge.mode                              suggestion: edge_mode
@@ -310,6 +282,29 @@ zitadel.imageRegistry                                      copy of the login ser
 ```
 
 None of the outputs holds a secret.
+
+## Upgrading from 3.x
+
+4.0.0 removes the runner VMs. The first 4.x apply destroys the runner scale set,
+its identity grants, subnet, NAT gateway and SSH key, and the NSG on the AKS
+subnet of a VNet we created. On the public path it destroys the whole VNet we
+created for the runner. No runner remains, so sandboxes do not run until you
+run one elsewhere. Delete the runner inputs (`autoheal_version`, `runner_*`); the old
+`existing_network.runner_subnet_id` and `temporal_ip` are ignored. Apply in
+this order:
+
+1. `compositions/app` with a chart that no longer needs
+   `global.infra.temporal.internalIP`, still on the 3.x infra values.
+2. This composition.
+3. For a brought cluster, `compositions/azure-cluster`.
+4. `compositions/app` again, with `cluster` from `compositions/azure-cluster`
+   for a brought cluster.
+
+For a brought cluster, step 2 deletes the federated credentials that 3.x made
+here and step 3 makes them again; pods that sign in between the two fail. To
+keep them, remove the credentials from this composition's state before step 2
+and import them in step 3: see "Upgrading from 3.x" in
+`compositions/azure-cluster/README.md`.
 
 ## Upgrading from 1.x
 

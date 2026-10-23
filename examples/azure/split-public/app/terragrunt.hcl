@@ -1,5 +1,4 @@
-# Installs the chart in the cluster's Autoheal namespace, and the public
-# load balancers that let the runner VMs reach Temporal. The cluster owner
+# Installs the chart in the cluster's Autoheal namespace. The cluster owner
 # creates the namespace and gives the deployer rights in it only, so the release
 # does not create it.
 
@@ -11,7 +10,7 @@ terraform {
   source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/app?ref=v${local.v.infra_version}"
 }
 
-# Runs after ../infra and reads its outputs.
+# Runs after ../infra and ../cluster and reads their outputs.
 dependency "infra" {
   config_path = "../infra"
 
@@ -20,6 +19,16 @@ dependency "infra" {
   mock_outputs_allowed_terraform_commands = ["init", "validate", "plan"]
   mock_outputs = {
     autoheal_values = {}
+  }
+}
+
+# The cluster's endpoint and CA certificate. ../infra does not read the cluster,
+# so its cluster output has them empty.
+dependency "cluster" {
+  config_path = "../cluster"
+
+  mock_outputs_allowed_terraform_commands = ["init", "validate", "plan"]
+  mock_outputs = {
     cluster = {
       cloud          = "azure"
       name           = "pending"
@@ -27,22 +36,14 @@ dependency "infra" {
       endpoint       = "https://pending"
       ca_certificate = ""
     }
-    temporal_public_endpoint = {
-      ip                    = "0.0.0.0"
-      allowed_source_ranges = ["0.0.0.0/32"]
-    }
   }
 }
 
 inputs = {
   chart_version   = local.v.chart_version
   infra_values    = dependency.infra.outputs.autoheal_values
-  cluster         = dependency.infra.outputs.cluster
+  cluster         = dependency.cluster.outputs.cluster
   customer_values = file("${get_terragrunt_dir()}/values-customer.yaml")
-
-  # The public load balancers for Temporal and the tool-response listener, open
-  # only to the runner's NAT address.
-  temporal_public_endpoint = dependency.infra.outputs.temporal_public_endpoint
 
   # The namespace the cluster owner gives you. It exists already, and the
   # deployer may not create namespaces. Keep it the same as

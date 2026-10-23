@@ -36,12 +36,6 @@ variable "namespace" {
   description = "The namespace we are given."
 }
 
-variable "runner_subnet_prefix" {
-  type        = string
-  default     = "10.70.19.0/24"
-  description = "Runner subnet of the VNet that examples/azure/split/infra creates (the /24 at index 19 of its network_cidr). Only it may reach the Temporal address."
-}
-
 variable "network_path" {
   type        = string
   default     = "private"
@@ -51,12 +45,6 @@ variable "network_path" {
     condition     = contains(["private", "public"], var.network_path)
     error_message = "network_path must be private or public."
   }
-}
-
-variable "runner_egress_ip" {
-  type        = string
-  default     = ""
-  description = "Public path only: the runner's NAT address, from the temporal_public_endpoint output of examples/azure/split-public/infra. Empty on the first apply; set it after the infra apply to add the NSG allow rule."
 }
 
 variable "sre_vnet_id" {

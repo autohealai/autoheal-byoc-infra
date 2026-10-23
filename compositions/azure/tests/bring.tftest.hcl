@@ -105,54 +105,12 @@ mock_provider "azurerm" {
   mock_resource "azurerm_container_registry" {
     defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-eu-prod-autoheal/providers/Microsoft.ContainerRegistry/registries/cracme" }
   }
-  mock_resource "azurerm_nat_gateway" {
-    defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-eu-prod-autoheal/providers/Microsoft.Network/natGateways/ng-acme" }
-  }
-  mock_resource "azurerm_public_ip" {
-    defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-eu-prod-autoheal/providers/Microsoft.Network/publicIPAddresses/pip-acme" }
-  }
   mock_resource "azurerm_postgresql_flexible_server" {
     defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-eu-prod-autoheal/providers/Microsoft.DBforPostgreSQL/flexibleServers/psql-acme" }
   }
 }
 
-# The cluster's subscription (providers.tf), here the same as subscription_id.
-# The brought cluster and its AKS subnet are read through it.
-mock_provider "azurerm" {
-  alias = "cluster"
-
-  mock_data "azurerm_subnet" {
-    defaults = { address_prefixes = ["10.50.4.0/22"] }
-  }
-  mock_data "azurerm_kubernetes_cluster" {
-    defaults = {
-      oidc_issuer_enabled        = true
-      oidc_issuer_url            = "https://westeurope.oic.prod-aks.azure.com/66666666-7777-8888-9999-000000000000/aks-platform-weu/"
-      key_vault_secrets_provider = [{ secret_rotation_enabled = false, secret_rotation_interval = "2m", secret_identity = [] }]
-      kubelet_identity = [{
-        client_id                 = "77777777-0000-0000-0000-000000000001"
-        object_id                 = "77777777-0000-0000-0000-000000000002"
-        user_assigned_identity_id = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/MC_rg-platform/providers/Microsoft.ManagedIdentity/userAssignedIdentities/aks-platform-weu-agentpool"
-      }]
-      kube_config = [{
-        host                   = "https://aks-platform-weu.hcp.westeurope.azmk8s.io:443"
-        cluster_ca_certificate = "Y2EtY2VydA=="
-        client_certificate     = ""
-        client_key             = ""
-        password               = ""
-        username               = ""
-      }]
-    }
-  }
-}
-
 mock_provider "random" {}
-
-mock_provider "tls" {
-  mock_resource "tls_private_key" {
-    defaults = { public_key_openssh = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPdIPEGmxag1iAM9TJa938oKt9VfcpW75Ta8FpAEpXUT acme-test" }
-  }
-}
 
 # With create_role_assignments = false the plan reads each workload principal's
 # grants. Here an administrator has made them all at the subscription. (OpenTofu
@@ -219,17 +177,14 @@ override_data {
 }
 
 variables {
-  namespace        = "acme"
-  environment      = "eu-prod"
-  subscription_id  = "66666666-7777-8888-9999-000000000000"
-  location         = "westeurope"
-  autoheal_version = "1.0.0"
+  namespace       = "acme"
+  environment     = "eu-prod"
+  subscription_id = "66666666-7777-8888-9999-000000000000"
+  location        = "westeurope"
 
   existing_network = {
     aks_subnet_id      = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform-net/providers/Microsoft.Network/virtualNetworks/vnet-platform-weu/subnets/snet-aks"
     endpoint_subnet_id = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform-net/providers/Microsoft.Network/virtualNetworks/vnet-platform-weu/subnets/snet-pe"
-    runner_subnet_id   = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform-net/providers/Microsoft.Network/virtualNetworks/vnet-platform-weu/subnets/snet-runner"
-    temporal_ip        = "10.50.4.11"
   }
   existing_aks_cluster_id       = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform/providers/Microsoft.ContainerService/managedClusters/aks-platform-weu"
   existing_postgres_id          = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform/providers/Microsoft.DBforPostgreSQL/flexibleServers/psql-platform-weu"
@@ -290,8 +245,8 @@ run "everything_brought" {
   }
 
   assert {
-    condition     = !contains(keys(output.autoheal_values.global), "imageRegistry") && local.runner_image == "public.ecr.aws/e4h3h0d9/app/runner-go:chart-1.0.0"
-    error_message = "Without a registry the chart and the runner use the public registry."
+    condition     = !contains(keys(output.autoheal_values.global), "imageRegistry")
+    error_message = "Without a registry the chart uses the public registry."
   }
 
   assert {
@@ -343,10 +298,11 @@ run "everything_brought" {
 
   assert {
     condition = (
-      output.autoheal_values.global.infra.temporal.internalIP == "10.50.4.11" &&
+      output.autoheal_values.global.infra.version == "3.0.0" &&
+      !contains(keys(output.autoheal_values.global.infra), "temporal") &&
       !contains(keys(output.autoheal_values.global.infra), "edge")
     )
-    error_message = "temporal.internalIP is the given address; no edge.internalIP in istio mode."
+    error_message = "infra contract 3.0.0 has no temporal key; no edge.internalIP in istio mode."
   }
 
   assert {
@@ -357,13 +313,53 @@ run "everything_brought" {
     error_message = "addons.install is false for a brought cluster; edge.mode istio."
   }
 
+  # The brought cluster is not read, so its endpoint and CA certificate come
+  # from compositions/azure-cluster.
   assert {
     condition = (
       output.cluster.name == "aks-platform-weu" &&
       output.cluster.resource_group == "rg-platform" &&
-      output.cluster.endpoint == "https://aks-platform-weu.hcp.westeurope.azmk8s.io:443"
+      output.cluster.subscription_id == "66666666-7777-8888-9999-000000000000" &&
+      output.cluster.endpoint == "" &&
+      output.cluster.ca_certificate == ""
     )
-    error_message = "cluster describes the brought cluster."
+    error_message = "cluster names the brought cluster, with an empty endpoint and CA certificate."
+  }
+
+  # The identities a brought cluster must trust, for compositions/azure-cluster.
+  # The identity IDs are known only after apply; brought_cluster_federation
+  # checks them.
+  assert {
+    condition = (
+      output.federation != null &&
+      output.federation.subscription_id == "66666666-7777-8888-9999-000000000000" &&
+      sort(keys(output.federation.identities)) == tolist(["agents_worker", "api_server", "secrets"]) &&
+      tolist(output.federation.identities.secrets.service_accounts) == tolist([{ namespace = "autoheal", service_account = "autoheal-hooks" }]) &&
+      tolist(output.federation.identities.api_server.service_accounts) == tolist([{ namespace = "autoheal", service_account = "api-server-go" }]) &&
+      tolist(output.federation.identities.agents_worker.service_accounts) == tolist([
+        { namespace = "autoheal", service_account = "agents-py-http" },
+        { namespace = "autoheal", service_account = "agents-py-worker" },
+      ])
+    )
+    error_message = "federation lists the three identities and the chart service accounts each one trusts."
+  }
+
+  # No federated credential is made here: the cluster's issuer is not read. A
+  # test cannot address resources inside a module, and the identity modules
+  # output no credential, so this checks the issuer they would trust.
+  assert {
+    condition     = local.oidc_issuer == "" && length(module.aks) == 0
+    error_message = "A brought cluster gets no OIDC issuer here, so no federated identity credential."
+  }
+
+  # The owner's base lines only: one subscription, istio mode, no registry.
+  assert {
+    condition = (
+      length(output.required_cluster_owner_actions) == 4 &&
+      output.required_cluster_owner_actions[0] == "Azure Kubernetes Service Cluster User Role on aks-platform-weu for the deployer (object ID 11111111-1111-1111-1111-111111111111): compositions/azure-cluster reads the cluster's OIDC issuer, endpoint and CA certificate" &&
+      startswith(output.required_cluster_owner_actions[3], "The OIDC issuer and workload identity on aks-platform-weu, and the Secrets Store CSI driver")
+    )
+    error_message = "A brought cluster in subscription_id lists the deployer's role, the namespace, the Kubernetes role and the cluster features."
   }
 
   assert {
@@ -383,15 +379,10 @@ run "everything_brought" {
       output.network.resource_group_name == "rg-platform-net" &&
       length(output.network.address_space) == 0 &&
       endswith(output.network.aks_subnet_id, "/vnet-platform-weu/subnets/snet-aks") &&
-      endswith(output.network.runner_subnet_id, "/vnet-platform-weu/subnets/snet-runner") &&
-      endswith(output.network.private_endpoint_subnet_id, "/vnet-platform-weu/subnets/snet-pe")
+      endswith(output.network.private_endpoint_subnet_id, "/vnet-platform-weu/subnets/snet-pe") &&
+      !contains(keys(output.network), "runner_subnet_id")
     )
     error_message = "network is derived from the brought subnet IDs; the VNet is not read, so address_space is empty."
-  }
-
-  assert {
-    condition     = local.tool_response_callback_url == "http://10.50.4.11:8083/api/v1/internal/sandbox-tool-responses" && length(module.vnet) == 0
-    error_message = "In a brought network the runner posts tool results to the brought temporal_ip, and no NSG is created."
   }
 
   assert {
@@ -434,7 +425,8 @@ run "missing_grants_stop_the_apply" {
 }
 
 # A brought cluster with a brought registry. The kubelet grant belongs to the
-# cluster owner: it is listed and checked, never made by us.
+# cluster owner, whose kubelet identity is not read here: it is an owner action,
+# not a role assignment we list or check.
 run "brought_cluster_with_registry" {
   command = plan
 
@@ -444,19 +436,70 @@ run "brought_cluster_with_registry" {
 
   assert {
     condition = (
-      contains(output.required_role_assignments, "AcrPull on crplatformweu for the kubelet identity of aks-platform-weu") &&
-      local.kubelet_object_id == "77777777-0000-0000-0000-000000000002" &&
-      length(output.required_role_assignments) == 6
+      length(output.required_role_assignments) == 4 &&
+      !anytrue([for g in output.required_role_assignments : startswith(g, "AcrPull")]) &&
+      local.kubelet_object_id == ""
     )
-    error_message = "The brought cluster's kubelet AcrPull and the runner's are listed."
+    error_message = "required_role_assignments lists the four workload grants and no AcrPull."
   }
 
   assert {
     condition = (
-      output.autoheal_values.global.imageRegistry == "crplatformweu.azurecr.io" &&
-      local.runner_image == "crplatformweu.azurecr.io/app/runner-go:chart-1.0.0"
+      length(output.required_cluster_owner_actions) == 5 &&
+      output.required_cluster_owner_actions[4] == "AcrPull on crplatformweu for the kubelet identity of aks-platform-weu"
     )
-    error_message = "The chart and the runner pull from the brought registry."
+    error_message = "The kubelet AcrPull on the brought registry is the last owner action."
+  }
+
+  assert {
+    condition     = output.autoheal_values.global.imageRegistry == "crplatformweu.azurecr.io"
+    error_message = "The chart pulls from the brought registry."
+  }
+}
+
+# The federation output with known identity IDs, as after an apply.
+run "brought_cluster_federation" {
+  command = plan
+
+  override_module {
+    target  = module.secrets_identity
+    outputs = { client_id = "c1", principal_id = "13131313-0000-0000-0000-000000000001", identity_id = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-acme-eu-prod-autoheal/providers/Microsoft.ManagedIdentity/userAssignedIdentities/acme-eu-prod-autoheal-secrets", name = "acme-eu-prod-autoheal-secrets", tenant_id = "t" }
+  }
+  override_module {
+    target  = module.api_server_identity
+    outputs = { client_id = "c2", principal_id = "13131313-0000-0000-0000-000000000002", identity_id = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-acme-eu-prod-autoheal/providers/Microsoft.ManagedIdentity/userAssignedIdentities/acme-eu-prod-autoheal-api-server", name = "acme-eu-prod-autoheal-api-server" }
+  }
+  override_module {
+    target  = module.agents_worker_identity
+    outputs = { client_id = "c3", principal_id = "13131313-0000-0000-0000-000000000003", identity_id = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-acme-eu-prod-autoheal/providers/Microsoft.ManagedIdentity/userAssignedIdentities/acme-eu-prod-autoheal-agents-worker", name = "acme-eu-prod-autoheal-agents-worker" }
+  }
+
+  variables {
+    service_accounts = {
+      namespace     = "acme-autoheal"
+      agents_worker = ["agents-py-worker"]
+    }
+  }
+
+  assert {
+    condition = output.federation == {
+      subscription_id = "66666666-7777-8888-9999-000000000000"
+      identities = {
+        secrets = {
+          identity_id      = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-acme-eu-prod-autoheal/providers/Microsoft.ManagedIdentity/userAssignedIdentities/acme-eu-prod-autoheal-secrets"
+          service_accounts = [{ namespace = "acme-autoheal", service_account = "autoheal-hooks" }]
+        }
+        api_server = {
+          identity_id      = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-acme-eu-prod-autoheal/providers/Microsoft.ManagedIdentity/userAssignedIdentities/acme-eu-prod-autoheal-api-server"
+          service_accounts = [{ namespace = "acme-autoheal", service_account = "api-server-go" }]
+        }
+        agents_worker = {
+          identity_id      = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-acme-eu-prod-autoheal/providers/Microsoft.ManagedIdentity/userAssignedIdentities/acme-eu-prod-autoheal-agents-worker"
+          service_accounts = [{ namespace = "acme-autoheal", service_account = "agents-py-worker" }]
+        }
+      }
+    }
+    error_message = "federation carries each identity's ID and the service accounts in service_accounts.namespace."
   }
 }
 
@@ -531,21 +574,6 @@ run "old_postgres_is_rejected" {
   expect_failures = [terraform_data.postgres_guard]
 }
 
-run "cluster_without_csi_addon_is_rejected" {
-  command = plan
-
-  override_data {
-    target = data.azurerm_kubernetes_cluster.existing
-    values = {
-      oidc_issuer_enabled        = true
-      oidc_issuer_url            = "https://westeurope.oic.prod-aks.azure.com/66666666-7777-8888-9999-000000000000/aks-platform-weu/"
-      key_vault_secrets_provider = []
-    }
-  }
-
-  expect_failures = [terraform_data.cluster_guard]
-}
-
 run "missing_admin_password" {
   command = plan
 
@@ -554,21 +582,6 @@ run "missing_admin_password" {
   }
 
   expect_failures = [terraform_data.validate_inputs]
-}
-
-run "temporal_ip_outside_the_subnet" {
-  command = plan
-
-  variables {
-    existing_network = {
-      aks_subnet_id      = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform-net/providers/Microsoft.Network/virtualNetworks/vnet-platform-weu/subnets/snet-aks"
-      endpoint_subnet_id = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform-net/providers/Microsoft.Network/virtualNetworks/vnet-platform-weu/subnets/snet-pe"
-      runner_subnet_id   = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-platform-net/providers/Microsoft.Network/virtualNetworks/vnet-platform-weu/subnets/snet-runner"
-      temporal_ip        = "10.50.9.11"
-    }
-  }
-
-  expect_failures = [terraform_data.validate_addresses]
 }
 
 run "loadbalancer_needs_proxy_ip" {
@@ -597,9 +610,7 @@ run "bad_subnet_id" {
 
   variables {
     existing_network = {
-      aks_subnet_id    = "snet-aks"
-      runner_subnet_id = "snet-runner"
-      temporal_ip      = "10.50.4.11"
+      aks_subnet_id = "snet-aks"
     }
   }
 

@@ -7,7 +7,7 @@ together by [`compositions/aws`](../../compositions/aws).
 
 | Module | Azure analogue | Role |
 |--------|----------------|------|
-| [`vpc`](vpc) | `azure/vnet` | VPC over 2 to 6 zones: public, private, data and runner subnets, NAT, flow logs, interface and gateway endpoints |
+| [`vpc`](vpc) | `azure/vnet` | VPC over 2 to 6 zones: public, private and data subnets, NAT, flow logs, interface and gateway endpoints |
 | [`eks`](eks) | `azure/aks` | EKS cluster, managed node group, access entries and managed add-ons (Pod Identity Agent, Secrets Store CSI with the AWS provider, EBS CSI) |
 | [`aurora-postgres`](aurora-postgres) | `azure/postgres-flexible` | Aurora PostgreSQL, provisioned or Serverless v2, CMK, TLS only |
 | [`elasticache`](elasticache) | `azure/managed-redis` | ElastiCache replication group, cluster mode disabled, TLS and AUTH |
@@ -18,7 +18,6 @@ together by [`compositions/aws`](../../compositions/aws).
 | [`nlb`](nlb) | (internal load balancer IPs) | NLB with TCP listeners and ip target groups for TargetGroupBinding |
 | [`route53`](route53) | `azure/dns` | Records in a hosted zone the customer already has |
 | [`ecr`](ecr) | `azure/acr` | Pull-through cache of the public Autoheal registry |
-| [`runner-asg`](runner-asg) | `azure/runner-vmss` | EC2 Auto Scaling group that runs runner-go |
 
 Naming and tags follow the repo's null-label convention; `label.tf` in each module
 is a copyable template forwarding to `modules/_shared/label`.

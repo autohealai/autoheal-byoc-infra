@@ -23,26 +23,6 @@ output "subnet_pe_id" {
   value       = var.subnet_pe_prefix == "" ? "" : azurerm_subnet.pe[0].id
 }
 
-output "subnet_runner_id" {
-  description = "Subnet ID for the runner VMSS."
-  value       = azurerm_subnet.runner.id
-}
-
-output "aks_nsg_id" {
-  description = "Resource ID of the AKS subnet NSG, or empty when temporal_ip or subnet_aks_prefix is not set."
-  value       = local.aks_nsg_enabled ? azurerm_network_security_group.aks[0].id : ""
-}
-
-output "aks_nsg_name" {
-  description = "Name of the AKS subnet NSG, or empty when temporal_ip or subnet_aks_prefix is not set."
-  value       = local.aks_nsg_enabled ? azurerm_network_security_group.aks[0].name : ""
-}
-
-output "runner_nat_public_ip" {
-  description = "Static egress IP of the runner subnet's NAT gateway (for outbound allowlisting), or empty when NAT is off."
-  value       = var.runner_nat_enabled ? azurerm_public_ip.runner_nat[0].ip_address : ""
-}
-
 output "pg_private_dns_zone_id" {
   description = "Private DNS zone id for PG Flexible Server, or empty when no zone was created."
   value       = var.pg_private_dns_zone_name == "" ? "" : azurerm_private_dns_zone.pg[0].id

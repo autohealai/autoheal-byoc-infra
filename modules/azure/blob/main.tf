@@ -111,12 +111,18 @@ resource "azurerm_storage_account" "this" {
     default_action = var.network_default_action
     bypass         = ["AzureServices"]
     ip_rules       = distinct([for r in var.allowed_ip_ranges : trimsuffix(r, "/32")])
-    # IP rules do not apply to clients in the account's region, which reach it
-    # over Azure's network. Those clients come in through a subnet rule.
-    virtual_network_subnet_ids = var.allowed_subnet_ids
   }
 
   lifecycle {
+    # IP rules do not apply to clients in the account's region, which reach the
+    # account over Azure's network. Such clients come in through a subnet rule,
+    # and that rule needs rights on the client's subnet (the Microsoft.Storage
+    # service endpoint and joinViaServiceEndpoint), which belong to whoever owns
+    # that network. So the subnet's owner adds it with
+    # `az storage account network-rule add`, and this module neither sets nor
+    # removes subnet rules.
+    ignore_changes = [network_rules[0].virtual_network_subnet_ids]
+
     # Azure rejects a restore window that is not shorter than the soft-delete window;
     # fail at plan time with a clear message instead of a mid-apply 400.
     precondition {

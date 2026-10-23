@@ -1,7 +1,7 @@
 # Role grants. With create_role_assignments = true (the default) each module makes
 # its own grants: the identities in identity.tf, the cluster identity and kubelet
-# in modules/azure/aks, the runner in modules/azure/runner-vmss, the deployer on
-# the vault and the api-server identity on the runtime vault in keyvault.tf. The
+# in modules/azure/aks, the deployer on the vault and the api-server identity on
+# the runtime vault in keyvault.tf. The
 # one grant made here is the deployer's access to a cluster we create, so the app
 # folder can install the chart with kubelogin.
 #
@@ -31,7 +31,8 @@ locals {
 
   deployer_object_id = data.azurerm_client_config.current.object_id
 
-  kubelet_object_id = local.create_cluster ? module.aks[0].kubelet_identity_object_id : try(data.azurerm_kubernetes_cluster.existing[0].kubelet_identity[0].object_id, "")
+  # The kubelet identity of a cluster we create. A brought cluster's is not read.
+  kubelet_object_id = local.create_cluster ? module.aks[0].kubelet_identity_object_id : ""
 
   # Scope and display name of the cluster identity's network grant: the VNet we
   # create, or the AKS subnet of a brought network.
@@ -102,11 +103,11 @@ locals {
       }
     } : {},
     # The nodes pull the chart's images from the registry. modules/azure/aks
-    # makes this grant for a cluster we create. For a brought cluster we never
-    # make it, since the owner has usually made it already and a second
-    # identical assignment fails the apply; it is listed and checked like the
-    # others when create_role_assignments = false.
-    local.acr_enabled ? {
+    # makes this grant for a cluster we create; it is listed and checked like
+    # the others when create_role_assignments = false. A brought cluster's
+    # kubelet identity is not read, so its grant is in
+    # required_cluster_owner_actions instead.
+    local.acr_enabled && local.create_cluster ? {
       kubelet-acr = {
         text         = "AcrPull on ${local.acr_name} for the kubelet identity of ${local.cluster_name}"
         role_guid    = local.role_guids.acr_pull
@@ -115,19 +116,10 @@ locals {
         check        = true
       }
     } : {},
-    local.acr_enabled ? {
-      runner-acr = {
-        text         = "AcrPull on ${local.acr_name} for ${module.runner.identity_name}"
-        role_guid    = local.role_guids.acr_pull
-        scope        = local.acr_id
-        principal_id = module.runner.identity_principal_id
-        check        = true
-      }
-    } : {},
   )
 
   # Display order of required_role_assignments.
-  required_grant_order = ["secrets-kv", "api-server-blob", "api-server-runtime-kv", "agents-worker-blob", "deployer-kv", "cluster-network", "deployer-aks", "kubelet-acr", "runner-acr"]
+  required_grant_order = ["secrets-kv", "api-server-blob", "api-server-runtime-kv", "agents-worker-blob", "deployer-kv", "cluster-network", "deployer-aks", "kubelet-acr"]
 
   checked_grants = var.create_role_assignments ? {} : {
     for k, g in local.required_grants : k => g if g.check

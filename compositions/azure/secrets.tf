@@ -16,10 +16,6 @@
 # certificate and its private CA, and the GitHub App key and webhook secret. Each
 # entry exists only when its input is set.
 #
-# The runner SSH private key, when we generate one, is not written to the vault:
-# the chart does not read it, and the vault reader identity should not hold it.
-# It stays in the Terraform state only.
-#
 # Database names and roles the chart's db-provision hook creates with these
 # passwords: app_user owns app, agents_user owns agents, temporal_user owns
 # temporal and temporal_visibility, zitadel_user owns zitadel.
@@ -71,13 +67,6 @@ resource "random_password" "first_admin" {
   min_lower        = 2
   min_numeric      = 2
   min_special      = 2
-}
-
-# SSH key for the runner VMs when the customer passes none. The private half is
-# kept only in the Terraform state; see the note at the top of this file.
-resource "tls_private_key" "runner" {
-  count     = var.runner_admin_ssh_public_key == "" ? 1 : 0
-  algorithm = "ED25519"
 }
 
 locals {

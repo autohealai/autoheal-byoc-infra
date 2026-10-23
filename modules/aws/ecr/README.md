@@ -10,7 +10,7 @@ expires untagged images, and the module tags. ECR creates them with a role this
 module owns, limited to repositories under the prefix.
 
 `image_registry` is the chart's `global.imageRegistry`. `pull_policy_json` is
-the IAM policy a puller needs (nodes, the runner): it includes
+the IAM policy a puller needs (the nodes): it includes
 `ecr:BatchImportUpstreamImage` and `ecr:CreateRepository`, which the first pull
 of each image uses. That first pull needs a route from ECR to the upstream
 registry. The Azure analogue is `modules/azure/acr`. Naming and tags follow the

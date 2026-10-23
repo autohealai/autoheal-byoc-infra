@@ -1,4 +1,4 @@
-# Three-zone VPC with all four subnet tiers, per-zone NAT and the endpoints an
+# Three-zone VPC with every subnet tier, per-zone NAT and the endpoints an
 # EKS cluster uses most. Doubles as the CI plan/validate fixture.
 
 terraform {
@@ -29,7 +29,6 @@ module "vpc" {
   private_subnet_cidrs = ["10.40.0.0/19", "10.40.32.0/19", "10.40.64.0/19"]
   public_subnet_cidrs  = ["10.40.96.0/24", "10.40.97.0/24", "10.40.98.0/24"]
   data_subnet_cidrs    = ["10.40.100.0/24", "10.40.101.0/24", "10.40.102.0/24"]
-  runner_subnet_cidrs  = ["10.40.104.0/22", "10.40.108.0/22", "10.40.112.0/22"]
 
   nat_gateway_mode = "per_az"
   cluster_name     = "acme-play-autoheal"

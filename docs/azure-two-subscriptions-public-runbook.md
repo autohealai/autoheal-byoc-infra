@@ -7,7 +7,7 @@ subscription**). The two VNets are not connected. The data services use public
 endpoints with firewalls, and users and webhooks reach Autoheal on a public IP.
 [The one-pager](azure-two-subscriptions-public.md) explains the layout, and
 [the comparison](azure-subscription-options.md) shows its limits. The runbook
-uses autoheal-byoc-infra **v3.0.0**.
+uses autoheal-byoc-infra **v3.0.1**.
 
 The runbook has two roles. One person can do both:
 
@@ -562,7 +562,7 @@ files that are there already, so it does not overwrite your edits:
 
 ```bash
 mkdir -p "$WORK_DIR" && cd "$WORK_DIR"
-[ -d autoheal-byoc-infra ] || git clone --branch v3.0.0 https://github.com/autohealai/autoheal-byoc-infra.git
+[ -d autoheal-byoc-infra ] || git clone --branch v3.0.1 https://github.com/autohealai/autoheal-byoc-infra.git
 mkdir -p acme-autoheal
 [ -e acme-autoheal/root.hcl ] || cp autoheal-byoc-infra/examples/azure/root.hcl acme-autoheal/
 [ -e acme-autoheal/prod ] || cp -R autoheal-byoc-infra/examples/azure/split-public acme-autoheal/prod
@@ -607,7 +607,7 @@ az role assignment create --assignee "$APP_ID" --role "User Access Administrator
 Part B in [terraform-enterprise.md](terraform-enterprise.md):
 
 - Make the workspace `autoheal-infra-prod`, with the Terraform working
-  directory `compositions/azure`, on a branch of your copy at the tag v3.0.0. Set the workspace Terraform version to 1.7 or later.
+  directory `compositions/azure`, on a branch of your copy at the tag v3.0.1. Set the workspace Terraform version to 1.7 or later.
 - Add the four environment variables for the sign-in. `ARM_SUBSCRIPTION_ID`
   is `$DATA_SUB`. The composition reads the cluster in the cluster subscription
   with the same identity.
@@ -730,7 +730,7 @@ two `_ranges` lists, tick **HCL**:
 
 ```bash
 cat "$WORK_DIR/inputs.hcl"
-echo 'autoheal_version = "1.0.0-rc.8"'
+echo 'autoheal_version = "1.0.0-rc.10"'
 ```
 
 ### 8d. Set the secrets
@@ -1034,7 +1034,7 @@ with Helm. Helm signs in as you, with the access from step 4.
 ```bash
 cd "$WORK_DIR"
 helm upgrade --install autoheal oci://public.ecr.aws/e4h3h0d9/charts/autoheal \
-  --version 1.0.0-rc.8 -n "$K8S_NAMESPACE" \
+  --version 1.0.0-rc.10 -n "$K8S_NAMESPACE" \
   -f values-infra.yaml -f "$VALUES_FILE" --atomic --wait --timeout 20m
 ```
 

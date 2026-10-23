@@ -6,6 +6,25 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-10-23
+
+Docs and examples only. The modules and compositions are the same as 3.0.0, so
+moving `infra_version` from 3.0.0 to 3.0.1 plans no changes. Moving
+`chart_version` to 1.0.0-rc.10 replaces the runner VMs, whose image tag follows
+the chart version, and upgrades the Helm release in place; nothing else
+changes.
+
+### Changed
+- Every example and doc pins autoheal chart `1.0.0-rc.10`: `examples/aws` was on
+  `1.0.0-rc.9`, `examples/azure` (`prod`, `split`, `split-public`), the Helm
+  commands in the example READMEs, `docs/terraform-enterprise.md` and
+  `docs/azure-two-subscriptions-public-runbook.md` were on `1.0.0-rc.8`. rc.10
+  carries newer service images, opt-in labels, annotations and security
+  settings for clusters with restricted admission policies, the SCIM route in
+  the proxy, and an RBAC seed without the legacy roles. It reads no new infra
+  values.
+- `README.md`, the docs and the examples pin v3.0.1.
+
 ## [3.0.0] - 2026-10-21
 
 AWS moves to the 2.x shape: `compositions/aws` replaces the 1.x

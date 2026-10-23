@@ -27,10 +27,10 @@ changes only its own subscription.
 
 - The Autoheal services run as pods in one namespace of your cluster, for
   example `autoheal`.
-- The databases, storage, vaults and runner VMs are in the data
-  subscription. The runner VMs, Postgres and the private endpoints are in a
-  VNet in that subscription.
+- The databases, storage and vaults are in the data subscription. Postgres and
+  the private endpoints are in a VNet in that subscription.
 - Your VNet and the Autoheal VNet connect through VNet peering.
+- Users reach the Autoheal proxy on a private address in your AKS subnet.
 - The pods sign in to the Key Vaults and the storage account with workload
   identity.
 
@@ -40,11 +40,10 @@ changes only its own subscription.
 |------|----------------------|-----------------------|
 | AKS cluster | Yes (yours) | |
 | The Autoheal namespace and the Autoheal pods | Yes | |
-| VNet for the runner VMs, Postgres and private endpoints | | Yes |
-| Runner VMs | | Yes |
+| VNet for Postgres and private endpoints | | Yes |
 | PostgreSQL, Redis, storage account | | Yes |
 | Two Key Vaults | | Yes |
-| Managed identities for the pods | | Yes |
+| Managed identities for the pods, and their federated credentials | | Yes |
 | Private endpoints and private DNS zones | | Yes |
 | DNS records for the Autoheal hostnames | | Yes |
 | VNet peering | Yes | Yes |
@@ -55,7 +54,8 @@ objects.
 ## What you do
 
 1. Turn on the OIDC issuer and workload identity on the cluster.
-2. Turn on the Key Vault secrets provider add-on on the cluster.
+2. Turn on the Key Vault secrets provider add-on on the cluster, or install the
+   Secrets Store CSI driver with the Azure Key Vault provider yourself.
 3. Make a namespace for Autoheal, for example `autoheal`.
 4. Give our deployer these roles:
 
@@ -63,17 +63,18 @@ objects.
    |------|-------|
    | Azure Kubernetes Service Cluster User Role | The cluster |
    | Azure Kubernetes Service RBAC Admin | The Autoheal namespace only |
-   | Reader | The AKS subnet |
    | Network Contributor | The cluster VNet |
 
-   The chart makes Roles and RoleBindings in the namespace. RBAC Admin lets it
-   do this. RBAC Writer does not. We use Network Contributor only to link our
-   private DNS zones to your VNet.
+   Cluster User Role lets us read the OIDC issuer and the connection details of
+   the cluster. We need them to connect the pod identities to the cluster. The
+   chart makes Roles and RoleBindings in the namespace. RBAC Admin lets it do
+   this. RBAC Writer does not. We use Network Contributor only to link our
+   private DNS zones to your VNet. If your own DNS resolves these zones for
+   your VNet, we do not link them and do not need this role.
 
-5. Pick two free IP addresses in the AKS subnet. One is for Temporal. The other
-   is for the Autoheal proxy.
-6. Send us the cluster resource ID, the AKS subnet resource ID, the two IP
-   addresses and the name of the namespace.
+5. Pick a free IP address in the AKS subnet for the Autoheal proxy.
+6. Send us the cluster resource ID, the AKS subnet resource ID, the IP address
+   and the name of the namespace.
 7. Agree with us on an address range for the Autoheal VNet. It must not overlap
    your VNet.
 
@@ -81,10 +82,7 @@ After our first apply:
 
 8. Peer your VNet with the Autoheal VNet in both directions. Or connect the two
    VNets through your hub.
-9. Add an NSG rule on the AKS subnet. Let only the runner subnet reach the
-   Temporal address on TCP 7233 and 8083. Deny all other sources to that
-   address on these ports.
-10. Let your users reach the proxy address on TCP 443.
+9. Let your users reach the proxy address on TCP 443.
 
 Our `required_cluster_owner_actions` output shows each of these items with the
 real names, IDs and addresses.
@@ -93,29 +91,34 @@ real names, IDs and addresses.
 
 1. Give our deployer Owner (or Contributor and User Access Administrator) on
    the data subscription.
-2. Copy `examples/azure/split` into our deployment repository.
-3. Write your cluster ID, AKS subnet ID, IP addresses and the agreed address
-   range into `split/infra/terragrunt.hcl`, and the namespace into both
-   `terragrunt.hcl` files.
+2. Copy `examples/azure/split` into our deployment repository. It has three
+   folders, applied in this order: `infra`, `cluster` and `app`.
+3. Write your cluster ID, AKS subnet ID, IP address and the agreed address
+   range into `split/infra/terragrunt.hcl`, and the namespace into
+   `split/infra/terragrunt.hcl` and `split/app/terragrunt.hcl`.
 4. Apply `split/infra`. It makes the resources in the data subscription
-   only.
+   only. It does not read your cluster.
 5. Send you the `required_cluster_owner_actions` and `network` outputs.
-6. Apply `split/app` after you connect the VNets. It installs the Autoheal
+6. Apply `split/cluster`. It reads your cluster, checks that the OIDC issuer is
+   on, and connects the pod identities to the OIDC issuer of the cluster. It
+   makes nothing in the cluster subscription.
+7. Apply `split/app` after you connect the VNets. It installs the Autoheal
    chart in the Autoheal namespace.
-7. Make sure that all the pods are ready and that the runner VMs connect to
-   Temporal.
+8. Make sure that all the pods are ready.
 
 ## Deploy steps
 
 | Step | Who | Action |
 |------|-----|--------|
 | 1 | You | Do items 1 to 7 of "What you do". |
-| 2 | We | Do items 1 to 5 of "What we do". |
-| 3 | You | Do items 8 to 10 of "What you do". |
-| 4 | We | Do items 6 and 7 of "What we do". |
+| 2 | We | Do items 1 to 6 of "What we do". |
+| 3 | You | Do items 8 and 9 of "What you do". |
+| 4 | We | Do items 7 and 8 of "What we do". |
 
-For an upgrade, we do items 4 and 6 of "What we do" again. You do not have to
-give new permissions.
+For an upgrade, we do items 4, 6 and 7 of "What we do" again. You do not have
+to give new permissions. To upgrade an install of infra 3.x, see
+[Upgrading from 3.x](../compositions/azure-cluster/README.md#upgrading-from-3x)
+in `compositions/azure-cluster`.
 
 ## Limits
 

@@ -289,12 +289,13 @@ None of the outputs holds a secret.
 its identity grants, subnet, NAT gateway and SSH key, and the NSG on the AKS
 subnet of a VNet we created. On the public path it destroys the whole VNet we
 created for the runner. No runner remains, so sandboxes do not run until you
-run one elsewhere. Delete the runner inputs (`autoheal_version`, `runner_*`); the old
+run one elsewhere; until then keep the chart's `global.sandbox.enabled` off,
+its default. Delete the runner inputs (`autoheal_version`, `runner_*`); the old
 `existing_network.runner_subnet_id` and `temporal_ip` are ignored. Apply in
 this order:
 
-1. `compositions/app` with a chart that no longer needs
-   `global.infra.temporal.internalIP`, still on the 3.x infra values.
+1. `compositions/app` with the first chart after 1.0.0-rc.10, still on the 3.x
+   infra values. Its defaults turn the runner load balancers and sandboxes off.
 2. This composition.
 3. For a brought cluster, `compositions/azure-cluster`.
 4. `compositions/app` again, with `cluster` from `compositions/azure-cluster`

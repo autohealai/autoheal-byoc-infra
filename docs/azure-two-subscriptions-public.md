@@ -33,12 +33,8 @@ known addresses.
   public endpoints. Postgres lets in only the public outbound addresses of
   your cluster. The Key Vaults let in these addresses and our deploy host.
   Storage lets in your AKS subnet and our deploy host.
-- The runner VMs are in the data subscription. They connect to Temporal in your
-  cluster on a static public IP. That IP lets in only the outbound address of
-  the runner VMs.
 - Users and webhooks from your integrations reach the Autoheal proxy over HTTPS
-  on a second static public IP. With only one public IP, the proxy and Temporal
-  share it: their ports do not overlap.
+  on a static public IP.
 - The pods sign in to the Key Vaults and the storage account with workload
   identity.
 
@@ -48,14 +44,13 @@ known addresses.
 |------|----------------------|-------------------|
 | AKS cluster | Yes (yours) | |
 | The Autoheal namespace and the Autoheal pods | Yes | |
-| Static public IP for Temporal | Yes (you make it) | |
-| Static public IP for the Autoheal proxy, or the Temporal IP for both | Yes (you make it) | |
-| VNet for the runner VMs, with a NAT gateway | | Yes |
-| Runner VMs | | Yes |
+| Static public IP for the Autoheal proxy | Yes (you make it) | |
 | PostgreSQL, Redis, storage account | | Yes |
 | Two Key Vaults | | Yes |
-| Managed identities for the pods | | Yes |
+| Managed identities for the pods, and their federated credentials | | Yes |
 | DNS records for the Autoheal hostnames | | Yes |
+
+The data subscription has no VNet in this layout.
 
 The Autoheal chart makes no CRDs, no ClusterRoles and no other cluster-wide
 objects. AKS makes the load balancer for the static public IP in the node
@@ -64,7 +59,8 @@ resource group of your cluster, as for any Service of type LoadBalancer.
 ## What you do
 
 1. Turn on the OIDC issuer and workload identity on the cluster.
-2. Turn on the Key Vault secrets provider add-on on the cluster.
+2. Turn on the Key Vault secrets provider add-on on the cluster, or install the
+   Secrets Store CSI driver with the Azure Key Vault provider yourself.
 3. Make a namespace for Autoheal, for example `autoheal`.
 4. Give our deployer these roles:
 
@@ -72,28 +68,29 @@ resource group of your cluster, as for any Service of type LoadBalancer.
    |------|-------|
    | Azure Kubernetes Service Cluster User Role | The cluster |
    | Azure Kubernetes Service RBAC Admin | The Autoheal namespace only |
-   | Reader | The AKS subnet |
-   | Network Contributor | The AKS subnet |
 
-   The chart makes Roles and RoleBindings in the namespace. RBAC Admin lets it
-   do this. RBAC Writer does not. We use Network Contributor only to add your
-   AKS subnet to the firewall of our storage account.
+   Cluster User Role lets us read the OIDC issuer and the connection details of
+   the cluster. We need them to connect the pod identities to the cluster. The
+   chart makes Roles and RoleBindings in the namespace. RBAC Admin lets it do
+   this. RBAC Writer does not. We need no role on the AKS subnet.
 
 5. Turn on the `Microsoft.Storage` service endpoint on the AKS subnet.
-6. Make two Standard static public IPs in the node resource group of the
-   cluster (`MC_...`): one for Temporal and one for the Autoheal proxy. With
-   only one IP, both use it.
-7. Send us the cluster resource ID, the AKS subnet resource ID, the static
-   public IPs, the public outbound addresses of the cluster and the name of the
+6. Make a Standard static public IP in the node resource group of the cluster
+   (`MC_...`) for the Autoheal proxy.
+7. If the AKS subnet has an NSG, let everyone reach the proxy IP on TCP 443 and
+   80, or only the sources that you choose: your users and the webhook senders.
+8. Send us the cluster resource ID, the AKS subnet resource ID, the static
+   public IP, the public outbound addresses of the cluster and the name of the
    namespace.
 
 After our first apply:
 
-8. Add NSG rules on the AKS subnet. Let only the runner address (we send it to
-   you) reach the Temporal IP on TCP 7233 and 8083, and deny all other sources
-   to that IP on these ports.
-9. Let everyone reach the proxy IP on TCP 443 and 80, or only the sources that
-   you choose: your users and the webhook senders.
+9. Add a network rule for the AKS subnet on our storage account. We send you
+   the command. Azure Storage does not apply IP rules to clients in its own
+   region, so the account lets the pods in by their subnet. You need the right
+   to join the subnet through a service endpoint, which you have as the owner,
+   and write on the storage account. We give you Storage Account Contributor on
+   the account for this item, and remove it after.
 
 Keep the outbound addresses of the cluster fixed. Tell us before they change.
 
@@ -104,31 +101,36 @@ real names, IDs and addresses.
 
 1. Give our deployer Owner (or Contributor and User Access Administrator) on
    the data subscription.
-2. Copy `examples/azure/split-public` into our deployment repository.
-3. Write your cluster ID, AKS subnet ID, static public IPs and outbound
+2. Copy `examples/azure/split-public` into our deployment repository. It has
+   three folders, applied in this order: `infra`, `cluster` and `app`.
+3. Write your cluster ID, AKS subnet ID, static public IP and outbound
    addresses into `split-public/infra/terragrunt.hcl`, and the namespace into
-   both `terragrunt.hcl` files.
+   `split-public/infra/terragrunt.hcl` and `split-public/app/terragrunt.hcl`.
 4. Apply `split-public/infra`. It makes the resources in the data subscription
-   only.
-5. Send you the runner address from the `temporal_public_endpoint` output, and
-   the `required_cluster_owner_actions` output.
-6. Apply `split-public/app` after you add the NSG rules. It installs the
-   Autoheal chart in the Autoheal namespace, with the load balancers for the
-   proxy and for Temporal on the static public IPs.
-7. Make sure that all the pods are ready and that the runner VMs connect to
-   Temporal.
+   only. It does not read your cluster.
+5. Send you the `required_cluster_owner_actions` output, with the command for
+   the storage network rule.
+6. Apply `split-public/cluster`. It reads your cluster, checks that the OIDC
+   issuer is on, and connects the pod identities to the OIDC issuer of the
+   cluster. It makes nothing in the cluster subscription.
+7. Apply `split-public/app` after you add the storage network rule. It installs
+   the Autoheal chart in the Autoheal namespace, with the load balancer for the
+   proxy on the static public IP.
+8. Make sure that all the pods are ready.
 
 ## Deploy steps
 
 | Step | Who | Action |
 |------|-----|--------|
-| 1 | You | Do items 1 to 7 of "What you do". |
-| 2 | We | Do items 1 to 5 of "What we do". |
-| 3 | You | Do items 8 and 9 of "What you do". |
-| 4 | We | Do items 6 and 7 of "What we do". |
+| 1 | You | Do items 1 to 8 of "What you do". |
+| 2 | We | Do items 1 to 6 of "What we do". |
+| 3 | You | Do item 9 of "What you do". |
+| 4 | We | Do items 7 and 8 of "What we do". |
 
-For an upgrade, we do items 4 and 6 of "What we do" again. You do not have to
-give new permissions.
+For an upgrade, we do items 4, 6 and 7 of "What we do" again. You do not have
+to give new permissions. To upgrade an install of infra 3.x, see
+[Upgrade from 3.x](azure-two-subscriptions-public-runbook.md#upgrade-from-3x)
+in the runbook.
 
 ## Limits
 
@@ -137,11 +139,11 @@ give new permissions.
   AKS subnet only from the same region.
 - Azure Managed Redis has no IP firewall. Its public endpoint accepts
   connections from all addresses. The access key and TLS protect it.
-- The runner VMs connect to Temporal and send tool results without encryption.
-  Only the runner address can reach the Temporal IP on those ports.
 - The Autoheal proxy is open to the internet on TCP 443 and 80, unless the NSG
   lets in only some sources. TLS and the Autoheal login protect it. To keep it
-  on your network only, see "Keep Autoheal private" in the runbook.
+  on your network only, see
+  [Keep Autoheal private](azure-two-subscriptions-public-runbook.md#keep-autoheal-private)
+  in the runbook.
 - The `Microsoft.Storage` service endpoint applies to all workloads on the AKS
   subnet. Make sure that your other workloads still reach their storage
   accounts.

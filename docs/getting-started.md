@@ -16,6 +16,10 @@ Two folders in a repository you own, each with its own state:
 - `prod/app` installs the Autoheal chart into the cluster with the values the
   infra folder outputs and your own `values-customer.yaml`.
 
+There is no sandbox runner. The agents answer and call the integrations you
+connect, but run no shell commands or skill scripts, and say so when a step
+needs one.
+
 You drive both with **Terragrunt**, a thin wrapper around Terraform, from your
 laptop for a first try or from a pipeline for a real install.
 
@@ -528,7 +532,7 @@ kubectl get targetgroupbindings -n autoheal
 
 Change the two numbers in `prod/versions.hcl`, then plan and apply `prod/infra`
 and `prod/app` again. Read `CHANGELOG.md` first; upgrading from 1.x has its own
-notes there. An AWS install on the 1.x `aws-byoc` composition is not upgraded in
+notes there, and upgrading from 3.x to 4.x applies `prod/app` first. An AWS install on the 1.x `aws-byoc` composition is not upgraded in
 place: install 3.x next to it and move the data.
 
 ---

@@ -282,6 +282,25 @@ temporal.*.image.repository, zitadel.image.repository, zitadel.login.image.repos
 
 None of the outputs holds a secret.
 
+## Upgrading from 3.x
+
+4.0.0 removes the runner. The first 4.x apply destroys the runner Auto Scaling
+group, its launch template, role and security group, the runner subnets of a
+VPC we created, and the internal load balancer the runner used (Temporal on
+7233, tool results on 8083). With an `edge_mode` other than `loadbalancer` it
+also destroys the AWS Load Balancer Controller role, which only that mode uses
+now. No runner remains, so sandboxes do not run until you run one elsewhere;
+until then keep the chart's `global.sandbox.enabled` off, its default. Delete
+the runner inputs (`autoheal_version`, `runner_*`); the old
+`existing_network.runner_subnet_ids` is ignored. Apply in this order:
+
+1. `compositions/app` with the first chart after 1.0.0-rc.10, still on the 3.x
+   infra values. Its defaults turn the runner load balancers and sandboxes off,
+   which removes the chart's TargetGroupBindings for the Temporal and tool
+   results target groups before step 2 deletes those target groups.
+2. This composition.
+3. `compositions/app` again.
+
 ## Tests
 
 ```bash

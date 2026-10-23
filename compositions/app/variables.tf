@@ -29,7 +29,7 @@ variable "infra_values" {
 variable "customer_values" {
   type        = string
   default     = ""
-  description = "Contents of values-customer.yaml, e.g. file(\"values-customer.yaml\"). Merged after infra_values, like a second -f flag. Must not set global.infra; the chart rejects it."
+  description = "Contents of values-customer.yaml, e.g. file(\"values-customer.yaml\"). Merged after infra_values, like a second -f flag, so a key set in both takes the value from here. Must not set global.infra, which would replace what the infra folder computed."
 }
 
 variable "chart_version" {

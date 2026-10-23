@@ -11,13 +11,18 @@ Azure or AWS. The runner VMs, the reserved Temporal address and everything that
 existed only for them are gone. Sandboxes do not run on an install from this
 release until a runner runs elsewhere.
 
-Needs: an autoheal chart that does not require the Temporal load balancer
-values (`global.infra.version` 3.0.0 is accepted by any chart with
-`min-infra-version` 2.0.0, but chart 1.0.0-rc.10 still requires
-`temporal.internalIP` on Azure, and on AWS `global.infra.targetGroups.temporal`
-and `toolResponse` while `temporalFrontendLoadBalancer` and
-`toolResponseLoadBalancer` are on, which is its default). Install that chart
-before the 4.0.0 infra apply; see "Upgrading" below.
+Needs: the first autoheal chart after 1.0.0-rc.10. It turns
+`temporalFrontendLoadBalancer` and `toolResponseLoadBalancer` off by default and
+adds `global.sandbox.enabled`, off by default. Chart 1.0.0-rc.10 and older
+refuse the 4.0.0 infra values: they require `temporal.internalIP` on Azure, and
+`global.infra.targetGroups.temporal` and `toolResponse` on AWS. A new install
+applies the infra first, as before. An upgrade installs the new chart before
+the 4.0.0 infra apply; see "Upgrading from 3.x" below.
+
+Keep `global.sandbox.enabled` off until a runner runs elsewhere. With it on and
+no runner, every agent run waits for a sandbox that never starts, then fails
+after about 11 minutes. Off, the agents answer and call integrations but run
+no commands.
 
 ### Removed
 - Azure: `modules/azure/runner-vmss`, and from `compositions/azure` the runner
@@ -86,8 +91,9 @@ before the 4.0.0 infra apply; see "Upgrading" below.
   validation rules rejected.
 
 ### Upgrading from 3.x
-1. Install the chart that does not require the Temporal values, with the
-   Temporal load balancers off.
+1. Install the new chart, still on the 3.x infra values. Its defaults turn the
+   runner load balancers and sandboxes off. Until step 2, it warns about the
+   runner values in the infra values, which it ignores.
 2. Delete the removed inputs and apply the infra unit. The plan destroys the
    runner and the resources listed under Removed. With a brought AKS cluster it
    also destroys the federated credentials, unless you move them first (see

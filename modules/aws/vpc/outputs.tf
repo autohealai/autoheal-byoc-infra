@@ -28,13 +28,8 @@ output "data_subnet_ids" {
   value       = aws_subnet.data[*].id
 }
 
-output "runner_subnet_ids" {
-  description = "Runner subnet IDs, one per availability zone. Empty when runner_subnet_cidrs is empty."
-  value       = aws_subnet.runner[*].id
-}
-
 output "private_route_table_ids" {
-  description = "Private route table IDs, one per availability zone. Runner subnets use these too."
+  description = "Private route table IDs, one per availability zone."
   value       = aws_route_table.private[*].id
 }
 

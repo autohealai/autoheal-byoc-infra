@@ -19,14 +19,15 @@
 #                  its fact or global.imageRegistry.
 #
 # AWS has no identities block: the Pod Identity associations bind the chart's
-# service accounts to their roles, so the chart needs no annotation. The chart
-# binds its load balancer Services to global.infra.targetGroups.
+# service accounts to their roles, so the chart needs no annotation. In
+# loadbalancer mode the chart binds the proxy Service to
+# global.infra.targetGroups.
 #
 # Bump infra_contract_version when the shape of global.infra changes; the chart
 # refuses a version older than it needs for the cloud.
 
 locals {
-  infra_contract_version = "2.1.0"
+  infra_contract_version = "3.0.0"
 
   autoheal_values = {
     global = merge({
@@ -59,10 +60,10 @@ locals {
             artifactsBucket    = local.artifacts_bucket
             tenantBucketPrefix = local.tenant_bucket_prefix
           }
-          # NLB target groups (target type ip) the chart binds its Services to.
-          # edgeHttps and edgeHttp only in loadbalancer mode.
-          targetGroups = local.target_group_arns
         },
+        # The edge NLB target groups (target type ip) the chart binds the proxy
+        # Service to, only in loadbalancer mode.
+        { for k, v in { targetGroups = local.target_group_arns } : k => v if local.create_edge_lb },
         # Redis only when there is one.
         { for k, v in { redis = { host = local.redis_host, port = local.redis_port } } : k => v if local.redis_enabled },
       )

@@ -1,23 +1,18 @@
 # NOT FOR CUSTOMERS. An internal stand-in for a customer's cluster subscription
 # (COP), to test examples/azure/split and examples/azure/split-public in two of
 # our own subscriptions. It does what the customer's cluster owner does: one
-# cluster, one namespace for us, the roles our deployer gets and the NSG rule,
-# then the peering (network_path = private) or the static public IP and the
-# storage service endpoint (network_path = public). See README.md.
+# cluster, one namespace for us and the roles our deployer gets, then the
+# peering (network_path = private) or the proxy's static public IP, its NSG rule
+# and the storage service endpoint (network_path = public). See README.md.
 
 locals {
   public            = var.network_path == "public"
   aks_subnet_prefix = cidrsubnet(var.network_cidr, 4, 0)
 
-  # The two reserved addresses near the top of the AKS subnet, as
-  # compositions/azure picks them in a network it creates. On the public path
-  # Temporal and the proxy are on static public IPs instead.
-  temporal_ip = local.public ? azurerm_public_ip.temporal[0].ip_address : cidrhost(local.aks_subnet_prefix, -3)
-  proxy_ip    = local.public ? azurerm_public_ip.proxy[0].ip_address : cidrhost(local.aks_subnet_prefix, -2)
-
-  # Who may reach the Temporal address: the runner subnet over the peering, or
-  # the runner's NAT address over the internet (known after the infra apply).
-  runner_source = local.public ? var.runner_egress_ip : var.runner_subnet_prefix
+  # The reserved address near the top of the AKS subnet, as compositions/azure
+  # picks it in a network it creates. On the public path the proxy is on a
+  # static public IP instead.
+  proxy_ip = local.public ? azurerm_public_ip.proxy[0].ip_address : cidrhost(local.aks_subnet_prefix, -2)
 }
 
 resource "azurerm_resource_group" "this" {
@@ -42,20 +37,9 @@ resource "azurerm_subnet" "aks" {
   service_endpoints = local.public ? ["Microsoft.Storage"] : []
 }
 
-# The public path: the static public IP for the Temporal and tool-response load
-# balancers, in the node resource group, where the cluster manages its load
-# balancers.
-resource "azurerm_public_ip" "temporal" {
-  count               = local.public ? 1 : 0
-  name                = "pip-cop-standin-temporal"
-  resource_group_name = module.aks.node_resource_group
-  location            = var.location
-  allocation_method   = "Static"
-  sku                 = "Standard"
-}
-
 # The public path: the static public IP for the Autoheal proxy, which users and
-# webhooks reach.
+# webhooks reach. It is in the node resource group, where the cluster manages its
+# load balancers.
 resource "azurerm_public_ip" "proxy" {
   count               = local.public ? 1 : 0
   name                = "pip-cop-standin-proxy"
@@ -65,40 +49,12 @@ resource "azurerm_public_ip" "proxy" {
   sku                 = "Standard"
 }
 
-# The rules the cluster owner adds: only the runner reaches the Temporal address,
-# on 7233 (Temporal) and 8083 (tool results). On the public path, everyone
-# reaches the proxy on 443 and 80.
+# The rule the cluster owner adds on the public path: everyone reaches the proxy
+# on 443 and 80.
 resource "azurerm_network_security_group" "aks" {
   name                = "nsg-cop-standin-aks"
   resource_group_name = azurerm_resource_group.this.name
   location            = var.location
-
-  dynamic "security_rule" {
-    for_each = local.runner_source == "" ? [] : [local.runner_source]
-    content {
-      name                       = "allow-runner-to-temporal-address"
-      priority                   = 100
-      direction                  = "Inbound"
-      access                     = "Allow"
-      protocol                   = "Tcp"
-      source_port_range          = "*"
-      source_address_prefix      = security_rule.value
-      destination_address_prefix = local.temporal_ip
-      destination_port_ranges    = ["7233", "8083"]
-    }
-  }
-
-  security_rule {
-    name                       = "deny-others-to-temporal-address"
-    priority                   = 110
-    direction                  = "Inbound"
-    access                     = "Deny"
-    protocol                   = "*"
-    source_port_range          = "*"
-    source_address_prefix      = "*"
-    destination_address_prefix = local.temporal_ip
-    destination_port_ranges    = ["7233", "8083"]
-  }
 
   dynamic "security_rule" {
     for_each = local.public ? [local.proxy_ip] : []
@@ -156,13 +112,6 @@ resource "azurerm_role_assignment" "deployer_cluster_user" {
   principal_id         = var.deployer_object_id
 }
 
-# Read the AKS subnet, to check the reserved addresses.
-resource "azurerm_role_assignment" "deployer_subnet_reader" {
-  scope                = azurerm_subnet.aks.id
-  role_definition_name = "Reader"
-  principal_id         = var.deployer_object_id
-}
-
 # Admin in our namespace only. Enough for the chart's Roles and RoleBindings.
 resource "azurerm_role_assignment" "deployer_namespace_admin" {
   scope                = "${module.aks.cluster_id}/namespaces/${var.namespace}"
@@ -172,10 +121,11 @@ resource "azurerm_role_assignment" "deployer_namespace_admin" {
   depends_on = [kubernetes_namespace_v1.autoheal]
 }
 
-# Join the VNet: the infra apply links its private DNS zones to it
-# (cluster_vnet_dns_link_enabled = true), or adds the AKS subnet to the storage
-# firewall (the public path).
+# Join the VNet, on the private path: the infra apply links its private DNS
+# zones to it (cluster_vnet_dns_link_enabled = true). On the public path the
+# stand-in's operator adds the storage subnet rule instead (README.md).
 resource "azurerm_role_assignment" "deployer_vnet_join" {
+  count                = local.public ? 0 : 1
   scope                = azurerm_virtual_network.this.id
   role_definition_name = "Network Contributor"
   principal_id         = var.deployer_object_id

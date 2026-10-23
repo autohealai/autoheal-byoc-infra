@@ -66,12 +66,11 @@ output "required_datastore_owner_actions" {
 }
 
 output "network" {
-  description = "The VPC and subnets Autoheal runs in: vpc_id, vpc_cidr_block, private_subnet_ids, runner_subnet_ids, data_subnet_ids and public_subnet_ids. For a brought network these are the IDs passed in existing_network, with the runner and data subnets falling back to the private ones."
+  description = "The VPC and subnets Autoheal runs in: vpc_id, vpc_cidr_block, private_subnet_ids, data_subnet_ids and public_subnet_ids. For a brought network these are the IDs passed in existing_network, with the data subnets falling back to the private ones."
   value = {
     vpc_id             = local.vpc_id
     vpc_cidr_block     = local.vpc_cidr_block
     private_subnet_ids = local.private_subnet_ids
-    runner_subnet_ids  = local.runner_subnet_ids
     data_subnet_ids    = local.data_subnet_ids
     public_subnet_ids  = local.public_subnet_ids
   }

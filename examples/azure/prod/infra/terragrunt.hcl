@@ -1,6 +1,6 @@
 # The cloud resources: network, AKS, Postgres, Redis, storage, Key Vault,
-# workload identities, the runner VMs and the DNS records. The source line reads
-# the infra tag from versions.hcl, so this file does not change on upgrade.
+# workload identities and the DNS records. The source line reads the infra tag
+# from versions.hcl, so this file does not change on upgrade.
 
 locals { v = read_terragrunt_config(find_in_parent_folders("versions.hcl")).locals }
 
@@ -13,11 +13,10 @@ terraform {
 }
 
 inputs = {
-  namespace        = "acme"
-  environment      = "prod"
-  subscription_id  = "11111111-2222-3333-4444-555555555555"
-  location         = "eastus2"
-  autoheal_version = local.v.chart_version # the runner VMs pull app/runner-go:chart-<chart_version>
+  namespace       = "acme"
+  environment     = "prod"
+  subscription_id = "11111111-2222-3333-4444-555555555555"
+  location        = "eastus2"
 
   # We never create a DNS zone, only the records in it. If the zone is not in
   # Azure DNS (Cloudflare, Infoblox), remove this line and set
@@ -36,14 +35,14 @@ inputs = {
   #   aks_subnet_id      = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-aks"
   #   postgres_subnet_id = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-pg" # we create Postgres here
   #   endpoint_subnet_id = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-pe"
-  #   runner_subnet_id   = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-runner"
   #
-  #   # Free addresses in snet-aks. Your network team picks them, because we
+  #   # A free address in snet-aks. Your network team picks it, because we
   #   # cannot tell which addresses in your subnet are in use.
-  #   temporal_ip = "10.20.4.11" # the runner VMs connect here
-  #   proxy_ip    = "10.20.4.10" # loadbalancer mode only; DNS points here
+  #   proxy_ip = "10.20.4.10" # loadbalancer mode only; DNS points here
   # }
   #
+  # With existing_aks_cluster_id, add a cluster unit between infra and app, as
+  # in ../../split/cluster, and take the app's cluster from it.
   # existing_aks_cluster_id       = "/subscriptions/.../resourceGroups/rg-platform/providers/Microsoft.ContainerService/managedClusters/aks-platform"
   # existing_postgres_id          = "/subscriptions/.../resourceGroups/rg-platform/providers/Microsoft.DBforPostgreSQL/flexibleServers/psql-platform"
   # existing_redis_id             = "/subscriptions/.../resourceGroups/rg-platform/providers/Microsoft.Cache/redisEnterprise/redis-platform"
@@ -61,10 +60,9 @@ inputs = {
   # create_role_assignments = false
 
   # Sizing
-  aks_node_size     = "Standard_D8s_v5"
-  aks_node_count    = 3
-  postgres_sku      = "GP_Standard_D4ds_v5"
-  runner_node_count = 2
+  aks_node_size  = "Standard_D8s_v5"
+  aks_node_count = 3
+  postgres_sku   = "GP_Standard_D4ds_v5"
 
   # The name users open in a browser. Terraform creates its DNS record and passes
   # it to the app. Login is at auth.autoheal.acme.example and auth-app at

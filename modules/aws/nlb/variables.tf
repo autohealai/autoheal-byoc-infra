@@ -49,7 +49,7 @@ variable "listeners" {
       unhealthy_threshold = optional(number, 3)
     }), {})
   }))
-  description = "Listeners keyed by a stable name, e.g. temporal. Each gets a TCP listener on port and an ip target group on target_port (default: port). health_check.path applies to HTTP and HTTPS checks only (default /). health_check.port is traffic-port or a port number. The health check timeout is set from the protocol default (6 seconds for HTTP, 10 otherwise) and kept below the interval."
+  description = "Listeners keyed by a stable name, e.g. https. Each gets a TCP listener on port and an ip target group on target_port (default: port). health_check.path applies to HTTP and HTTPS checks only (default /). health_check.port is traffic-port or a port number. The health check timeout is set from the protocol default (6 seconds for HTTP, 10 otherwise) and kept below the interval."
 
   validation {
     condition     = length(var.listeners) >= 1
@@ -125,7 +125,7 @@ variable "allowed_cidr_blocks" {
 variable "allowed_security_group_ids" {
   type        = list(string)
   default     = []
-  description = "Security groups allowed to connect to every listener port, e.g. the runner security group. IDs may be created in the same apply."
+  description = "Security groups allowed to connect to every listener port, e.g. the security group of the clients. IDs may be created in the same apply."
 }
 
 variable "target_security_group_ids" {

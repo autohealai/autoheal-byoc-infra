@@ -2,11 +2,11 @@ name: aws/nlb
 title: Autoheal BYOC - AWS Network Load Balancer
 description: |-
   Network Load Balancer (internal by default) with one TCP listener and one ip
-  target group per entry in listeners, e.g. Temporal on 7233 and the
-  api-server-go internal listener on 8083 for the runner. The module registers
-  no targets: the AWS Load Balancer Controller registers pod IPs through the
-  TargetGroupBinding resources the chart renders from target_group_arns. Client
-  IP preservation stays off, so targets see the NLB's own address.
+  target group per entry in listeners, e.g. 443 to the Autoheal proxy's 8443.
+  The module registers no targets: the AWS Load Balancer Controller registers
+  pod IPs through the TargetGroupBinding resources the chart renders from
+  target_group_arns. Client IP preservation stays off, so targets see the NLB's
+  own address.
 
   The NLB has its own security group: ingress on each listener port from
   allowed_cidr_blocks and allowed_security_group_ids, egress to the VPC CIDR on
@@ -23,7 +23,5 @@ usage: |-
 related:
   - name: Module standard
     url: ../../../docs/MODULE_STANDARD.md
-  - name: Runner ASG (connects through the NLB)
-    url: ../runner-asg
   - name: Route 53 records (alias to the NLB)
     url: ../route53

@@ -13,7 +13,7 @@ variable "location" {
 
 variable "oidc_issuer_url" {
   type        = string
-  description = "AKS OIDC issuer URL the federated credentials trust (modules/azure/aks output oidc_issuer_url)."
+  description = "OIDC issuer URL the federated credentials trust. Unused when federated_service_accounts is empty."
 }
 
 variable "federated_service_accounts" {

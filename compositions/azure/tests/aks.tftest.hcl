@@ -60,15 +60,6 @@ mock_provider "azurerm" {
   mock_resource "azurerm_container_registry" {
     defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.ContainerRegistry/registries/cracme" }
   }
-  mock_resource "azurerm_nat_gateway" {
-    defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.Network/natGateways/ng-acme" }
-  }
-  mock_resource "azurerm_public_ip" {
-    defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.Network/publicIPAddresses/pip-acme" }
-  }
-  mock_resource "azurerm_network_security_group" {
-    defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.Network/networkSecurityGroups/nsg-acme" }
-  }
   mock_resource "azurerm_postgresql_flexible_server" {
     defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.DBforPostgreSQL/flexibleServers/psql-acme" }
   }
@@ -88,19 +79,7 @@ mock_provider "azurerm" {
   }
 }
 
-# The cluster's subscription (providers.tf). Only the brought cluster and its AKS
-# subnet are read through it, and this case brings neither.
-mock_provider "azurerm" {
-  alias = "cluster"
-}
-
 mock_provider "random" {}
-
-mock_provider "tls" {
-  mock_resource "tls_private_key" {
-    defaults = { public_key_openssh = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPdIPEGmxag1iAM9TJa938oKt9VfcpW75Ta8FpAEpXUT acme-test" }
-  }
-}
 
 variables {
   namespace            = "acme"
@@ -108,7 +87,6 @@ variables {
   subscription_id      = "00000000-0000-0000-0000-000000000000"
   location             = "centralus"
   hostname             = "autoheal.acme.example"
-  autoheal_version     = "1.0.0"
   existing_dns_zone_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-dns/providers/Microsoft.Network/dnszones/acme.example"
   deployer_ip_ranges   = ["203.0.113.10"]
 
@@ -126,5 +104,12 @@ run "cluster_output_is_not_sensitive" {
   assert {
     condition     = !issensitive(output.cluster.name)
     error_message = "The cluster name must not be sensitive; only kube_config is."
+  }
+
+  # The federation of a created cluster's identities is made here, so there is
+  # nothing for compositions/azure-cluster.
+  assert {
+    condition     = output.federation == null
+    error_message = "The federation output must be null for a cluster we create."
   }
 }

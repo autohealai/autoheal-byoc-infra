@@ -36,9 +36,10 @@ inputs = {
   cluster         = dependency.infra.outputs.cluster
   customer_values = file("${get_terragrunt_dir()}/values-customer.yaml")
 
-  # The chart registers its pods in the infra folder's NLB target groups through
-  # the AWS Load Balancer Controller. On a cluster the infra folder created,
-  # install it here. On a brought cluster that already runs one, remove this.
+  # In loadbalancer mode the chart registers the proxy pods in the infra
+  # folder's NLB target groups through the AWS Load Balancer Controller. On a
+  # cluster the infra folder created, install it here. On a brought cluster
+  # that already runs one, or with another edge mode, remove this.
   aws_load_balancer_controller = { enabled = true }
 
   # Defaults, shown for reference:

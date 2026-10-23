@@ -19,15 +19,6 @@ mock_provider "aws" {
   mock_data "aws_iam_policy_document" {
     defaults = { json = "{}", minified_json = "{}" }
   }
-  mock_data "aws_ssm_parameter" {
-    defaults = { insecure_value = "ami-0123456789abcdef0", value = "ami-0123456789abcdef0" }
-  }
-  mock_data "aws_ami" {
-    defaults = { architecture = "x86_64", root_device_name = "/dev/xvda" }
-  }
-  mock_data "aws_ec2_instance_type" {
-    defaults = { supported_architectures = ["x86_64"] }
-  }
   mock_data "aws_vpc_endpoint_service" {
     defaults = {
       service_name       = "com.amazonaws.us-west-2.s3"
@@ -38,11 +29,52 @@ mock_provider "aws" {
     defaults = { version = "v1.0.0-eksbuild.1" }
   }
   mock_data "aws_route53_zone" {
-    defaults = { name = "acme.example.", private_zone = false }
+    defaults = { name = "acme.example." }
+  }
+
+  # OpenTofu fills computed attributes with random strings at plan time, and the
+  # modules and the provider reject them where they check an AWS ID or ARN. These
+  # defaults give each created resource a well-formed one, and the EKS cluster the
+  # CA and OIDC issuer the eks module indexes into (OpenTofu mocks a block as one
+  # object). Terraform keeps them unknown until apply.
+  mock_resource "aws_vpc" {
+    defaults = { id = "vpc-0123456789abcdef0" }
+  }
+  mock_resource "aws_kms_key" {
+    defaults = { arn = "arn:aws:kms:us-west-2:123456789012:key/1234abcd-12ab-44cd-a6ef-1234567890ab" }
+  }
+  mock_resource "aws_iam_policy" {
+    defaults = { arn = "arn:aws:iam::123456789012:policy/acme-prod-autoheal" }
+  }
+  mock_resource "aws_iam_role" {
+    defaults = { arn = "arn:aws:iam::123456789012:role/acme-prod-autoheal" }
+  }
+  mock_resource "aws_cloudwatch_log_group" {
+    defaults = { arn = "arn:aws:logs:us-west-2:123456789012:log-group:acme-prod-autoheal" }
+  }
+  mock_resource "aws_eks_cluster" {
+    defaults = {
+      vpc_config            = { vpc_id = "vpc-0123456789abcdef0" }
+      certificate_authority = [{ data = "Q0E=" }]
+      identity              = [{ oidc = [{ issuer = "https://oidc.eks.us-west-2.amazonaws.com/id/ABCDEF" }] }]
+    }
+  }
+  mock_resource "aws_launch_template" {
+    defaults = { id = "lt-0123456789abcdef0" }
+  }
+  mock_resource "aws_lb" {
+    defaults = { arn = "arn:aws:elasticloadbalancing:us-west-2:123456789012:loadbalancer/net/acme-prod-autoheal-edge/0123456789abcdef" }
+  }
+  mock_resource "aws_lb_target_group" {
+    defaults = { arn = "arn:aws:elasticloadbalancing:us-west-2:123456789012:targetgroup/acme-prod-autoheal-edge/0123456789abcdef" }
   }
 }
 
-mock_provider "random" {}
+mock_provider "random" {
+  mock_resource "random_password" {
+    defaults = { result = "mock-password-0123456789" }
+  }
+}
 
 variables {
   namespace            = "acme"
@@ -50,7 +82,6 @@ variables {
   account_id           = "123456789012"
   region               = "us-west-2"
   hostname             = "autoheal.acme.example"
-  autoheal_version     = "2.1.0"
   availability_zones   = ["us-west-2a", "us-west-2b", "us-west-2c"]
   existing_dns_zone_id = "Z0123456789ABCDEFGHIJ"
 }
@@ -60,7 +91,7 @@ run "everything_created" {
 
   assert {
     condition = (
-      output.autoheal_values.global.infra.version == "2.1.0" &&
+      output.autoheal_values.global.infra.version == "3.0.0" &&
       output.autoheal_values.global.infra.cloud == "aws" &&
       output.autoheal_values.global.infra.region == "us-west-2"
     )
@@ -112,8 +143,8 @@ run "everything_created" {
   }
 
   assert {
-    condition     = toset(keys(output.autoheal_values.global.infra.targetGroups)) == toset(["temporal", "toolResponse", "edgeHttps", "edgeHttp"])
-    error_message = "loadbalancer mode needs the runner and edge target groups."
+    condition     = toset(keys(output.autoheal_values.global.infra.targetGroups)) == toset(["edgeHttps", "edgeHttp"])
+    error_message = "loadbalancer mode needs the edge target groups."
   }
 
   assert {
@@ -156,14 +187,6 @@ run "everything_created" {
   }
 
   assert {
-    condition = (
-      local.runner_image == "public.ecr.aws/e4h3h0d9/app/runner-go:chart-2.1.0" &&
-      local.runner_ecr_host == ""
-    )
-    error_message = "Without a registry the runner pulls from the public registry."
-  }
-
-  assert {
     condition = toset(local.secret_entry_names) == toset([
       "postgres-admin-password", "api-server-db-password", "agents-db-password", "temporal-db-password",
       "zitadel-db-password", "api-server-database-url", "api-server-jwt-secret", "zitadel-master-key",
@@ -181,7 +204,6 @@ run "everything_created" {
   assert {
     condition = (
       local.created_subnets.private == ["10.60.0.0/19", "10.60.32.0/19", "10.60.64.0/19"] &&
-      local.created_subnets.runner == ["10.60.128.0/24", "10.60.129.0/24", "10.60.130.0/24"] &&
       local.created_subnets.data == ["10.60.136.0/24", "10.60.137.0/24", "10.60.138.0/24"] &&
       local.created_subnets.public == ["10.60.144.0/24", "10.60.145.0/24", "10.60.146.0/24"]
     )
@@ -218,12 +240,8 @@ run "registry_created" {
   }
 
   assert {
-    condition = (
-      local.runner_image == "123456789012.dkr.ecr.us-west-2.amazonaws.com/acme-prod-autoheal/e4h3h0d9/app/runner-go:chart-2.1.0" &&
-      local.runner_ecr_host == "123456789012.dkr.ecr.us-west-2.amazonaws.com" &&
-      length(module.ecr) == 1 && length(aws_iam_policy.ecr_pull_through) == 1
-    )
-    error_message = "The runner should pull from the registry with the ECR helper."
+    condition     = length(module.ecr) == 1 && length(aws_iam_policy.ecr_pull_through) == 1
+    error_message = "The pull-through cache and the nodes' pull policy should be created."
   }
 }
 
@@ -238,12 +256,20 @@ run "gateway_with_dns_name" {
   assert {
     condition = (
       length(module.edge_nlb) == 0 &&
-      toset(keys(output.autoheal_values.global.infra.targetGroups)) == toset(["temporal", "toolResponse"]) &&
       local.dns_records.app.type == "CNAME" && tolist(local.dns_records.app.records) == tolist(["gw.acme.example"]) &&
       local.dns_records.app.alias == null &&
       length(module.dns) == 1 && length(output.required_dns_records) == 0
     )
     error_message = "gateway-api with a DNS name should create CNAME records and no edge load balancer."
+  }
+
+  assert {
+    condition = (
+      !contains(keys(output.autoheal_values.global.infra), "targetGroups") &&
+      length(module.lb_controller_identity) == 0 &&
+      length(local.role_bindings) == 4
+    )
+    error_message = "Without the edge load balancer there are no target groups and no load balancer controller role."
   }
 }
 
@@ -282,12 +308,22 @@ run "edge_none" {
   command = plan
 
   variables {
-    edge_mode = "none"
+    edge_mode                            = "none"
+    create_load_balancer_controller_role = true
   }
 
   assert {
     condition     = length(module.dns) == 0 && length(output.required_dns_records) == 0 && length(module.edge_nlb) == 0
     error_message = "edge_mode none should have no records and no edge load balancer."
+  }
+
+  assert {
+    condition = (
+      !contains(keys(output.autoheal_values.global.infra), "targetGroups") &&
+      length(module.lb_controller_identity) == 0 &&
+      length(data.aws_iam_policy_document.lb_controller) == 0
+    )
+    error_message = "Outside loadbalancer mode the load balancer controller role is not created, even when asked for."
   }
 }
 

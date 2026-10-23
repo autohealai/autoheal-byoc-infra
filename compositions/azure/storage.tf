@@ -16,10 +16,11 @@ module "blob" {
   container_name      = var.storage_container_name
 
   # Default-deny firewall. The allow list covers the apply host and the cluster's
-  # outbound addresses (when private endpoints are off).
+  # outbound addresses (when private endpoints are off). On the public path the
+  # cluster owner adds a network rule for the AKS subnet after the apply
+  # (required_cluster_owner_actions); the module leaves subnet rules alone.
   network_default_action = var.storage_network_default_action
   allowed_ip_ranges      = distinct(concat(var.deployer_ip_ranges, var.workload_egress_ip_ranges))
-  allowed_subnet_ids     = local.storage_allowed_subnet_ids
 
   account_replication_type             = var.blob_replication_type
   blob_soft_delete_retention_days      = var.blob_soft_delete_retention_days
@@ -30,12 +31,6 @@ module "blob" {
   cmk_identity_id                      = local.cmk_identity_id
 
   depends_on = [azurerm_role_assignment.cmk_encryptor]
-}
-
-locals {
-  # The public path: pods in the account's region come in through the cluster's
-  # AKS subnet, since IP rules do not apply to them.
-  storage_allowed_subnet_ids = local.public_path ? [local.aks_subnet_id] : []
 }
 
 data "azurerm_storage_account" "existing" {

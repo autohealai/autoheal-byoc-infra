@@ -14,15 +14,6 @@ mock_provider "aws" {
   mock_data "aws_iam_policy_document" {
     defaults = { json = "{}", minified_json = "{}" }
   }
-  mock_data "aws_ssm_parameter" {
-    defaults = { insecure_value = "ami-0123456789abcdef0", value = "ami-0123456789abcdef0" }
-  }
-  mock_data "aws_ami" {
-    defaults = { architecture = "x86_64", root_device_name = "/dev/xvda" }
-  }
-  mock_data "aws_ec2_instance_type" {
-    defaults = { supported_architectures = ["x86_64"] }
-  }
   mock_data "aws_vpc_endpoint_service" {
     defaults = {
       service_name       = "com.amazonaws.us-west-2.s3"
@@ -33,11 +24,52 @@ mock_provider "aws" {
     defaults = { version = "v1.0.0-eksbuild.1" }
   }
   mock_data "aws_route53_zone" {
-    defaults = { name = "acme.example.", private_zone = false }
+    defaults = { name = "acme.example." }
+  }
+
+  # OpenTofu fills computed attributes with random strings at plan time, and the
+  # modules and the provider reject them where they check an AWS ID or ARN. These
+  # defaults give each created resource a well-formed one, and the EKS cluster the
+  # CA and OIDC issuer the eks module indexes into (OpenTofu mocks a block as one
+  # object). Terraform keeps them unknown until apply.
+  mock_resource "aws_vpc" {
+    defaults = { id = "vpc-0123456789abcdef0" }
+  }
+  mock_resource "aws_kms_key" {
+    defaults = { arn = "arn:aws:kms:us-west-2:123456789012:key/1234abcd-12ab-44cd-a6ef-1234567890ab" }
+  }
+  mock_resource "aws_iam_policy" {
+    defaults = { arn = "arn:aws:iam::123456789012:policy/acme-prod-autoheal" }
+  }
+  mock_resource "aws_iam_role" {
+    defaults = { arn = "arn:aws:iam::123456789012:role/acme-prod-autoheal" }
+  }
+  mock_resource "aws_cloudwatch_log_group" {
+    defaults = { arn = "arn:aws:logs:us-west-2:123456789012:log-group:acme-prod-autoheal" }
+  }
+  mock_resource "aws_eks_cluster" {
+    defaults = {
+      vpc_config            = { vpc_id = "vpc-0123456789abcdef0" }
+      certificate_authority = [{ data = "Q0E=" }]
+      identity              = [{ oidc = [{ issuer = "https://oidc.eks.us-west-2.amazonaws.com/id/ABCDEF" }] }]
+    }
+  }
+  mock_resource "aws_launch_template" {
+    defaults = { id = "lt-0123456789abcdef0" }
+  }
+  mock_resource "aws_lb" {
+    defaults = { arn = "arn:aws:elasticloadbalancing:us-west-2:123456789012:loadbalancer/net/acme-prod-autoheal-edge/0123456789abcdef" }
+  }
+  mock_resource "aws_lb_target_group" {
+    defaults = { arn = "arn:aws:elasticloadbalancing:us-west-2:123456789012:targetgroup/acme-prod-autoheal-edge/0123456789abcdef" }
   }
 }
 
-mock_provider "random" {}
+mock_provider "random" {
+  mock_resource "random_password" {
+    defaults = { result = "mock-password-0123456789" }
+  }
+}
 
 variables {
   namespace            = "acme"
@@ -45,7 +77,6 @@ variables {
   account_id           = "123456789012"
   region               = "us-west-2"
   hostname             = "autoheal.acme.example"
-  autoheal_version     = "2.1.0"
   availability_zones   = ["us-west-2a", "us-west-2b", "us-west-2c"]
   existing_dns_zone_id = "Z0123456789ABCDEFGHIJ"
 }
@@ -262,7 +293,16 @@ run "brought_cluster_without_network" {
       endpoint              = "https://ABCDEF.gr7.us-west-2.eks.amazonaws.com"
       status                = "ACTIVE"
       certificate_authority = [{ data = "Q0E=" }]
-      vpc_config            = [{ vpc_id = "vpc-0123456789abcdef0", cluster_security_group_id = "sg-0cluster0000000000" }]
+      vpc_config = [{
+        vpc_id                    = "vpc-0123456789abcdef0"
+        cluster_security_group_id = "sg-0cluster0000000000"
+        subnet_ids                = ["subnet-0a", "subnet-0b"]
+        security_group_ids        = []
+        endpoint_private_access   = true
+        endpoint_public_access    = false
+        public_access_cidrs       = []
+        control_plane_egress_mode = null
+      }]
     }
   }
 

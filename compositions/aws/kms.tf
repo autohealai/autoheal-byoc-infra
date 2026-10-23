@@ -5,8 +5,8 @@
 # this account grant use of the keys: the EKS cluster role, the Aurora and
 # ElastiCache services acting for the deployer, and the workload roles in
 # identity.tf. The logs key also lets CloudWatch Logs in this region encrypt our
-# log groups. The EBS volumes of the nodes and runner VMs use the account's
-# default EBS key, which the Auto Scaling service role can always use.
+# log groups. The EBS volumes of the nodes use the account's default EBS key,
+# which the Auto Scaling service role can always use.
 
 module "kms" {
   source   = "../../modules/aws/kms"

@@ -33,7 +33,8 @@ locals {
   create_kms                = var.existing_kms_key_arn == ""
   create_registry           = var.existing_registry_url == "" && var.create_registry
   create_edge_lb            = var.edge_mode == "loadbalancer"
-  create_lb_controller_role = (
+  # The controller only binds the edge load balancer's target groups.
+  create_lb_controller_role = local.create_edge_lb && (
     var.create_load_balancer_controller_role != null ? var.create_load_balancer_controller_role : local.create_cluster
   )
 
@@ -103,11 +104,11 @@ locals {
 
   # Subnet layout of the VPC we create. For a /16: private /19s from the bottom
   # (10.60.0.0/19, 10.60.32.0/19, ...), then /24s in the upper half for the
-  # runner VMs (10.60.128.0/24, ...), the data stores (10.60.136.0/24, ...) and
-  # the public subnets (10.60.144.0/24, ...).
+  # data stores (10.60.136.0/24, ...) and the public subnets
+  # (10.60.144.0/24, ...). Keep the offsets: changing one replaces the subnets
+  # of existing installs and everything in them.
   created_subnets = {
     private = [for i, az in local.azs : cidrsubnet(var.network_cidr, 3, i)]
-    runner  = [for i, az in local.azs : cidrsubnet(var.network_cidr, 8, 128 + i)]
     data    = [for i, az in local.azs : cidrsubnet(var.network_cidr, 8, 136 + i)]
     public  = [for i, az in local.azs : cidrsubnet(var.network_cidr, 8, 144 + i)]
   }
@@ -117,9 +118,6 @@ locals {
 
   private_subnet_ids = local.create_network ? module.vpc[0].private_subnet_ids : var.existing_network.private_subnet_ids
   public_subnet_ids  = local.create_network ? module.vpc[0].public_subnet_ids : var.existing_network.public_subnet_ids
-  runner_subnet_ids = local.create_network ? module.vpc[0].runner_subnet_ids : (
-    length(var.existing_network.runner_subnet_ids) > 0 ? var.existing_network.runner_subnet_ids : var.existing_network.private_subnet_ids
-  )
   data_subnet_ids = local.create_network ? module.vpc[0].data_subnet_ids : (
     length(var.existing_network.data_subnet_ids) > 0 ? var.existing_network.data_subnet_ids : var.existing_network.private_subnet_ids
   )
@@ -195,8 +193,8 @@ locals {
     tenant      = "arn:${local.partition}:s3:::${local.tenant_bucket_prefix}*"
   }
 
-  # Registry the chart and the runner VMs pull from, as host/path, or "" for the
-  # public registry. An ECR registry host is known at plan time.
+  # Registry the chart pulls from, as host/path, or "" for the public registry.
+  # An ECR registry host is known at plan time.
   ecr_registry_host = "${var.account_id}.dkr.ecr.${var.region}.${local.dns_suffix}"
   # The public Autoheal registry is public.ecr.aws/<namespace>. The pull-through
   # cache keeps that path under <prefix>/, so the namespace is passed to the

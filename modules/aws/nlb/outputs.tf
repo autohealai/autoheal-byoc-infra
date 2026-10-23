@@ -14,7 +14,7 @@ output "name" {
 }
 
 output "dns_name" {
-  description = "DNS name of the NLB, e.g. for temporal_host (<dns_name>:7233) or a Route 53 alias."
+  description = "DNS name of the NLB, e.g. for a Route 53 alias or a CNAME record."
   value       = aws_lb.this.dns_name
 }
 

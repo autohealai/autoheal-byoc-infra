@@ -114,12 +114,6 @@ variable "network_default_action" {
   }
 }
 
-variable "allowed_subnet_ids" {
-  type        = list(string)
-  default     = []
-  description = "Subnets allowed through the storage firewall when default_action=Deny, for clients in the account's region, where IP rules have no effect. Each subnet needs the Microsoft.Storage service endpoint, and the deployer needs Microsoft.Network/virtualNetworks/subnets/joinViaServiceEndpoint/action on it. The subnet may be in another subscription."
-}
-
 variable "allowed_ip_ranges" {
   type        = list(string)
   default     = []

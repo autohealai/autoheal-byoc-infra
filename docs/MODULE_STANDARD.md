@@ -117,17 +117,17 @@ terraform {
 
 ## 8. The output contract (cross-cloud)
 
-Every 2.x infra composition emits the same output names, so `compositions/app`
+Every infra composition since 2.x emits the same output names, so `compositions/app`
 and the chart do not care which cloud built the cluster:
 
 | Output | Meaning |
 |--------|---------|
 | `autoheal_values`           | The chart's infra values as an object: `global.infra` facts, suggested `global.addons`, `global.secrets`, `global.edge` and `global.imageRegistry`, and the Temporal and Zitadel copies. Shape versioned by `global.infra.version`. |
 | `autoheal_values_yaml`      | The same values as YAML, for a Helm or Flux install. |
-| `cluster`                   | `cloud`, `name`, `endpoint`, base64 `ca_certificate`, and `resource_group` (Azure) or `region` and `vpc_id` (AWS). No credential. |
+| `cluster`                   | `cloud`, `name`, `endpoint`, base64 `ca_certificate`, and `resource_group` (Azure) or `region` and `vpc_id` (AWS). No credential. For a brought AKS cluster the endpoint and CA certificate are empty: `compositions/azure-cluster` outputs the full object. |
 | `required_role_assignments` | Grants an administrator must make when the composition makes none. |
 | `required_dns_records`      | DNS records a person must create when the composition creates none. |
-| `network`                   | The network Autoheal runs in. Azure: `vnet_id`, `vnet_name`, `resource_group_name`, `address_space`, `aks_subnet_id`, `runner_subnet_id`, `private_endpoint_subnet_id`. AWS: `vpc_id`, `vpc_cidr_block`, `private_subnet_ids`, `runner_subnet_ids`, `data_subnet_ids`, `public_subnet_ids`. |
+| `network`                   | The network Autoheal runs in. Azure: `vnet_id`, `vnet_name`, `resource_group_name`, `address_space`, `cluster_vnet_id`, `aks_subnet_id`, `private_endpoint_subnet_id`. AWS: `vpc_id`, `vpc_cidr_block`, `private_subnet_ids`, `data_subnet_ids`, `public_subnet_ids`. |
 
 None of them may hold a secret. Bump `global.infra.version` (the
 `infra_contract_version` local) when the shape of `global.infra` changes.

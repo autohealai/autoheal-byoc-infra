@@ -57,17 +57,6 @@ variable "data_subnet_cidrs" {
   }
 }
 
-variable "runner_subnet_cidrs" {
-  type        = list(string)
-  default     = []
-  description = "Empty, or one CIDR per availability zone for the runner subnets (runner VMs). They use the private route table of their zone, so they egress through NAT."
-
-  validation {
-    condition     = alltrue([for c in var.runner_subnet_cidrs : can(cidrnetmask(c))])
-    error_message = "runner_subnet_cidrs must contain IPv4 CIDRs."
-  }
-}
-
 variable "nat_gateway_mode" {
   type        = string
   default     = "per_az"
@@ -82,7 +71,7 @@ variable "nat_gateway_mode" {
 variable "cluster_name" {
   type        = string
   default     = ""
-  description = "EKS cluster name. When set, public and private subnets get the kubernetes.io/cluster/<name>=shared tag. Data and runner subnets never get it, so load balancers stay out of them."
+  description = "EKS cluster name. When set, public and private subnets get the kubernetes.io/cluster/<name>=shared tag. Data subnets never get it, so load balancers stay out of them."
 
   validation {
     condition     = var.cluster_name == "" || can(regex("^[0-9A-Za-z][A-Za-z0-9_-]{0,99}$", var.cluster_name))
@@ -132,7 +121,7 @@ variable "flow_logs_traffic_type" {
 variable "s3_gateway_endpoint_enabled" {
   type        = bool
   default     = true
-  description = "Create an S3 gateway endpoint on the private (and so runner) and data route tables. Free, and keeps S3 traffic off NAT."
+  description = "Create an S3 gateway endpoint on the private and data route tables. Free, and keeps S3 traffic off NAT."
 }
 
 variable "interface_endpoints" {

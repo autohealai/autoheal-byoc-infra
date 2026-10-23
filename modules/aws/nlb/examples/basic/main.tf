@@ -1,7 +1,7 @@
-# Internal NLB in front of Temporal and the api-server-go internal listener,
-# reachable from the runner security group. Doubles as the CI validate
-# fixture. The IDs are placeholders; a composition passes them from the vpc,
-# eks and runner-asg modules.
+# Internal NLB in front of the Autoheal proxy: 443 to its TLS listener on 8443
+# and 80 to its redirect listener on 8090, reachable from the VPC CIDR. Doubles
+# as the CI validate fixture. The IDs are placeholders; a composition passes
+# them from the vpc and eks modules.
 
 terraform {
   required_version = ">= 1.7"
@@ -23,7 +23,7 @@ module "nlb" {
   namespace   = "acme"
   environment = "play"
   name        = "autoheal"
-  attributes  = ["internal"]
+  attributes  = ["edge"]
 
   vpc_id         = "vpc-0123456789abcdef0"
   vpc_cidr_block = "10.60.0.0/16"
@@ -34,22 +34,23 @@ module "nlb" {
   ]
 
   listeners = {
-    temporal = {
-      port = 7233
+    https = {
+      port        = 443
+      target_port = 8443
     }
-    api_internal = {
-      port         = 8083
-      health_check = { protocol = "HTTP", path = "/health" }
+    http = {
+      port        = 80
+      target_port = 8090
     }
   }
 
-  allowed_security_group_ids = ["sg-0123456789abcdef0"]
-  target_security_group_ids  = ["sg-0123456789abcdef1"]
+  allowed_cidr_blocks       = ["10.60.0.0/16"]
+  target_security_group_ids = ["sg-0123456789abcdef1"]
 }
 
-output "temporal_host" {
-  description = "Value for the runner's temporal_host."
-  value       = "${module.nlb.dns_name}:7233"
+output "dns_name" {
+  description = "DNS name of the NLB, for the hostnames' records."
+  value       = module.nlb.dns_name
 }
 
 output "target_group_arns" {

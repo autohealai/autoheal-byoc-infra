@@ -1,7 +1,7 @@
 # Case 3: acme brings its network and DNS zone; we create everything else. This
 # is the prod example in the delivery spec: the cluster, Postgres, Redis, storage
-# and vault are created in acme's subnets, and the reserved Temporal and proxy
-# addresses come from acme's network team.
+# and vault are created in acme's subnets, and the reserved proxy address comes
+# from acme's network team.
 
 mock_provider "azurerm" {
   mock_data "azurerm_client_config" {
@@ -10,6 +10,12 @@ mock_provider "azurerm" {
       object_id       = "11111111-1111-1111-1111-111111111111"
       subscription_id = "00000000-0000-0000-0000-000000000000"
     }
+  }
+
+  # acme's AKS subnet, read for a cluster we create in a brought network: the
+  # subnet the reserved proxy address must sit in.
+  mock_data "azurerm_subnet" {
+    defaults = { address_prefixes = ["10.20.4.0/22"] }
   }
 
   # OpenTofu fills computed attributes with random strings at plan time, and the
@@ -56,38 +62,12 @@ mock_provider "azurerm" {
   mock_resource "azurerm_container_registry" {
     defaults = { id = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.ContainerRegistry/registries/cracme" }
   }
-  mock_resource "azurerm_nat_gateway" {
-    defaults = { id = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.Network/natGateways/ng-acme" }
-  }
-  mock_resource "azurerm_public_ip" {
-    defaults = { id = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.Network/publicIPAddresses/pip-acme" }
-  }
-  mock_resource "azurerm_network_security_group" {
-    defaults = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.Network/networkSecurityGroups/nsg-acme" }
-  }
   mock_resource "azurerm_postgresql_flexible_server" {
     defaults = { id = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.DBforPostgreSQL/flexibleServers/psql-acme" }
   }
 }
 
-# The cluster's subscription (providers.tf), here subscription_id since we create
-# the cluster. acme's AKS subnet is read through it: the subnet the reserved
-# addresses must sit in.
-mock_provider "azurerm" {
-  alias = "cluster"
-
-  mock_data "azurerm_subnet" {
-    defaults = { address_prefixes = ["10.20.4.0/22"] }
-  }
-}
-
 mock_provider "random" {}
-
-mock_provider "tls" {
-  mock_resource "tls_private_key" {
-    defaults = { public_key_openssh = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPdIPEGmxag1iAM9TJa938oKt9VfcpW75Ta8FpAEpXUT acme-test" }
-  }
-}
 
 # With create_role_assignments = false the plan reads each workload principal's
 # grants. Here an administrator has made them all at the subscription. (OpenTofu
@@ -158,26 +138,22 @@ override_module {
 }
 
 variables {
-  namespace        = "acme"
-  environment      = "prod"
-  subscription_id  = "11111111-2222-3333-4444-555555555555"
-  location         = "eastus2"
-  autoheal_version = "1.0.0"
+  namespace       = "acme"
+  environment     = "prod"
+  subscription_id = "11111111-2222-3333-4444-555555555555"
+  location        = "eastus2"
 
   existing_network = {
     aks_subnet_id      = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-aks"
     postgres_subnet_id = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-pg"
     endpoint_subnet_id = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-pe"
-    runner_subnet_id   = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-runner"
-    temporal_ip        = "10.20.4.11"
     proxy_ip           = "10.20.4.10"
   }
   existing_dns_zone_id = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-dns/providers/Microsoft.Network/dnszones/acme.example"
 
-  aks_node_size     = "Standard_D8s_v5"
-  aks_node_count    = 3
-  postgres_sku      = "GP_Standard_D4ds_v5"
-  runner_node_count = 2
+  aks_node_size  = "Standard_D8s_v5"
+  aks_node_count = 3
+  postgres_sku   = "GP_Standard_D4ds_v5"
 
   hostname  = "autoheal.acme.example"
   edge_mode = "loadbalancer"
@@ -191,10 +167,10 @@ run "brought_network_and_zone" {
 
   assert {
     condition = (
-      output.autoheal_values.global.infra.temporal.internalIP == "10.20.4.11" &&
-      output.autoheal_values.global.infra.edge.internalIP == "10.20.4.10"
+      output.autoheal_values.global.infra.edge.internalIP == "10.20.4.10" &&
+      !contains(keys(output.autoheal_values.global.infra), "temporal")
     )
-    error_message = "The reserved addresses are the ones acme's network team gave."
+    error_message = "The reserved proxy address is the one acme's network team gave; there is no Temporal address."
   }
 
   assert {
@@ -234,7 +210,7 @@ run "brought_network_and_zone" {
 
   assert {
     condition     = length(terraform_data.validate_addresses) == 1
-    error_message = "The reserved addresses are checked against the AKS subnet."
+    error_message = "The reserved proxy address is checked against the AKS subnet."
   }
 }
 
@@ -246,8 +222,6 @@ run "zones_given" {
       aks_subnet_id                = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-aks"
       postgres_subnet_id           = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-pg"
       endpoint_subnet_id           = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-pe"
-      runner_subnet_id             = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-runner"
-      temporal_ip                  = "10.20.4.11"
       proxy_ip                     = "10.20.4.10"
       postgres_private_dns_zone_id = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/privateDnsZones/acme-prod.private.postgres.database.azure.com"
       private_dns_zone_ids = {
@@ -292,30 +266,11 @@ run "proxy_ip_outside_the_subnet" {
       aks_subnet_id      = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-aks"
       postgres_subnet_id = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-pg"
       endpoint_subnet_id = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-pe"
-      runner_subnet_id   = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-runner"
-      temporal_ip        = "10.20.4.11"
       proxy_ip           = "10.20.8.10"
     }
   }
 
   expect_failures = [terraform_data.validate_addresses]
-}
-
-run "same_address_twice" {
-  command = plan
-
-  variables {
-    existing_network = {
-      aks_subnet_id      = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-aks"
-      postgres_subnet_id = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-pg"
-      endpoint_subnet_id = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-pe"
-      runner_subnet_id   = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-runner"
-      temporal_ip        = "10.20.4.11"
-      proxy_ip           = "10.20.4.11"
-    }
-  }
-
-  expect_failures = [terraform_data.validate_inputs]
 }
 
 run "created_redis_needs_an_endpoint_subnet" {
@@ -327,8 +282,6 @@ run "created_redis_needs_an_endpoint_subnet" {
     existing_network = {
       aks_subnet_id      = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-aks"
       postgres_subnet_id = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-pg"
-      runner_subnet_id   = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet-core/subnets/snet-runner"
-      temporal_ip        = "10.20.4.11"
       proxy_ip           = "10.20.4.10"
     }
   }

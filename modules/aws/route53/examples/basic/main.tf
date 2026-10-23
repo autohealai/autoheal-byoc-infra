@@ -35,7 +35,7 @@ module "route53" {
     apex     = { name = "", type = "A", alias = local.lb }
     auth     = { name = "auth", type = "A", alias = local.lb }
     auth_app = { name = "auth-app", type = "A", alias = local.lb }
-    temporal = { name = "temporal", type = "A", records = ["10.60.15.10"], ttl = 60 }
+    internal = { name = "internal", type = "A", records = ["10.60.15.10"], ttl = 60 }
     docs     = { name = "docs", type = "CNAME", records = ["autoheal.acme.example"] }
   }
 }

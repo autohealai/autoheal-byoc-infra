@@ -17,15 +17,17 @@ input to the resource ID, and the composition only reads it:
 | You bring | Set |
 | --- | --- |
 | Nothing | `network_cidr` (the composition creates the network, AKS, Postgres, Redis, storage, Key Vault and the registry) |
-| Your network | `existing_network` (subnet IDs and two free addresses in the AKS subnet). Allow ports 7233 and 8083 on the Temporal address from the runner subnet only. |
+| Your network | `existing_network` (subnet IDs and a free address in the AKS subnet for the proxy) |
 | Your resource group | `existing_resource_group_id` |
 | Your cluster, database, cache, storage, vaults or registry | `existing_aks_cluster_id`, `existing_postgres_id`, `existing_redis_id`, `existing_storage_account_id`, `existing_key_vault_id`, `existing_runtime_key_vault_id`, `existing_acr_id` |
 | Role grants made by your administrators | `create_role_assignments = false` |
 | DNS records made by a person | `create_dns_records = false` |
 
-A brought resource must exist before the run. Mixes that cannot work (for
-example a brought cluster without its network) stop the plan with a message that
-says what to change. `compositions/azure/README.md` lists every case.
+A brought resource must exist before the run, except a brought cluster, which
+this workspace never reads. Mixes that cannot work (for example a brought
+cluster without its network) stop the plan with a message that says what to
+change. `compositions/azure/README.md` lists every case. With a brought cluster
+you also run `compositions/azure-cluster`, in a second workspace (Step 11).
 
 For an AKS cluster in a different subscription, with public endpoints, follow
 the "With Terraform Enterprise" parts of
@@ -197,7 +199,6 @@ These variables are necessary in every case:
 | `subscription_id` | your subscription GUID |
 | `location` | `eastus2` |
 | `hostname` | `autoheal.acme.example` |
-| `autoheal_version` | the Autoheal release, for example `1.0.0-rc.8` |
 
 These variables depend on your setup:
 
@@ -206,7 +207,7 @@ These variables depend on your setup:
 | `existing_dns_zone_id` | the Azure DNS zone ID for `hostname` | When Terraform creates the DNS records (the default). The composition never creates a zone. |
 | `create_dns_records` | `false` | When your DNS is not in Azure DNS. Create the records listed in the `required_dns_records` output. |
 | `network_cidr` | `10.60.0.0/16` | When the composition creates the network. |
-| `existing_network` | `{ aks_subnet_id = "...", ..., temporal_ip = "...", proxy_ip = "..." }` (HCL) | When you bring the network. |
+| `existing_network` | `{ aks_subnet_id = "...", ..., proxy_ip = "..." }` (HCL) | When you bring the network. |
 | `existing_*_id` | the resource ID | For each resource you bring (see [Which resources you bring](#which-resources-you-bring)). |
 | `deployer_ip_ranges` | the egress addresses of your Terraform Enterprise workers, for example `["203.0.113.10/32"]` (HCL) | When the composition creates the storage account or the vault. Their firewalls default to `Deny`, and Terraform writes the vault entries through them. For a test install, `storage_network_default_action` and `key_vault_network_default_action` set to `Allow` work instead. |
 | `create_role_assignments` | `false` | When your administrators make the role grants. |
@@ -296,12 +297,24 @@ Open the workspace **Outputs** tab:
 | --- | --- |
 | `autoheal_values` | The chart's infra values. `compositions/app` takes them as `infra_values`. |
 | `autoheal_values_yaml` | The same values as YAML. Save it as `values-infra.yaml` for a Helm or Flux install. |
-| `cluster` | The cluster name, resource group, endpoint and CA certificate. |
+| `cluster` | The cluster name, resource group, endpoint and CA certificate. For a brought cluster the endpoint and CA certificate are empty; the cluster workspace below outputs them. |
+| `federation` | For a brought cluster: the identities to federate. The cluster workspace below takes it. |
 | `required_role_assignments` | Grants your administrators must make. Empty when `create_role_assignments = true`. |
 | `required_dns_records` | DNS records a person must create. Empty when Terraform creates them. |
 | `network` | The VNet and subnet IDs and the address space, for peering, firewall rules or a VPN. |
 
 None of the outputs holds a secret.
+
+With a brought cluster (`existing_aks_cluster_id`), make a second workspace on
+`compositions/azure-cluster`, the same way as Steps 6 to 10. Set its `cluster`
+and `federation` variables (HCL) to the outputs of the same names above. Its
+identity needs Azure Kubernetes Service Cluster User Role on the cluster, which
+the `required_cluster_owner_actions` output lists for the cluster owner. When it
+is the same identity as this workspace's, it can already write the federated
+credentials. The run reads the cluster, makes one federated credential per
+chart service account, and outputs `cluster` with the endpoint and CA
+certificate. Run it before installing the chart: without the credentials the
+chart's pods cannot sign in to Key Vault.
 
 ### Step 12: Install the chart
 
@@ -319,9 +332,10 @@ calls through an LLM gateway, see "Optional: an LLM gateway" in
 
 You can also run `compositions/app` in a second workspace. It logs in to AKS
 with `kubelogin`, which the hosted workers do not have, so it needs a Terraform
-Enterprise agent with `kubelogin` installed. It also needs the `cluster` and
-`autoheal_values` outputs of the infra workspace as its `cluster` and
-`infra_values` inputs. This repository does not ship that wiring.
+Enterprise agent with `kubelogin` installed. It also needs the `autoheal_values`
+output of the infra workspace as its `infra_values` input, and the `cluster`
+output of the infra workspace, or of the cluster workspace for a brought
+cluster, as its `cluster` input. This repository does not ship that wiring.
 
 ---
 
@@ -348,3 +362,8 @@ The identity that Terraform Enterprise uses needs these rights:
 With a brought Key Vault and `create_role_assignments = false`, the identity also
 needs Key Vault Secrets Officer on that vault to write the entries. The vault
 owner grants it.
+
+With a brought cluster, the infra workspace needs no right on the cluster or its
+subscription. The cluster workspace needs Azure Kubernetes Service Cluster User
+Role on the cluster, and write on the federated credentials of the three
+workload identities, which the infra workspace's identity has.

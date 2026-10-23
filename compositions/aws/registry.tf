@@ -3,9 +3,9 @@
 #
 # With the pull-through cache, the first pull of an image copies it from
 # public.ecr.aws/e4h3h0d9 into a private repository under registry_repository_prefix;
-# later pulls are served from this account. The nodes and runner VMs pull with
-# their instance roles, which get the policy below. autoheal_values points the
-# chart's images at <registry host>/<prefix>/e4h3h0d9.
+# later pulls are served from this account. The nodes pull with their instance
+# role, which gets the policy below. autoheal_values points the chart's images
+# at <registry host>/<prefix>/e4h3h0d9.
 
 module "ecr" {
   source = "../../modules/aws/ecr"

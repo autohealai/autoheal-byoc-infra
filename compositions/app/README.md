@@ -16,17 +16,6 @@ Terraform install and a Helm or Flux install of the same files render the same
 manifests. The release is `atomic` with `wait` and a 1200 second timeout: a
 failed upgrade rolls back on its own.
 
-On the public path of `compositions/azure` (`cluster_network_path = "public"`)
-the runner VMs reach the cluster over the internet. Pass its
-`temporal_public_endpoint` output as `temporal_public_endpoint`, and
-`public-temporal.tf` creates two public load balancers on that static IP:
-Temporal on 7233 and the api-server-go tool-response listener on 8083. Both let
-in only the runner's NAT address (`loadBalancerSourceRanges`, with
-`externalTrafficPolicy: Local` to keep the client address), and a network
-policy for each admits that address only. The infra values turn off the
-chart's internal load balancers for the same two services. See
-`examples/azure/split-public/app`.
-
 This is the only composition with the `helm` and `kubernetes` providers. Keeping
 them out of the cloud compositions means the cluster does not have to exist when
 the infra folder is planned.
@@ -58,8 +47,8 @@ objects, so it needs no more than that. See `examples/azure/split/app`.
 
 ## AWS Load Balancer Controller
 
-On EKS the chart binds its Services to the NLB target groups that
-`compositions/aws` made, with `TargetGroupBinding` objects. The AWS Load
+In loadbalancer mode on EKS the chart binds the proxy Service to the edge NLB
+target groups that `compositions/aws` made, with `TargetGroupBinding` objects. The AWS Load
 Balancer Controller registers the pod IPs in them. With
 `aws_load_balancer_controller = { enabled = true }` this composition installs it
 first, in `kube-system`, as service account `aws-load-balancer-controller` (the
@@ -112,18 +101,21 @@ inputs = {
 }
 ```
 
+For an AKS cluster you bring, `compositions/azure` does not read the cluster,
+so its `cluster` output has no endpoint or CA certificate. Take `cluster` from
+`compositions/azure-cluster` instead, as `examples/azure/split/app` does.
+
 ## Inputs
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `cluster` | object | required | The infra composition's `cluster` output: `cloud` (azure or aws), `name`, `endpoint`, base64 `ca_certificate`, and `resource_group` (Azure) or `region` (required) and `vpc_id` (AWS). |
+| `cluster` | object | required | The infra composition's `cluster` output, or `compositions/azure-cluster`'s for an AKS cluster you bring: `cloud` (azure or aws), `name`, `endpoint`, base64 `ca_certificate`, and `resource_group` (Azure) or `region` (required) and `vpc_id` (AWS). |
 | `infra_values` | any | required | The infra composition's `autoheal_values` output. |
 | `customer_values` | string | `""` | Contents of `values-customer.yaml`. Merged after `infra_values`. |
-| `chart_version` | string | required | Chart version, e.g. `1.0.0`. Keep it equal to `autoheal_version` in the infra folder. |
+| `chart_version` | string | required | Chart version, e.g. `1.0.0`. |
 | `chart_repository` | string | `oci://public.ecr.aws/e4h3h0d9/charts` | OCI or HTTPS chart repository, or a local chart path. |
 | `namespace` | string | `autoheal` | Namespace for the release, created when missing unless `create_namespace = false`. Must match `service_accounts.namespace` in the infra folder. |
 | `create_namespace` | bool | `true` | Create the namespace when missing. Set `false` when the deployer has rights in that namespace only. |
-| `temporal_public_endpoint` | object | `null` | The infra composition's `temporal_public_endpoint` output (`ip`, `allowed_source_ranges`), set only on its public path. Creates the public Temporal and tool-response load balancers and their network policies. |
 | `release_name` | string | `autoheal` | Helm release name. |
 | `kubelogin_login_mode` | string | `azurecli` | `kubelogin --login` mode on AKS: `azurecli`, `workloadidentity`, `spn`, `msi`, `devicecode` or `interactive`. Ignored on AWS. |
 | `timeout` | number | `1200` | Seconds Helm waits for the release before it rolls back. |
@@ -147,5 +139,5 @@ terraform test
 
 `tests/app.tftest.hcl` plans against mocked `helm` and `kubernetes` providers:
 the login command per cloud, OCI, HTTPS and local charts, the values order, a
-namespace-only install, the public Temporal load balancers, the AWS Load
-Balancer Controller release, and the input checks.
+namespace-only install, the AWS Load Balancer Controller release, and the input
+checks.

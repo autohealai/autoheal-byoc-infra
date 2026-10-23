@@ -12,6 +12,11 @@ A deployment has two folders, each with its own state:
 2. **app**: `compositions/app` installs the Autoheal chart with those values and
    your `values-customer.yaml`.
 
+For an AKS cluster you bring, a third folder runs between the two:
+`compositions/azure-cluster` reads the cluster, federates the workload
+identities to it and outputs `cluster` for the app folder. The infra folder then
+needs no access to the cluster at all.
+
 Customers run compositions, never individual modules.
 
 ## Layout
@@ -19,11 +24,12 @@ Customers run compositions, never individual modules.
 ```
 modules/            Building blocks, one concern each.
   azure/            VNet, AKS, PostgreSQL Flexible, Managed Redis, Blob, Key Vault,
-                    ACR, DNS records, private endpoints, runner VMSS, identities.
+                    ACR, DNS records, private endpoints, identities.
   aws/              VPC, EKS, Aurora, ElastiCache, S3, KMS, Secrets Manager, ECR,
-                    Route 53 records, NLBs, runner ASG, Pod Identity roles.
+                    Route 53 records, NLBs, Pod Identity roles.
 compositions/       Full wiring, one per cloud, plus the app install.
   azure/            Create, bring or mix every Azure building block.
+  azure-cluster/    For an AKS cluster you bring: read it, federate the identities.
   aws/              Create, bring or mix every AWS building block.
   app/              The chart, on any cloud (helm_release), and the AWS Load
                     Balancer Controller on EKS.
@@ -42,7 +48,7 @@ README, or [docs/getting-started.md](docs/getting-started.md) step by step. Once
 the state storage account or bucket exists:
 
 ```bash
-cd prod/infra && terragrunt apply   # cloud resources, vault entries, DNS, runner
+cd prod/infra && terragrunt apply   # cloud resources, vault entries, DNS
 cd ../app     && terragrunt apply   # the chart
 ```
 
@@ -59,6 +65,6 @@ from `versions.hcl`:
 source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure?ref=v3.0.0"
 ```
 
-Upgrading from 1.x: see the upgrade notes in [CHANGELOG.md](CHANGELOG.md).
+Upgrading from 1.x or 3.x: see the upgrade notes in [CHANGELOG.md](CHANGELOG.md).
 [docs/MODULE_STANDARD.md](docs/MODULE_STANDARD.md) is the contributor contract
 (naming, provider pinning, docs, CI gates, the output contract).

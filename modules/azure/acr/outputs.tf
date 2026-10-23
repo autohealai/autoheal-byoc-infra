@@ -1,5 +1,5 @@
 output "acr_id" {
-  description = "Resource ID of the registry (grant AcrPull on this in aks / runner-vmss / workload-identity)."
+  description = "Resource ID of the registry (grant AcrPull on this in aks / workload-identity)."
   value       = azurerm_container_registry.this.id
 }
 

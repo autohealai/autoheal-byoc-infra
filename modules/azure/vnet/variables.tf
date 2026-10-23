@@ -8,7 +8,7 @@ variable "resource_group_name" {
 
 variable "location" {
   type        = string
-  description = "Azure region for the VNet and its NAT gateway."
+  description = "Azure region for the VNet."
 }
 
 variable "address_space" {
@@ -20,7 +20,7 @@ variable "address_space" {
 variable "subnet_aks_prefix" {
   type        = string
   default     = "10.60.0.0/20"
-  description = "Subnet for AKS nodes/pods (overlay CNI, so this only sizes nodes). Empty creates no AKS subnet and no NSG, for a VNet that holds only the runner, Postgres and private endpoints of a cluster in another VNet."
+  description = "Subnet for AKS nodes/pods (overlay CNI, so this only sizes nodes). Empty creates no AKS subnet, for a VNet that holds only Postgres and the private endpoints of a cluster in another VNet."
 }
 
 variable "subnet_db_prefix" {
@@ -33,29 +33,6 @@ variable "subnet_pe_prefix" {
   type        = string
   default     = "10.60.17.0/24"
   description = "Subnet for private endpoints (KV/Blob/Foundry when private). Empty creates none, when every service uses its public endpoint."
-}
-
-variable "subnet_runner_prefix" {
-  type        = string
-  default     = "10.60.19.0/24"
-  description = "Dedicated subnet for the runner VMSS (DooD job runners), isolated from AKS nodes."
-}
-
-variable "temporal_ip" {
-  type        = string
-  default     = ""
-  description = "Reserved internal address of the Temporal load balancer in the AKS subnet. The chart also puts the api-server-go internal listener (port 8083) on it. When set with an AKS subnet, an NSG on the AKS subnet lets only the runner subnet reach this address on ports 7233 and 8083. Empty creates no NSG."
-
-  validation {
-    condition     = var.temporal_ip == "" || can(cidrhost("${var.temporal_ip}/32", 0))
-    error_message = "temporal_ip must be empty or an IPv4 address."
-  }
-}
-
-variable "runner_nat_enabled" {
-  type        = bool
-  default     = true
-  description = "Create a NAT gateway for outbound egress on the runner subnet (the runner VMSS has no public IP)."
 }
 
 variable "pg_private_dns_zone_name" {

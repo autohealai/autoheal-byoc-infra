@@ -6,8 +6,6 @@
 #   - private: EKS control plane ENIs, nodes and pods. Default route to NAT.
 #   - data:    Aurora and ElastiCache (optional). Its route table has no internet
 #              route at all.
-#   - runner:  runner VMs (optional). Shares the private route table of its zone,
-#              so it egresses through the same NAT gateway.
 #
 # Route tables carry standalone aws_route resources (no inline routes), so a
 # caller can add its own routes (peering, transit gateway) without Terraform
@@ -34,7 +32,7 @@ locals {
 
   # kubernetes.io/cluster/<name>=shared marks the subnets as usable by that
   # cluster. Only the public and private tiers get it, so load balancers and
-  # nodes never land in the data or runner subnets.
+  # nodes never land in the data subnets.
   cluster_tag = var.cluster_name != "" ? { "kubernetes.io/cluster/${var.cluster_name}" = "shared" } : {}
 }
 
@@ -59,11 +57,6 @@ resource "aws_vpc" "this" {
     precondition {
       condition     = contains([0, local.az_count], length(var.data_subnet_cidrs))
       error_message = "data_subnet_cidrs must be empty or have one CIDR per availability zone (${local.az_count})."
-    }
-
-    precondition {
-      condition     = contains([0, local.az_count], length(var.runner_subnet_cidrs))
-      error_message = "runner_subnet_cidrs must be empty or have one CIDR per availability zone (${local.az_count})."
     }
   }
 }
@@ -122,18 +115,6 @@ resource "aws_subnet" "data" {
 
   tags = merge(module.this.tags, {
     Name = "${module.this.id}-data-${var.availability_zones[count.index]}"
-  })
-}
-
-resource "aws_subnet" "runner" {
-  count = length(var.runner_subnet_cidrs)
-
-  vpc_id            = aws_vpc.this.id
-  cidr_block        = var.runner_subnet_cidrs[count.index]
-  availability_zone = var.availability_zones[count.index]
-
-  tags = merge(module.this.tags, {
-    Name = "${module.this.id}-runner-${var.availability_zones[count.index]}"
   })
 }
 
@@ -213,13 +194,6 @@ resource "aws_route_table_association" "private" {
   count = local.az_count
 
   subnet_id      = aws_subnet.private[count.index].id
-  route_table_id = aws_route_table.private[count.index].id
-}
-
-resource "aws_route_table_association" "runner" {
-  count = length(var.runner_subnet_cidrs)
-
-  subnet_id      = aws_subnet.runner[count.index].id
   route_table_id = aws_route_table.private[count.index].id
 }
 

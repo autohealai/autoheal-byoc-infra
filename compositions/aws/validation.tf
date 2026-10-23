@@ -24,7 +24,7 @@ resource "terraform_data" "validate_inputs" {
     }
     precondition {
       condition     = !local.create_network || var.nat_gateway_mode != "none" || (var.private_endpoints_enabled && local.image_registry != "")
-      error_message = "nat_gateway_mode is none, so the VPC has no route to the internet. Set private_endpoints_enabled = true so the nodes reach the AWS APIs, and create_registry = true or existing_registry_url so they can pull images. The runner sandboxes then have no internet access."
+      error_message = "nat_gateway_mode is none, so the VPC has no route to the internet. Set private_endpoints_enabled = true so the nodes reach the AWS APIs, and create_registry = true or existing_registry_url so they can pull images."
     }
     precondition {
       condition     = local.create_postgres || nonsensitive(var.postgres_admin_password != "")

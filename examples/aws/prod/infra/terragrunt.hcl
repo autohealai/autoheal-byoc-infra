@@ -1,7 +1,7 @@
 # The cloud resources: VPC, EKS, Aurora PostgreSQL, ElastiCache, S3, KMS,
-# Secrets Manager, Pod Identity roles, the NLBs, the runner instances and the
-# DNS records. The source line reads the infra tag from versions.hcl, so this
-# file does not change on upgrade.
+# Secrets Manager, Pod Identity roles, the edge NLB and the DNS records. The
+# source line reads the infra tag from versions.hcl, so this file does not
+# change on upgrade.
 
 locals { v = read_terragrunt_config(find_in_parent_folders("versions.hcl")).locals }
 
@@ -14,11 +14,10 @@ terraform {
 }
 
 inputs = {
-  namespace        = "acme"
-  environment      = "prod"
-  account_id       = "111111111111"
-  region           = "us-west-2"
-  autoheal_version = local.v.chart_version # the runner instances pull app/runner-go:chart-<chart_version>
+  namespace   = "acme"
+  environment = "prod"
+  account_id  = "111111111111"
+  region      = "us-west-2"
 
   # We never create a hosted zone, only the records in it. If the zone is not
   # in Route 53 (Cloudflare, Infoblox), remove this line and set
@@ -35,9 +34,8 @@ inputs = {
   #
   # existing_network = {
   #   vpc_id             = "vpc-0123456789abcdef0"
-  #   private_subnet_ids = ["subnet-0aaaaaaaaaaaaaaa1", "subnet-0aaaaaaaaaaaaaaa2", "subnet-0aaaaaaaaaaaaaaa3"] # nodes, pods, internal NLBs
+  #   private_subnet_ids = ["subnet-0aaaaaaaaaaaaaaa1", "subnet-0aaaaaaaaaaaaaaa2", "subnet-0aaaaaaaaaaaaaaa3"] # nodes, pods, an internal edge NLB
   #   data_subnet_ids    = ["subnet-0bbbbbbbbbbbbbbb1", "subnet-0bbbbbbbbbbbbbbb2", "subnet-0bbbbbbbbbbbbbbb3"] # Aurora and ElastiCache we create; empty means private_subnet_ids
-  #   runner_subnet_ids  = []                                                                                    # runner instances; empty means private_subnet_ids
   #   # node_security_group_id = "sg-0123456789abcdef0" # when the nodes do not use the cluster security group
   # }
   #
@@ -78,7 +76,6 @@ inputs = {
   eks_node_instance_types = ["m7i.xlarge"]
   eks_node_count          = 3
   postgres_instance_class = "db.r7g.large"
-  runner_node_count       = 2
 
   # The name users open in a browser. Terraform creates its DNS record and passes
   # it to the app. Login is at auth.autoheal.acme.example and auth-app at

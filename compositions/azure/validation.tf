@@ -12,11 +12,7 @@ resource "terraform_data" "validate_inputs" {
   lifecycle {
     precondition {
       condition     = local.create_cluster || !local.create_network
-      error_message = "existing_aks_cluster_id is set but existing_network is not. A brought cluster already sits in a network: set existing_network to its AKS subnet, a runner subnet and the reserved temporal_ip."
-    }
-    precondition {
-      condition     = local.create_vnet || try(var.existing_network.runner_subnet_id, "") != ""
-      error_message = "existing_network.runner_subnet_id is required: a subnet for the runner VMs. Only for a cluster in another subscription, with the runner, Postgres and endpoint subnets all empty, do we create a VNet for them."
+      error_message = "existing_aks_cluster_id is set but existing_network is not. A brought cluster already sits in a network: set existing_network to its AKS subnet."
     }
     precondition {
       condition     = local.create_vnet || local.public_path || !local.create_postgres || try(var.existing_network.postgres_subnet_id, "") != ""
@@ -25,10 +21,6 @@ resource "terraform_data" "validate_inputs" {
     precondition {
       condition     = local.create_network || var.edge_mode != "loadbalancer" || try(var.existing_network.proxy_ip, "") != ""
       error_message = "edge_mode is loadbalancer in a brought network, so existing_network.proxy_ip is required: a free address in the AKS subnet for the proxy's internal load balancer."
-    }
-    precondition {
-      condition     = local.proxy_ip == "" || local.proxy_ip != local.temporal_ip || local.proxy_shares_temporal_ip
-      error_message = "existing_network.temporal_ip and existing_network.proxy_ip must be different addresses. Only a public proxy (edge_exposure = public) on cluster_network_path = public may share the public Temporal address."
     }
     precondition {
       condition     = var.edge_exposure == "internal" || var.edge_mode == "loadbalancer"
@@ -71,9 +63,10 @@ resource "terraform_data" "validate_inputs" {
 
 # --- Subscriptions -------------------------------------------------------------
 
-# We create everything in subscription_id and read the brought cluster and its
-# AKS subnet in the cluster's subscription. Every other brought ID is read
-# through subscription_id by resource group and name, so it must be there.
+# We create everything in subscription_id. The brought cluster and its AKS
+# subnet are in the cluster's subscription, which this composition never reads.
+# Every other brought ID is read through subscription_id by resource group and
+# name, so it must be there.
 locals {
   subscription_of = {
     for k, id in merge(
@@ -89,7 +82,6 @@ locals {
       },
       var.existing_network == null ? {} : {
         "existing_network.aks_subnet_id"      = var.existing_network.aks_subnet_id
-        "existing_network.runner_subnet_id"   = var.existing_network.runner_subnet_id
         "existing_network.postgres_subnet_id" = var.existing_network.postgres_subnet_id
         "existing_network.endpoint_subnet_id" = var.existing_network.endpoint_subnet_id
       },
@@ -100,7 +92,7 @@ locals {
   # against the cluster's subscription instead, and the DNS zone only when we
   # write records into it.
   subnets_outside = [
-    for k in ["existing_network.runner_subnet_id", "existing_network.postgres_subnet_id", "existing_network.endpoint_subnet_id"] : k
+    for k in ["existing_network.postgres_subnet_id", "existing_network.endpoint_subnet_id"] : k
     if lookup(local.subscription_of, k, lower(var.subscription_id)) != lower(var.subscription_id)
   ]
   resources_outside = [
@@ -117,7 +109,7 @@ resource "terraform_data" "validate_subscriptions" {
     }
     precondition {
       condition     = length(local.subnets_outside) == 0
-      error_message = "${join(", ", local.subnets_outside)} must be in subscription_id (${var.subscription_id}): Azure puts a private endpoint, a Postgres delegated subnet and a VM network interface in the subscription of their VNet. Use subnets in that subscription. For a cluster in another subscription, leave the runner, Postgres and endpoint subnets empty and we create a VNet for them from network_cidr."
+      error_message = "${join(", ", local.subnets_outside)} must be in subscription_id (${var.subscription_id}): Azure puts a private endpoint and a Postgres delegated subnet in the subscription of their VNet. Use subnets in that subscription. For a cluster in another subscription, leave the Postgres and endpoint subnets empty and we create a VNet for them from network_cidr."
     }
     precondition {
       condition     = length(local.resources_outside) == 0
@@ -133,11 +125,7 @@ resource "terraform_data" "validate_subscriptions" {
 # --- The public path ------------------------------------------------------------
 
 locals {
-  # RFC 1918 ranges, which cannot be the public Temporal or proxy address.
-  temporal_ip_private = anytrue([
-    for r in ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"] :
-    cidrhost("${local.temporal_ip}/${split("/", r)[1]}", 0) == split("/", r)[0]
-  ])
+  # Whether the proxy address is in an RFC 1918 range, so cannot be a public IP.
   # A conditional, not &&: Terraform evaluates both sides of &&, and cidrhost
   # fails on an empty address.
   proxy_ip_private = local.proxy_ip == "" ? false : anytrue([
@@ -160,41 +148,30 @@ resource "terraform_data" "validate_public_path" {
     }
     precondition {
       condition     = !local.brought_workload_subnets
-      error_message = "cluster_network_path = \"public\": leave existing_network.runner_subnet_id, postgres_subnet_id and endpoint_subnet_id empty. We create the runner's VNet with a NAT gateway, and the cluster's load balancers let in only that NAT address."
-    }
-    precondition {
-      condition     = !local.temporal_ip_private
-      error_message = "cluster_network_path = \"public\": existing_network.temporal_ip (${local.temporal_ip}) must be the Standard static public IP for Temporal in the cluster's node resource group, not a private address."
+      error_message = "cluster_network_path = \"public\": leave existing_network.postgres_subnet_id and endpoint_subnet_id empty. They are not used on the public path: pods reach Postgres, Redis, storage and the vaults over their public endpoints."
     }
   }
 }
 
-# --- Reserved addresses inside a brought AKS subnet --------------------------
+# --- The reserved address inside a brought AKS subnet ------------------------
 
+# Only for a cluster we create in a brought network. The AKS subnet of a brought
+# cluster is not read here, so the address is not checked.
 locals {
-  brought_aks_prefix = local.create_network ? "" : try(data.azurerm_subnet.aks[0].address_prefixes[0], "")
+  brought_aks_prefix = local.create_cluster && !local.create_network ? try(data.azurerm_subnet.aks[0].address_prefixes[0], "") : ""
   brought_aks_bits   = local.brought_aks_prefix == "" ? "" : split("/", local.brought_aks_prefix)[1]
 
   # An address is in the subnet when the network address of address/prefix equals
   # the subnet's network address. (cidrcontains needs Terraform 1.8.)
-  # On the public path the Temporal address is a public IP, not in the subnet.
-  temporal_ip_in_subnet = local.brought_aks_prefix == "" || local.public_path ? true : (
-    cidrhost(local.brought_aks_prefix, 0) == cidrhost("${local.temporal_ip}/${local.brought_aks_bits}", 0)
-  )
-  # A public proxy address is a public IP, not in the subnet.
-  proxy_ip_in_subnet = local.brought_aks_prefix == "" || local.proxy_ip == "" || local.public_edge ? true : (
+  proxy_ip_in_subnet = local.brought_aks_prefix == "" || local.proxy_ip == "" ? true : (
     cidrhost(local.brought_aks_prefix, 0) == cidrhost("${local.proxy_ip}/${local.brought_aks_bits}", 0)
   )
 }
 
 resource "terraform_data" "validate_addresses" {
-  count = local.create_network ? 0 : 1
+  count = local.create_cluster && !local.create_network ? 1 : 0
 
   lifecycle {
-    precondition {
-      condition     = local.temporal_ip_in_subnet
-      error_message = "existing_network.temporal_ip (${local.temporal_ip}) is not inside the AKS subnet (${local.brought_aks_prefix}). Pick a free address in that subnet."
-    }
     precondition {
       condition     = local.proxy_ip_in_subnet
       error_message = "existing_network.proxy_ip (${local.proxy_ip}) is not inside the AKS subnet (${local.brought_aks_prefix}). Pick a free address in that subnet."
@@ -285,23 +262,6 @@ resource "terraform_data" "storage_hns_guard" {
     precondition {
       condition     = try(data.azurerm_storage_account.existing[0].is_hns_enabled, false) != true
       error_message = "Storage account ${local.existing.storage.name} has hierarchical namespace on (ADLS Gen2). Autoheal needs a flat namespace. Use an account with hierarchical namespace off."
-    }
-  }
-}
-
-# The chart mounts the vault with the CSI driver add-on and authenticates with
-# workload identity, which needs the OIDC issuer.
-resource "terraform_data" "cluster_guard" {
-  count = local.create_cluster ? 0 : 1
-
-  lifecycle {
-    precondition {
-      condition     = try(data.azurerm_kubernetes_cluster.existing[0].oidc_issuer_enabled, true) != false
-      error_message = "AKS cluster ${local.existing.aks.name} has no OIDC issuer. Turn it on, with workload identity: az aks update --enable-oidc-issuer --enable-workload-identity."
-    }
-    precondition {
-      condition     = length(try(data.azurerm_kubernetes_cluster.existing[0].key_vault_secrets_provider, [{}])) > 0
-      error_message = "AKS cluster ${local.existing.aks.name} does not have the Key Vault secrets provider add-on. Turn it on: az aks enable-addons --addons azure-keyvault-secrets-provider."
     }
   }
 }

@@ -1,9 +1,8 @@
 # Autoheal BYOC — Azure Container Registry
 
 Container registry for BYOC images in a BYOC-on-AKS Autoheal install. Pulls are
-keyless via managed identity (AcrPull granted to the AKS kubelet identity and the
-runner identity), so admin access stays disabled and no static registry
-credentials exist.
+keyless via managed identity (AcrPull granted to the AKS kubelet identity), so
+admin access stays disabled and no static registry credentials exist.
 
 The AWS analogue is `modules/aws/ecr`. Registry names reject dashes and allow 5-50
 alphanumeric chars, so the module derives a sanitized name from the label id
@@ -62,7 +61,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 
 | Name | Description |
 |------|-------------|
-| <a name="output_acr_id"></a> [acr\_id](#output\_acr\_id) | Resource ID of the registry (grant AcrPull on this in aks / runner-vmss / workload-identity). |
+| <a name="output_acr_id"></a> [acr\_id](#output\_acr\_id) | Resource ID of the registry (grant AcrPull on this in aks / workload-identity). |
 | <a name="output_acr_name"></a> [acr\_name](#output\_acr\_name) | Registry name (for `az acr login -n`). |
 | <a name="output_login_server"></a> [login\_server](#output\_login\_server) | Registry login server (e.g. crautohealplay.azurecr.io). Maps to the cross-cloud output contract 'registry'. |
 <!-- END_TF_DOCS -->

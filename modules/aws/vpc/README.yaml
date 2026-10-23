@@ -3,9 +3,8 @@ title: Autoheal BYOC - AWS VPC
 description: |-
   VPC for a BYOC-on-EKS Autoheal install, spread over 2 to 6 availability zones
   with one subnet per zone in each tier: public (NAT gateways and internet-facing
-  load balancers), private (EKS nodes and pods), and optional data (Aurora and
-  ElastiCache, no internet route) and runner (runner VMs, egress through NAT)
-  tiers.
+  load balancers), private (EKS nodes and pods), and an optional data tier
+  (Aurora and ElastiCache, no internet route).
 
   NAT gateways run one per zone, one in total, or not at all. An S3 gateway
   endpoint and any interface endpoints keep AWS API traffic inside the VPC.

@@ -62,7 +62,7 @@ One semver version for the whole repo. Pin a release tag; the examples read it
 from `versions.hcl`:
 
 ```hcl
-source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure?ref=v3.0.0"
+source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure?ref=v4.0.0"
 ```
 
 Upgrading from 1.x or 3.x: see the upgrade notes in [CHANGELOG.md](CHANGELOG.md).

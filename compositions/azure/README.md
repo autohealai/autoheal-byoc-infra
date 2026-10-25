@@ -294,7 +294,7 @@ its default. Delete the runner inputs (`autoheal_version`, `runner_*`); the old
 `existing_network.runner_subnet_id` and `temporal_ip` are ignored. Apply in
 this order:
 
-1. `compositions/app` with the first chart after 1.0.0-rc.10, still on the 3.x
+1. `compositions/app` with chart 1.0.0-rc.11 or later, still on the 3.x
    infra values. Its defaults turn the runner load balancers and sandboxes off.
 2. This composition.
 3. For a brought cluster, `compositions/azure-cluster`.

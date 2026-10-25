@@ -7,7 +7,7 @@ subscription**). The two VNets are not connected. The data services use public
 endpoints with firewalls, and users and webhooks reach Autoheal on a public IP.
 [The one-pager](azure-two-subscriptions-public.md) explains the layout, and
 [the comparison](azure-subscription-options.md) shows its limits. The runbook
-uses autoheal-byoc-infra **v3.0.0**.
+uses autoheal-byoc-infra **v4.0.0**.
 
 The runbook has two roles. One person can do both:
 
@@ -574,7 +574,7 @@ files that are there already, so it does not overwrite your edits:
 
 ```bash
 mkdir -p "$WORK_DIR" && cd "$WORK_DIR"
-[ -d autoheal-byoc-infra ] || git clone --branch v3.0.0 https://github.com/autohealai/autoheal-byoc-infra.git
+[ -d autoheal-byoc-infra ] || git clone --branch v4.0.0 https://github.com/autohealai/autoheal-byoc-infra.git
 mkdir -p acme-autoheal
 [ -e acme-autoheal/root.hcl ] || cp autoheal-byoc-infra/examples/azure/root.hcl acme-autoheal/
 [ -e acme-autoheal/prod ] || cp -R autoheal-byoc-infra/examples/azure/split-public acme-autoheal/prod
@@ -619,7 +619,7 @@ az role assignment create --assignee "$APP_ID" --role "User Access Administrator
 Part B in [terraform-enterprise.md](terraform-enterprise.md):
 
 - Make the workspace `autoheal-infra-prod`, with the Terraform working
-  directory `compositions/azure`, on a branch of your copy at the tag v3.0.0. Set the workspace Terraform version to 1.7 or later.
+  directory `compositions/azure`, on a branch of your copy at the tag v4.0.0. Set the workspace Terraform version to 1.7 or later.
 - Add the four environment variables for the sign-in. `ARM_SUBSCRIPTION_ID`
   is `$DATA_SUB`. The composition does not read the cluster, so this workspace
   needs no access to the cluster subscription.
@@ -1301,7 +1301,7 @@ Set the two new numbers in `versions.hcl`, then apply step 9a, step 10 and
 step 11b again. The three `source` lines follow `infra_version`:
 
 ```bash
-export NEW_INFRA_VERSION="<new autoheal-byoc-infra version, for example 3.0.0>"
+export NEW_INFRA_VERSION="<new autoheal-byoc-infra version, for example 4.0.0>"
 export NEW_CHART_VERSION="<new chart version>"
 cd "$WORK_DIR/acme-autoheal/prod"
 perl -pi -e 's/^(\s*infra_version\s*=\s*)"[^"]*"/$1"$ENV{NEW_INFRA_VERSION}"/;

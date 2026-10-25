@@ -6,12 +6,14 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-10-24
+
 Breaking: 4.0.0. This repository no longer creates the sandbox runner, on
 Azure or AWS. The runner VMs, the reserved Temporal address and everything that
 existed only for them are gone. Sandboxes do not run on an install from this
 release until a runner runs elsewhere.
 
-Needs: the first autoheal chart after 1.0.0-rc.10. It turns
+Needs: autoheal chart 1.0.0-rc.11 or later. It turns
 `temporalFrontendLoadBalancer` and `toolResponseLoadBalancer` off by default and
 adds `global.sandbox.enabled`, off by default. Chart 1.0.0-rc.10 and older
 refuse the 4.0.0 infra values: they require `temporal.internalIP` on Azure, and

@@ -256,7 +256,7 @@ run "loadbalancer_defaults" {
       "postgres-admin-password", "api-server-db-password", "agents-db-password", "temporal-db-password",
       "zitadel-db-password", "api-server-database-url", "api-server-jwt-secret", "zitadel-master-key",
       "auth-app-session-secret", "first-admin-password", "oauth-encryption-key", "oauth-state-signing-key",
-      "tool-response-server-secret", "redis-access-key", "api-server-redis-url",
+      "tool-response-server-secret", "runner-token", "redis-access-key", "api-server-redis-url",
     ])
     error_message = "The default vault entries are written."
   }
@@ -269,6 +269,13 @@ run "loadbalancer_defaults" {
   assert {
     condition     = random_password.tool_response_server_secret.length >= 48 && !random_password.tool_response_server_secret.special
     error_message = "The tool response secret must be 48+ letters and digits."
+  }
+
+  # The chart's proxy refuses a runner key that is shorter than 32 or has
+  # anything but letters and digits.
+  assert {
+    condition     = random_password.runner_token.length >= 32 && !random_password.runner_token.special
+    error_message = "The runner key must be 32+ letters and digits."
   }
 
   # Only the chart's hook service account reads the vault.

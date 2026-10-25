@@ -17,8 +17,9 @@
 #                              only for a brought cluster
 #   network                    the VNet and subnets Autoheal runs in, created or
 #                              brought
+#   runner_token               the runner key, for compositions/azure-runner
 #
-# None of them holds a secret.
+# Only runner_token holds a secret, and it is marked sensitive.
 
 output "autoheal_values" {
   description = "Infra values for the Autoheal chart (global.infra facts, suggestions, and the Temporal and Zitadel copies). Pass to compositions/app as infra_values."
@@ -91,4 +92,10 @@ output "network" {
     aks_subnet_id              = local.aks_subnet_id
     private_endpoint_subnet_id = local.endpoint_subnet_id
   }
+}
+
+output "runner_token" {
+  description = "The runner key, also in the vault entry runner-token: the key a runner outside the cluster sends as TEMPORAL_TOKEN when the chart's global.edge.runner.host is set. Pass it to compositions/azure-runner as temporal_token. Sensitive: shown only with terraform output -raw runner_token."
+  value       = random_password.runner_token.result
+  sensitive   = true
 }

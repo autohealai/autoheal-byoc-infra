@@ -195,6 +195,7 @@ through the Key Vault CSI driver. No service pod mounts the vault, so
 | `oauth-encryption-key` | Generated: base64 of 32 random bytes, an AES-256 key for api-server-go |
 | `oauth-state-signing-key` | Generated: base64 of 32 random bytes |
 | `tool-response-server-secret` | Generated: 64 letters and digits |
+| `runner-token` | Generated: 64 letters and digits. The key a runner outside the cluster sends to reach Temporal through the edge; the chart reads it only when `global.edge.runner.host` is set. Also the `runner_token` output. |
 | `redis-access-key`, `api-server-redis-url` | Read from Redis, when there is one. The URL is `rediss://:<key>@<host>:<port>/0`. |
 | `llm-api-key` | `llm_api_key`, when set. Not read when the chart's LLM gateway is on. |
 | `gateway-api-key` | `llm_gateway_api_key`, when set. The key of the customer's LLM gateway (`global.llm.gateway` in the chart). Needed for every gateway kind except `custom`; for a gateway that ignores it, such as Portkey OSS, any value. |
@@ -251,6 +252,7 @@ registry the chart pulls from `public.ecr.aws/e4h3h0d9`.
 | `required_dns_records` | Records for a person to create (`name`, `type`, `value`), filled when we do not create them. |
 | `required_cluster_owner_actions` | What the owner of a brought cluster does, as readable lines. Filled when `existing_aks_cluster_id` is set; the network path and DNS lines only for a cluster in another subscription, and the static IP, service endpoint and outbound address lines only on the public path. |
 | `network` | `vnet_id`, `vnet_name`, `resource_group_name`, `address_space` (the VNet of Postgres and the private endpoints, empty on the public path), `cluster_vnet_id` (the AKS subnet's VNet, the same VNet unless the cluster is in another subscription), `aks_subnet_id`, `private_endpoint_subnet_id`. For a brought VNet the VNet is not read, so `address_space` is empty. |
+| `runner_token` | Sensitive. The runner key in the vault entry `runner-token`. Pass it to `compositions/azure-runner` as `temporal_token`. |
 
 `autoheal_values` keys:
 
@@ -281,7 +283,13 @@ zitadel.image.repository, zitadel.login.image.repository   the same
 zitadel.imageRegistry                                      copy of the login server, with a registry
 ```
 
-None of the outputs holds a secret.
+Only `runner_token` holds a secret, and it is marked sensitive.
+
+## Upgrading from 4.0.x
+
+4.1.0 adds the vault entry `runner-token` and the `runner_token` output: the
+apply adds two resources and changes nothing else. A runner outside the cluster
+is now `compositions/azure-runner`; see its README.
 
 ## Upgrading from 3.x
 

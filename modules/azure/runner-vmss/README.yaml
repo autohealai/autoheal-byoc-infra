@@ -1,0 +1,40 @@
+name: azure/runner-vmss
+title: Autoheal BYOC - Azure runner VMSS
+description: |-
+  VMSS that runs the runner-go worker as a container (Docker-out-of-Docker) in the
+  runner subnet, polling Temporal's runners namespace at temporal_host. The AWS
+  analogue is the EKS EC2/ASG runner. No public IP: egress is via the runner
+  subnet's NAT gateway (compositions/azure-runner). The user-assigned identity
+  can be granted AcrPull; when acr_name is set, cloud-init also installs the
+  Azure CLI and refreshes the ACR login hourly. runner-go pulls the sandbox image
+  through the Docker API, which does not use the host's login, so each refresh
+  also writes a login file in the form runner-go reads. With public images none
+  of this runs.
+
+  compositions/azure-runner creates it as its own step, after the app:
+  temporal_host is the chart's runner host on 443, reached through the edge
+  over TLS (temporal_tls) with the runner key (temporal_token), or the
+  private address of the chart's runner load balancers with TLS off. The runner
+  retries until Temporal answers. temporal_ca_certificate adds a private CA to
+  the trust store runner-go reads. The key sits in /opt/runner-go/config.env,
+  readable by root only, and runner-go's lambda drivers are off
+  (DISABLED_DRIVERS), since a lambda would run with that environment. Before
+  each start the systemd unit blocks containers, sandboxes included, from the
+  instance metadata service, so only the host uses the VM's identity, then pulls
+  runner_image and retries with a backoff (15 seconds, doubling up to 5 minutes) until the
+  pull succeeds, so the image may be pushed to a new registry after the apply
+  without reimaging the VMs. tool_response_callback_url sets
+  SANDBOX_TOOL_RESPONSE_CALLBACK_URL; empty sends sandbox tool results through
+  Temporal. Naming and tags follow the repo's null-label convention (see
+  label.tf and docs/MODULE_STANDARD.md).
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: compositions/azure-runner (creates snet-runner + NAT egress)
+    url: ../../../compositions/azure-runner
+  - name: ACR (the runner identity gets AcrPull)
+    url: ../acr

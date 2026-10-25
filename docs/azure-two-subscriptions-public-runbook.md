@@ -7,13 +7,13 @@ subscription**). The two VNets are not connected. The data services use public
 endpoints with firewalls, and users and webhooks reach Autoheal on a public IP.
 [The one-pager](azure-two-subscriptions-public.md) explains the layout, and
 [the comparison](azure-subscription-options.md) shows its limits. The runbook
-uses autoheal-byoc-infra **v4.0.0**.
+uses autoheal-byoc-infra **v4.1.0**.
 
 The runbook has two roles. One person can do both:
 
 - The **cluster owner** prepares the cluster (steps 1 to 6) and adds the
   storage network rule (step 9c).
-- The **deployer** runs Terraform (steps 7 to 9b and steps 10 to 13). The infra
+- The **deployer** runs Terraform (steps 7 to 9b and steps 10 to 14). The infra
   apply of step 9a works in the data subscription only and does not read the
   cluster. Step 10 reads the cluster and connects the Autoheal identities to it.
 
@@ -65,6 +65,14 @@ The runbook has two roles. One person can do both:
   - [12f. Check the model calls](#12f-check-the-model-calls): [Azure OpenAI](#12f-azure-openai), [Portkey](#12f-portkey)
 - [Step 13 (optional): Turn on single sign-on](#step-13-optional-turn-on-single-sign-on)
   - [13a. Add your identity provider](#13a-add-your-identity-provider)
+- [Step 14 (optional): Add the sandbox runner](#step-14-optional-add-the-sandbox-runner)
+  - [14a. Make the DNS record for the runner host](#14a-make-the-dns-record-for-the-runner-host)
+  - [14b. Check the certificate](#14b-check-the-certificate)
+  - [14c. Turn on the runner route](#14c-turn-on-the-runner-route)
+  - [14d. Make the runner](#14d-make-the-runner): [Terragrunt](#14d-terragrunt), [Terraform Enterprise](#14d-terraform-enterprise)
+  - [14e. Check that the runner polls](#14e-check-that-the-runner-polls)
+  - [14f. Turn on sandboxes](#14f-turn-on-sandboxes)
+  - [14g. Change the runner key](#14g-change-the-runner-key)
 - [Resume in a new shell](#resume-in-a-new-shell)
 - [Troubleshooting](#troubleshooting)
 - [Upgrade](#upgrade): [Terragrunt](#upgrade-with-terragrunt), [Terraform Enterprise](#upgrade-with-terraform-enterprise), [from 3.x](#upgrade-from-3x)
@@ -78,6 +86,7 @@ The runbook has two roles. One person can do both:
   - [The namespace holds another install](#the-namespace-holds-another-install)
   - [Other outbound types](#other-outbound-types)
   - [Keep Autoheal private](#keep-autoheal-private)
+  - [A shared Istio gateway](#a-shared-istio-gateway)
   - [A Portkey gateway](#a-portkey-gateway)
   - [Get a TLS certificate](#get-a-tls-certificate)
   - [A certificate from a private CA](#a-certificate-from-a-private-ca)
@@ -119,6 +128,7 @@ option and skip the others. Sub-step 8d has one part for each pair of options.
 | 11: install the application          | 10 min                                | 10 to 20 min                                   |
 | 12: check                            | 10 min                                |                                                |
 | 13 (optional): single sign-on        | 20 min                                |                                                |
+| 14 (optional): sandbox runner        | 20 min                                | 10 to 20 min                                   |
 
 These times are estimates. Plan half a day for a first install.
 
@@ -146,6 +156,8 @@ You must have:
   running gateway, and its API key or config.
 - A TLS certificate, with its private key, that covers `hostname`,
   `auth.<hostname>` and `auth-app.<hostname>`. The Autoheal proxy serves it.
+  For the sandbox runner of step 14 it must cover `runner.<hostname>` too. A
+  certificate for `hostname` and `*.<hostname>` covers all four.
   [Get a TLS certificate](#get-a-tls-certificate) shows how to make one.
 
 Install these tools:
@@ -574,7 +586,7 @@ files that are there already, so it does not overwrite your edits:
 
 ```bash
 mkdir -p "$WORK_DIR" && cd "$WORK_DIR"
-[ -d autoheal-byoc-infra ] || git clone --branch v4.0.0 https://github.com/autohealai/autoheal-byoc-infra.git
+[ -d autoheal-byoc-infra ] || git clone --branch v4.1.0 https://github.com/autohealai/autoheal-byoc-infra.git
 mkdir -p acme-autoheal
 [ -e acme-autoheal/root.hcl ] || cp autoheal-byoc-infra/examples/azure/root.hcl acme-autoheal/
 [ -e acme-autoheal/prod ] || cp -R autoheal-byoc-infra/examples/azure/split-public acme-autoheal/prod
@@ -619,7 +631,7 @@ az role assignment create --assignee "$APP_ID" --role "User Access Administrator
 Part B in [terraform-enterprise.md](terraform-enterprise.md):
 
 - Make the workspace `autoheal-infra-prod`, with the Terraform working
-  directory `compositions/azure`, on a branch of your copy at the tag v4.0.0. Set the workspace Terraform version to 1.7 or later.
+  directory `compositions/azure`, on a branch of your copy at the tag v4.1.0. Set the workspace Terraform version to 1.7 or later.
 - Add the four environment variables for the sign-in. `ARM_SUBSCRIPTION_ID`
   is `$DATA_SUB`. The composition does not read the cluster, so this workspace
   needs no access to the cluster subscription.
@@ -1095,7 +1107,7 @@ with Helm. Helm signs in as you, with the access from step 4:
 ```bash
 cd "$WORK_DIR"
 helm upgrade --install autoheal oci://public.ecr.aws/e4h3h0d9/charts/autoheal \
-  --version 1.0.0-rc.8 -n "$K8S_NAMESPACE" \
+  --version 1.0.0-rc.12 -n "$K8S_NAMESPACE" \
   -f values-infra.yaml -f "$VALUES_FILE" --atomic --wait --timeout 20m
 ```
 
@@ -1218,6 +1230,275 @@ Autoheal uses for sign-in.
 
 Users then sign in to `https://$AUTOHEAL_HOSTNAME` with your identity provider.
 
+## Step 14 (optional): Add the sandbox runner
+
+Sandboxes are where the agents run commands: shell commands, git and skill
+scripts. Without them the agents answer and call your integrations, but run no
+commands. Sandboxes run on runner VMs outside the cluster, in the data
+subscription. A runner VM reaches Temporal, the workflow engine in the cluster,
+through the same proxy as your users, on a hostname of its own,
+`runner.$AUTOHEAL_HOSTNAME`. It dials out on TCP 443 over TLS and sends a key
+with each call. The proxy passes a call on to Temporal only when it carries the
+key, and answers 401 to anything else. Nothing connects in to the runner.
+
+This step needs autoheal-byoc-infra 4.1.0 or later and chart 1.0.0-rc.12 or
+later. For an install on 4.0.x, do [Upgrade](#upgrade) first: the infra plan
+adds two resources, the runner key and its vault entry `runner-token`.
+
+The deployer does every sub-step. The DNS records are for whoever owns the
+zone, as in step 9b. With a shared Istio gateway instead of `$PROXY_IP`, see
+[A shared Istio gateway](#a-shared-istio-gateway) for 14a and 14b.
+
+### 14a. Make the DNS record for the runner host
+
+Terraform does not make this record, even with `DNS_ZONE_ID`. Make one A
+record, `$RUNNER_HOST`, with the value `$PROXY_IP`, as in step 9b:
+
+```bash
+export RUNNER_HOST="runner.$AUTOHEAL_HOSTNAME"
+check_values RUNNER_HOST PROXY_IP
+```
+
+In an Azure DNS zone:
+
+```bash
+export RECORDS_ZONE_ID="${DNS_ZONE_ID:-<ID of the Azure DNS zone that holds AUTOHEAL_HOSTNAME>}"
+export ZONE_SUB=$(echo "$RECORDS_ZONE_ID" | cut -d/ -f3) ZONE_RG=$(echo "$RECORDS_ZONE_ID" | cut -d/ -f5) \
+  ZONE_NAME=$(echo "$RECORDS_ZONE_ID" | cut -d/ -f9)
+az network dns record-set a add-record --subscription "$ZONE_SUB" -g "$ZONE_RG" -z "$ZONE_NAME" \
+  -n "${RUNNER_HOST%.$ZONE_NAME}" -a "$PROXY_IP" -o none
+```
+
+Outside Azure, make the record by hand in your DNS provider, DNS only, as in
+step 9b. Then check that the name shows `$PROXY_IP`:
+
+```bash
+dig +short A "$RUNNER_HOST" @1.1.1.1
+```
+
+### 14b. Check the certificate
+
+The proxy serves the certificate of step 8d for the runner host too, so it must
+cover `$RUNNER_HOST`. A wildcard for `*.$AUTOHEAL_HOSTNAME` covers it. This
+shows the names in the certificate:
+
+```bash
+openssl x509 -in "$TLS_CERT_FILE" -noout -text | grep -A1 'Subject Alternative Name'
+```
+
+When it shows neither `$RUNNER_HOST` nor `*.$AUTOHEAL_HOSTNAME`, get a new
+certificate that does ([Get a TLS certificate](#get-a-tls-certificate)), set
+`tls_certificate` again as in step 8d, and apply step 9a.
+
+### 14c. Turn on the runner route
+
+Add the runner host under `edge` in your chart settings. Sandboxes stay off
+until step 14f:
+
+```bash
+check_values VALUES_FILE RUNNER_HOST
+grep -q '^    runner:' "$VALUES_FILE" ||
+  perl -0pi -e 's/^(  edge:\n)/$1    runner:\n      host: $ENV{RUNNER_HOST}\n/m' "$VALUES_FILE"
+grep -n -A1 '^    runner:' "$VALUES_FILE" ||
+  echo "STOP: no runner under edge in $VALUES_FILE"
+```
+
+It must show `runner:` and `host: <your runner host>`. On `STOP`, the file has
+no `edge:` line indented by two spaces under `global:`: add the two lines under
+`edge:` by hand.
+
+Then install the chart again, as in step 11b. The proxy now answers on the
+runner host. Without the key it must show `401`:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' "https://$RUNNER_HOST"
+```
+
+`404` means the chart runs without the runner host: check `$VALUES_FILE` and
+step 11b. A timeout means the DNS record of step 14a or the NSG rule of step
+5b.
+
+### 14d. Make the runner
+
+The runner gets its own VNet in the data subscription, from `10.61.0.0/24`,
+with a NAT gateway for its outbound traffic. It reaches `$PROXY_IP` over the
+internet, so no VNet connection is needed. The VMs pull
+`runner-go:chart-<chart_version>` from the public registry.
+
+When step 5b let in only some sources, the cluster owner adds the runner's
+outbound address to the rule after this apply: the `egress_ip` output. When a
+private CA signed the certificate, the runner needs the CA: the commands below
+copy it from `TF_VAR_edge_ca_certificate`.
+
+#### 14d: Terragrunt
+
+Copy the runner folder of the release, set your values in it, then apply:
+
+```bash
+git -C "$WORK_DIR/autoheal-byoc-infra" fetch --tags
+git -C "$WORK_DIR/autoheal-byoc-infra" checkout "v$(sed -n 's/.*infra_version *= *"\([^"]*\)".*/\1/p' "$WORK_DIR/acme-autoheal/prod/versions.hcl")"
+cd "$WORK_DIR/acme-autoheal/prod"
+[ -e runner/terragrunt.hcl ] || { mkdir -p runner && cp "$WORK_DIR/autoheal-byoc-infra/examples/azure/split-public/runner/terragrunt.hcl" runner/; }
+cd runner
+perl -pi -e 's/^(\s*namespace\s*=\s*)"[^"]*"/$1"$ENV{NAME_PREFIX}"/;
+             s/^(\s*environment\s*=\s*)"[^"]*"/$1"$ENV{ENVIRONMENT}"/;
+             s/^(\s*location\s*=\s*)"[^"]*"/$1"$ENV{LOCATION}"/;
+             s/^(\s*subscription_id\s*=\s*)"[^"]*"/$1"$ENV{DATA_SUB}"/;
+             s/^(\s*runner_host\s*=\s*)"[^"]*"/$1"$ENV{RUNNER_HOST}"/' terragrunt.hcl
+if [ -n "$TF_VAR_edge_ca_certificate" ]; then
+  printf '%s\n' "$TF_VAR_edge_ca_certificate" > edge-ca.pem
+  perl -pi -e 's/^(\s*)# (temporal_ca_certificate\s*=)/$1$2/' terragrunt.hcl
+fi
+grep -n 'namespace\|environment\|location\|subscription_id\|runner_host\|temporal_' terragrunt.hcl
+terragrunt plan
+terragrunt apply
+terragrunt output egress_ip
+```
+
+The runner folder reads the key from the `infra` folder (the `runner_token`
+output), so the key is never typed. The plan adds the runner's resource group,
+network, identity and VM scale set. Keep `edge-ca.pem` in the folder: every
+later apply reads it.
+
+#### 14d: Terraform Enterprise
+
+1. Make a third workspace, `autoheal-runner-prod`, as in step 7b, item 3: the
+   Terraform working directory `compositions/azure-runner`, on the same branch,
+   with Terraform 1.7 or later and the same four environment variables. Then
+   link it to the workspace identity, as in step 1c:
+
+   ```bash
+   export TFE_RUNNER_WORKSPACE="autoheal-runner-prod"
+   for phase in plan apply; do
+     az ad app federated-credential show --id "$APP_ID" --federated-credential-id "tfe-${TFE_RUNNER_WORKSPACE}-${phase}" -o none 2>/dev/null ||
+       az ad app federated-credential create --id "$APP_ID" -o none --parameters "{
+         \"name\": \"tfe-${TFE_RUNNER_WORKSPACE}-${phase}\",
+         \"issuer\": \"${TFE_ISSUER}\",
+         \"subject\": \"organization:${TFE_ORG}:project:${TFE_PROJECT}:workspace:${TFE_RUNNER_WORKSPACE}:run_phase:${phase}\",
+         \"audiences\": [\"api://AzureADTokenExchange\"]
+       }"
+   done
+   ```
+
+2. Add these variables of the category **Terraform**:
+
+   | Key                       | Sensitive | Value                                                  |
+   | ------------------------- | --------- | ------------------------------------------------------ |
+   | `namespace`               | No        | `$NAME_PREFIX`                                         |
+   | `environment`             | No        | `$ENVIRONMENT`                                         |
+   | `location`                | No        | `$LOCATION`                                            |
+   | `subscription_id`         | No        | `$DATA_SUB`                                            |
+   | `temporal_address`        | No        | `$RUNNER_HOST:443`                                     |
+   | `chart_version`           | No        | The chart version of step 11b                          |
+   | `temporal_token`          | Yes       | The vault entry `runner-token`: the command below      |
+   | `temporal_ca_certificate` | No        | Only with a private CA: the text of `ca.pem`           |
+
+   On the machine of step 8a, with the read access of step 12e:
+
+   ```bash
+   az keyvault secret show --subscription "$DATA_SUB" --vault-name "$VAULT_NAME" --name runner-token --query value -o tsv
+   ```
+
+3. Start a run, read the plan, then click **Confirm & Apply**. The
+   `egress_ip` output is the runner's outbound address.
+
+### 14e. Check that the runner polls
+
+A VM takes about 5 minutes to boot, install Docker and pull the image. Then
+runner-go holds long polls open on Temporal through the proxy. The proxy logs
+each poll when it ends, after up to a minute. This counts the polls of the last
+10 minutes that carried the key and reached Temporal:
+
+```bash
+kubectl logs -n "$K8S_NAMESPACE" -l app.kubernetes.io/name=autoheal-proxy -c envoy --since=10m |
+  grep -F "$RUNNER_HOST" | grep '"upstream":"temporal"' | grep -cE '"status":"?200'
+```
+
+It must show a number above 0. When it shows 0, read the runner's log on each
+VM. The VM numbers change when VMs are replaced, so the loop looks them up:
+
+```bash
+RUNNER_RG="rg-$NAME_PREFIX-$ENVIRONMENT-autoheal-runner"
+RUNNER_VMSS="$NAME_PREFIX-$ENVIRONMENT-autoheal-runner"
+for id in $(az vmss list-instances --subscription "$DATA_SUB" -g "$RUNNER_RG" -n "$RUNNER_VMSS" --query '[].instanceId' -o tsv); do
+  echo "== VM $id"
+  az vmss run-command invoke --subscription "$DATA_SUB" -g "$RUNNER_RG" -n "$RUNNER_VMSS" \
+    --command-id RunShellScript --instance-id "$id" \
+    --scripts "systemctl is-active runner-go; journalctl -u runner-go -n 50 --no-pager" --query 'value[0].message' -o tsv
+done
+```
+
+See [Troubleshooting](#troubleshooting) for the usual messages.
+
+### 14f. Turn on sandboxes
+
+Only after step 14e shows polls. With sandboxes on and no runner, every agent
+run waits for a sandbox that never starts, then fails:
+
+```bash
+grep -q '^  sandbox:' "$VALUES_FILE" ||
+  perl -0pi -e 's/^(  edge:\n)/  sandbox:\n    enabled: true\n$1/m' "$VALUES_FILE"
+grep -n -A1 '^  sandbox:' "$VALUES_FILE" ||
+  echo "STOP: no sandbox under global in $VALUES_FILE"
+```
+
+It must show `sandbox:` and `enabled: true`. On `STOP`, add the two lines under
+`global:` by hand; on `enabled: false`, change it to `true`.
+
+Then install the chart again, as in step 11b. To check, ask an agent in a new
+chat to run `uname -a` in a sandbox. The answer shows the Linux kernel of the
+sandbox.
+
+To turn sandboxes off again, set `enabled: false` under `sandbox` and install
+the chart again.
+
+### 14g. Change the runner key
+
+Change the key when it may have leaked, or when your policy says so. There is
+one key at a time, so the runner gets `401` from when the proxy takes the new
+key until the runner VMs boot with it, about 5 to 10 minutes. Agent runs that
+need a sandbox in that time fail, and the runner apply restarts the VMs, which
+ends the sandboxes on them. Pick a quiet time, and do the three parts one after
+the other: within 15 minutes of the first, the proxy takes the new key by
+itself.
+
+1. Make a new key. With Terragrunt:
+
+   ```bash
+   cd "$WORK_DIR/acme-autoheal/prod/infra"
+   terragrunt apply -replace=random_password.runner_token
+   ```
+
+   With Terraform Enterprise, start a run in the infra workspace that replaces
+   `random_password.runner_token`. The plan replaces the key and updates its
+   vault entry `runner-token`, and changes nothing else.
+
+2. Give the proxy the new key now. The chart copies the vault into the cluster
+   every 15 minutes and restarts the proxy when the key changed; this does it
+   at once:
+
+   ```bash
+   JOB="autoheal-secrets-sync-$(date +%s)"
+   kubectl create job -n "$K8S_NAMESPACE" --from=cronjob/autoheal-secrets-sync "$JOB"
+   kubectl wait -n "$K8S_NAMESPACE" --for=condition=complete "job/$JOB" --timeout=5m
+   kubectl rollout status -n "$K8S_NAMESPACE" deployment/autoheal-proxy --timeout=5m
+   ```
+
+3. Give the runner the new key. With Terragrunt, the runner folder reads it
+   from the infra folder:
+
+   ```bash
+   cd "$WORK_DIR/acme-autoheal/prod/runner"
+   terragrunt apply
+   ```
+
+   With Terraform Enterprise, set `temporal_token` in `autoheal-runner-prod` to
+   the new value of the vault entry (the command in step 14d, item 2), then
+   start a run. The plan updates the VM scale set in place, and the apply
+   restarts each VM with the new key.
+
+Then check that the runner polls, as in step 14e.
+
 ## Resume in a new shell
 
 The steps keep their results in shell variables. In a new shell, run your
@@ -1237,6 +1518,7 @@ export EGRESS_IPS=$(az aks show -g "$AKS_RG" -n "$AKS_NAME" \
   sed 's|$|/32|' | paste -sd' ' -)
 export NSG_ID=$(az network vnet subnet show --ids "$AKS_SUBNET_ID" --query networkSecurityGroup.id -o tsv)
 [ -z "$NSG_ID" ] || export NSG_RG=$(echo "$NSG_ID" | cut -d/ -f5) NSG_NAME=$(echo "$NSG_ID" | cut -d/ -f9)
+export RUNNER_HOST="runner.$AUTOHEAL_HOSTNAME"   # step 14
 check_values AKS_ID AKS_SUBNET_ID NODE_RG PROXY_IP EGRESS_IPS
 ```
 
@@ -1289,6 +1571,12 @@ before you apply step 9a.
 | Users or webhooks time out on `https://$AUTOHEAL_HOSTNAME`                            | The subnet NSG blocks TCP 443, or a DNS record points elsewhere                                         | Do step 5b, and check step 9b                                                                                          |
 | An agent run fails with `this deployment offers no models`                            | `global.llm.offeredModels` is not set                                                                   | Add `offeredModels: $LLM_MODEL` under `llm` in `$VALUES_FILE` (step 11a), then do step 11b again                       |
 | Step 9a stops on "edge_exposure" or "proxy_ip"                                        | `PROXY_IP` is a private address, or the DNS zone is private                                             | Do step 5a again, or see step 9b                                                                                       |
+| Step 14c shows `404`                                                                  | The chart runs without the runner host                                                                  | Check `runner:` under `edge` in `$VALUES_FILE`, then do step 11b again                                                 |
+| Step 14c times out                                                                    | The DNS record of step 14a points elsewhere, or the NSG of step 5b blocks this machine                  | Check step 14a and step 5b                                                                                             |
+| Step 14e shows 0, and the runner log shows `Unauthenticated`                          | The runner sends no key, or a different key from the proxy                                              | Apply the runner folder again. With Terraform Enterprise, set `temporal_token` again from the vault                    |
+| Step 14e shows 0, and the runner log shows a certificate error                        | The runner does not trust the certificate                                                               | With a private CA, do the CA part of step 14d. Check step 14b                                                          |
+| Step 14e shows 0, and the runner log shows a timeout                                  | The runner cannot reach `$RUNNER_HOST` on TCP 443                                                       | Check step 14a, and let the `egress_ip` output in at the NSG of step 5b                                                |
+| An agent run waits for a sandbox, then fails after about 11 minutes                   | Sandboxes are on, and no runner polls                                                                   | Do step 14e. Turn sandboxes off until it shows polls                                                                   |
 
 ## Upgrade
 
@@ -1301,7 +1589,7 @@ Set the two new numbers in `versions.hcl`, then apply step 9a, step 10 and
 step 11b again. The three `source` lines follow `infra_version`:
 
 ```bash
-export NEW_INFRA_VERSION="<new autoheal-byoc-infra version, for example 4.0.0>"
+export NEW_INFRA_VERSION="<new autoheal-byoc-infra version, for example 4.1.0>"
 export NEW_CHART_VERSION="<new chart version>"
 cd "$WORK_DIR/acme-autoheal/prod"
 perl -pi -e 's/^(\s*infra_version\s*=\s*)"[^"]*"/$1"$ENV{NEW_INFRA_VERSION}"/;
@@ -1383,7 +1671,10 @@ not needed.
      networkpolicy/temporal-frontend-public networkpolicy/api-server-go-public
    ```
 
-Then the cluster owner can remove what only the runner used: the Temporal IP,
+To run sandboxes again, add the runner of step 14: it needs no Temporal IP and
+no NSG rules for Temporal.
+
+Then the cluster owner can remove what only the 3.x runner used: the Temporal IP,
 the two NSG rules for it, and the deployer's roles on the AKS subnet. With one
 public IP in 3.x, the proxy still uses `pip-autoheal-temporal`: keep it, and in
 a new shell read `PROXY_IP` from it instead of `pip-autoheal-proxy`.
@@ -1405,6 +1696,7 @@ done
 ### Remove with Terragrunt
 
 ```bash
+[ ! -d "$WORK_DIR/acme-autoheal/prod/runner" ] || (cd "$WORK_DIR/acme-autoheal/prod/runner" && terragrunt destroy)
 cd "$WORK_DIR/acme-autoheal/prod/app" && terragrunt destroy
 cd "$WORK_DIR/acme-autoheal/prod/cluster" && terragrunt destroy
 cd "$WORK_DIR/acme-autoheal/prod/infra" && terragrunt destroy
@@ -1416,8 +1708,9 @@ cd "$WORK_DIR/acme-autoheal/prod/infra" && terragrunt destroy
 helm uninstall autoheal -n "$K8S_NAMESPACE"
 ```
 
-Then queue a destroy run in the cluster workspace, then in the infra workspace:
-**Settings**, **Destruction and Deletion**, **Queue destroy plan**.
+Then queue a destroy run in the runner workspace of step 14, when you made it,
+then in the cluster workspace, then in the infra workspace: **Settings**,
+**Destruction and Deletion**, **Queue destroy plan**.
 
 ### Remove the cluster owner's changes
 
@@ -1437,7 +1730,8 @@ for grant in \
 done
 ```
 
-The storage network rule of step 9c goes with the storage account.
+The storage network rule of step 9c goes with the storage account. Remove the
+DNS records of step 9b and step 14a too.
 
 Only if step 4b made the namespace for Autoheal:
 
@@ -1612,6 +1906,40 @@ Then skip step 5b, and in step 8b, write `edge_exposure = "internal"`. Your
 users reach `$PROXY_IP` on TCP 443 over your network. In step 9b, a DNS provider that proxies traffic must not proxy these
 records, because the address is private.
 
+The runner of step 14 then needs a private path to `$PROXY_IP`. In the runner
+folder, set `existing_subnet_id` to a subnet that reaches the AKS subnet, as in
+`examples/azure/split/runner`, instead of the VNet and NAT gateway it makes.
+The DNS record of step 14a points to the private address too.
+
+### A shared Istio gateway
+
+Some clusters take all outside traffic through one Istio ingress gateway that
+another team owns. The chart can sit behind it, with `edge.mode: istio` and
+`edge.istio.gateway: <namespace>/<name>` in `$VALUES_FILE`, instead of the load
+balancer on `$PROXY_IP`. The gateway ends TLS, so its certificate is the one the
+users and the runner see.
+
+For the runner of step 14, the gateway owner does four things before step 14c:
+
+- Adds `$RUNNER_HOST` to the `hosts` of the HTTPS server of the Gateway, and
+  makes sure the gateway certificate covers it. A wildcard for
+  `*.$AUTOHEAL_HOSTNAME` covers it.
+- Makes sure the gateway offers TLS 1.3 on `$RUNNER_HOST` and passes the
+  runner's gRPC through as HTTP/2. The runner refuses older TLS versions, and
+  gRPC does not work over HTTP/1.1. A WAF or load balancer in front of the
+  gateway that ends TLS must do the same. When it cannot, point the runner at
+  an address of the gateway that skips it, such as a private one.
+- Points the DNS record of step 14a at the address of the gateway instead of
+  `$PROXY_IP`.
+- Lets the runner's outbound address in on TCP 443, after step 14d shows it
+  (the `egress_ip` output), when the gateway takes only some sources.
+
+The chart then adds a VirtualService `autoheal-runner` for `$RUNNER_HOST` on
+that Gateway, and the steps from 14c on are the same. When a private CA signed
+the gateway certificate, give that CA to the runner in step 14d: write it to
+`edge-ca.pem` in the runner folder, or set `temporal_ca_certificate` with
+Terraform Enterprise.
+
 ### A Portkey gateway
 
 With Portkey, agents-py sends every model and embeddings call to the gateway,
@@ -1635,7 +1963,8 @@ gateway kinds.
 ### Get a TLS certificate
 
 The Autoheal proxy serves one certificate for the three names:
-`$AUTOHEAL_HOSTNAME`, `auth.$AUTOHEAL_HOSTNAME` and `auth-app.$AUTOHEAL_HOSTNAME`.
+`$AUTOHEAL_HOSTNAME`, `auth.$AUTOHEAL_HOSTNAME` and `auth-app.$AUTOHEAL_HOSTNAME`,
+and for `runner.$AUTOHEAL_HOSTNAME` with the runner of step 14.
 Use the certificate of your organization when you have one. Otherwise, make one
 of these two. Then set `TLS_CERT_FILE` and `TLS_KEY_FILE` in step 1b to the
 paths that the block shows, so that a new shell finds them.
@@ -1685,8 +2014,8 @@ you trust `ca.pem` on your machine. Autoheal trusts it through
 mkdir -p "$WORK_DIR/certs" && cd "$WORK_DIR/certs"
 openssl req -x509 -newkey rsa:4096 -sha256 -days 365 -nodes -keyout ca.key -out ca.pem -subj "/CN=Autoheal test CA"
 openssl req -newkey rsa:2048 -nodes -keyout privkey.pem -out server.csr -subj "/CN=$AUTOHEAL_HOSTNAME"
-printf 'subjectAltName=DNS:%s,DNS:auth.%s,DNS:auth-app.%s\nextendedKeyUsage=serverAuth\n' \
-  "$AUTOHEAL_HOSTNAME" "$AUTOHEAL_HOSTNAME" "$AUTOHEAL_HOSTNAME" > san.ext
+printf 'subjectAltName=DNS:%s,DNS:auth.%s,DNS:auth-app.%s,DNS:runner.%s\nextendedKeyUsage=serverAuth\n' \
+  "$AUTOHEAL_HOSTNAME" "$AUTOHEAL_HOSTNAME" "$AUTOHEAL_HOSTNAME" "$AUTOHEAL_HOSTNAME" > san.ext
 openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 365 -sha256 \
   -extfile san.ext -out server.pem
 cat server.pem ca.pem > fullchain.pem
@@ -1695,7 +2024,7 @@ export TF_VAR_edge_ca_certificate="$(cat ca.pem)"
 ```
 
 With Terraform Enterprise, add `edge_ca_certificate` as a Terraform variable
-with the text of `ca.pem`.
+with the text of `ca.pem`. The runner of step 14 needs the same CA.
 
 ### A certificate from a private CA
 

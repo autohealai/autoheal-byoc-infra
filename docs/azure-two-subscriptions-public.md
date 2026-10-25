@@ -56,6 +56,18 @@ The Autoheal chart makes no CRDs, no ClusterRoles and no other cluster-wide
 objects. AKS makes the load balancer for the static public IP in the node
 resource group of your cluster, as for any Service of type LoadBalancer.
 
+## With a shared Istio gateway
+
+When all outside traffic comes in through one Istio ingress gateway that you
+run, Autoheal sits behind it instead of on a public IP. Then you skip items 6
+and 7 below. Instead, you add the Autoheal hostnames to the gateway's hosts
+and certificate, point them at the gateway in DNS, and send us the gateway's
+`<namespace>/<name>`. We use
+`examples/azure/split-istio` instead of `split-public`, and the chart adds
+VirtualServices on your gateway. The
+[shared Istio gateway quickstart](azure-shared-istio-quickstart.md) has the
+full list and the four steps.
+
 ## What you do
 
 1. Turn on the OIDC issuer and workload identity on the cluster.

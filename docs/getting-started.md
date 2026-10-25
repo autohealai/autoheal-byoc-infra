@@ -103,6 +103,8 @@ Start from `examples/azure/split` (connected VNets) or
 `examples/azure/split-public` (public endpoints) instead of `prod`. For public
 endpoints on a cluster you already have,
 [the runbook](azure-two-subscriptions-public-runbook.md) gives every command.
+Behind a shared Istio gateway, start from `examples/azure/split-istio` and
+follow [the shared Istio gateway quickstart](azure-shared-istio-quickstart.md).
 
 With `existing_aks_cluster_id` the infra folder never reads the cluster. A third
 folder, `cluster` (`compositions/azure-cluster`), runs between infra and app: it
@@ -133,7 +135,7 @@ az account set --subscription "<subscription-id>"   # az account show --query id
 Copy `examples/azure` from a released tag into a repository you own:
 
 ```bash
-git clone --branch v4.1.0 https://github.com/autohealai/autoheal-byoc-infra.git
+git clone --branch v4.1.1 https://github.com/autohealai/autoheal-byoc-infra.git
 mkdir acme-autoheal && cp -r autoheal-byoc-infra/examples/azure/. acme-autoheal/
 cd acme-autoheal
 ```
@@ -418,7 +420,7 @@ A first apply takes roughly 30 minutes; EKS and Aurora are the slow parts.
 ### Step 2: Copy the example into your repository
 
 ```bash
-git clone --branch v4.1.0 https://github.com/autohealai/autoheal-byoc-infra.git
+git clone --branch v4.1.1 https://github.com/autohealai/autoheal-byoc-infra.git
 mkdir acme-autoheal && cp -r autoheal-byoc-infra/examples/aws/. acme-autoheal/
 cd acme-autoheal
 ```

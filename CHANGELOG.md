@@ -6,6 +6,41 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [4.1.1] - 2026-10-25
+
+Docs and examples only. The modules and compositions are the same as 4.1.0, so
+an install moving from 4.1.0 plans no changes in the infra and cluster units.
+The examples move to chart 1.0.0-rc.13: the app unit plans the chart upgrade,
+and the runner unit an update of the VMs to `runner-go:chart-1.0.0-rc.13`, the
+same image as `chart-1.0.0-rc.12` under the new tag. The apply reimages the
+VMs, so sandboxes running on them stop.
+
+### Added
+- `examples/azure/split-istio`: `split-public` for a cluster where one shared
+  Istio ingress gateway takes all outside traffic. No public IP and no
+  `edge_exposure`, `edge_mode = "istio"`, DNS left to the gateway owner, no TLS
+  certificate in Terraform (the gateway ends TLS), and
+  `global.edge.istio.gateway` in `app/values-customer.yaml`. Its `runner`
+  folder says what the gateway, and a WAF in front of it, must pass for the
+  runner's gRPC.
+- `docs/azure-shared-istio-quickstart.md`: the install behind a shared Istio
+  gateway in four steps (infra, cluster, app, runner), with what the cluster
+  owner provides first: workload identity, a Secrets Store CSI driver,
+  native sidecars, room for the restart after the install, the gateway's hosts
+  and certificate, and the CA that pods see on the auth host. It links to the
+  runbook for each command and says what changes there.
+
+### Changed
+- `docs/azure-two-subscriptions-public-runbook.md`: "A shared Istio gateway"
+  lists the changes to steps 5, 8b, 8d, 9b and 11a, not only the runner's, and
+  links to the quickstart. The one-pager, `docs/getting-started.md`,
+  `docs/azure-subscription-options.md` and `examples/azure/README.md` point to
+  it too.
+- Examples and docs pin v4.1.1 and chart 1.0.0-rc.13. Chart rc.13 fixes the
+  `helm test` check of the runner host, which expected HTTP 401 where the proxy
+  answers a gRPC call with HTTP 200 and `grpc-status: 16`. The images are the
+  same as in rc.12.
+
 ## [4.1.0] - 2026-10-25
 
 The sandbox runner comes back on Azure as an optional step of its own, applied

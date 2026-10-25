@@ -107,7 +107,9 @@ Case 2c, `cluster_network_path = "public"`, for a cluster in another
 subscription whose VNet nobody connects to ours.
 `docs/azure-two-subscriptions-public.md` is the one-pager for the customer,
 `docs/azure-subscription-options.md` compares it with the other layouts, and
-`examples/azure/split-public` is the deployment.
+`examples/azure/split-public` is the deployment. Behind a shared Istio gateway,
+`examples/azure/split-istio` is the deployment and
+`docs/azure-shared-istio-quickstart.md` the guide.
 
 - We create no VNet, private endpoint, private DNS zone or zone link;
   `network_cidr`, `private_endpoints_enabled` and

@@ -14,6 +14,7 @@ split/                       the same, for an AKS cluster in another subscriptio
   cluster/terragrunt.hcl     reads that cluster and federates to it (compositions/azure-cluster)
   runner/terragrunt.hcl      the sandbox runner, optional (compositions/azure-runner)
 split-public/                the same, with public endpoints instead of connected VNets
+split-istio/                 the same as split-public, behind a shared Istio gateway instead of a public IP
 cop-standin/                 internal test stand-in for that cluster; not for customers
 ```
 
@@ -25,6 +26,10 @@ namespace and lets you create nothing in the cluster's subscription. Every
 Azure resource goes in a second subscription. With `split/` the two VNets are
 peered and everything stays private; with `split-public/` they are not
 connected, and the data services use public endpoints with firewalls.
+`split-istio/` is `split-public/` for a cluster where one shared Istio ingress
+gateway takes all outside traffic: no public IP, and the chart adds
+VirtualServices on that gateway. `docs/azure-shared-istio-quickstart.md`
+walks through it in four steps.
 `docs/azure-subscription-options.md` in autoheal-byoc-infra compares the
 layouts; `docs/azure-two-subscriptions.md` and
 `docs/azure-two-subscriptions-public.md` explain each for the cluster owner.
@@ -41,6 +46,7 @@ building block takes an `existing_*` ID; uncomment the ones you already have.
 | Your cluster, database, cache, storage or vaults | `existing_aks_cluster_id`, `existing_postgres_id`, `existing_redis_id`, `existing_storage_account_id`, `existing_key_vault_id`, `existing_runtime_key_vault_id`. With `existing_aks_cluster_id`, add a `cluster` folder as in `split/`. |
 | Only your cluster, in another subscription | Start from `split/`: `existing_aks_cluster_id`, `existing_network` with the AKS subnet and a free address in it, and `network_cidr` for the VNet we create in `subscription_id`. The cluster owner does what the `required_cluster_owner_actions` output lists. |
 | Only your cluster, in another subscription, with no VNet connection | Start from `split-public/`: `existing_aks_cluster_id`, `cluster_network_path = "public"`, `existing_network` with the AKS subnet and a static public IP as `proxy_ip`, and `workload_egress_ip_ranges`. No VNet is created, so no `network_cidr`. |
+| Only your cluster, in another subscription, with no VNet connection, behind a shared Istio gateway | Start from `split-istio/`: as `split-public/`, but `existing_network` with the AKS subnet only, `edge_mode = "istio"` and `create_dns_records = false`. In `app/values-customer.yaml`, `global.edge.istio.gateway` is the gateway as `<namespace>/<name>`. |
 | Role grants made by your administrators | `create_role_assignments = false`, then make the grants in the `required_role_assignments` output |
 | DNS outside Azure DNS | `create_dns_records = false`, then create the records in the `required_dns_records` output |
 
@@ -148,7 +154,7 @@ with them:
 ```bash
 cd prod/infra && terragrunt output -raw autoheal_values_yaml > values-infra.yaml
 helm upgrade --install autoheal oci://public.ecr.aws/e4h3h0d9/charts/autoheal \
-  --version 1.0.0-rc.12 -n autoheal --create-namespace \
+  --version 1.0.0-rc.13 -n autoheal --create-namespace \
   -f values-infra.yaml -f ../app/values-customer.yaml --atomic --wait --timeout 20m
 ```
 

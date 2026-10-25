@@ -17,6 +17,10 @@ For an AKS cluster you bring, a third folder runs between the two:
 identities to it and outputs `cluster` for the app folder. The infra folder then
 needs no access to the cluster at all.
 
+On Azure, an optional fourth folder runs after the app: `compositions/azure-runner`
+makes the sandbox runner VMs, which reach Temporal through the edge on a
+hostname of their own, with the runner key from the infra folder.
+
 Customers run compositions, never individual modules.
 
 ## Layout
@@ -24,12 +28,13 @@ Customers run compositions, never individual modules.
 ```
 modules/            Building blocks, one concern each.
   azure/            VNet, AKS, PostgreSQL Flexible, Managed Redis, Blob, Key Vault,
-                    ACR, DNS records, private endpoints, identities.
+                    ACR, DNS records, private endpoints, identities, runner VMSS.
   aws/              VPC, EKS, Aurora, ElastiCache, S3, KMS, Secrets Manager, ECR,
                     Route 53 records, NLBs, Pod Identity roles.
 compositions/       Full wiring, one per cloud, plus the app install.
   azure/            Create, bring or mix every Azure building block.
   azure-cluster/    For an AKS cluster you bring: read it, federate the identities.
+  azure-runner/     Optional sandbox runner VMs outside the cluster.
   aws/              Create, bring or mix every AWS building block.
   app/              The chart, on any cloud (helm_release), and the AWS Load
                     Balancer Controller on EKS.
@@ -62,7 +67,7 @@ One semver version for the whole repo. Pin a release tag; the examples read it
 from `versions.hcl`:
 
 ```hcl
-source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure?ref=v4.0.0"
+source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure?ref=v4.1.0"
 ```
 
 Upgrading from 1.x or 3.x: see the upgrade notes in [CHANGELOG.md](CHANGELOG.md).

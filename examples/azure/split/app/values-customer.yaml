@@ -14,6 +14,15 @@ global:
     # exposure comes from edge_exposure in infra/terragrunt.hcl
     tls:
       secretName: autoheal-tls        # your certificate, synced from Key Vault
+    # The hostname a sandbox runner outside the cluster uses to reach Temporal;
+    # see ../runner. The edge certificate must cover it.
+    # runner:
+    #   host: runner.autoheal.acme.example
+
+  # Sandboxes, where the agents run commands. Turn them on once the runner of
+  # ../runner polls Temporal; with no runner, every agent run fails.
+  # sandbox:
+  #   enabled: true
 
   llm:
     provider: azure-openai

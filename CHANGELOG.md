@@ -6,6 +6,47 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-10-25
+
+The sandbox runner comes back on Azure as an optional step of its own, applied
+after the app. Runner VMs reach Temporal through the edge, on a hostname of
+their own, over TLS and with a key. They need no Temporal address, no load
+balancer in the cluster and no network connection to the cluster.
+
+Needs: autoheal chart 1.0.0-rc.12 or later for the runner. It adds
+`global.edge.runner.host`, the route on the chart's proxy that checks the key.
+The infra values are unchanged, so chart 1.0.0-rc.11 still works without a
+runner. Chart 1.0.0-rc.12 also gives the proxy a separate HTTP/2 port, so in a
+cluster with Istio sidecars gRPC from the gateway to the proxy no longer drops
+to HTTP/1.1.
+
+### Added
+- `compositions/azure`: the runner key, a random 64-character value kept in the
+  install vault as `runner-token`, and the sensitive output `runner_token`.
+- `compositions/azure-runner`: the runner step. VMs on a VM scale set in their
+  own resource group, with a VNet and NAT gateway, or in a subnet you bring
+  (`existing_subnet_id`). `temporal_address` is the runner host on 443, and
+  `temporal_token` the key. `temporal_ca_certificate` adds a private CA. With
+  `temporal_tls = false` the runner reaches the chart's runner load balancers
+  on a private address instead, with no TLS and no key. It never reads the
+  cluster: `required_network_owner_actions` lists what the network owner opens.
+- `modules/azure/runner-vmss`: TLS, the key and a CA for runner-go. The key goes
+  in a root-only file on the VMs. An empty `tool_response_callback_url` sends
+  tool results through Temporal.
+- Examples: a `runner` folder in `examples/azure/split` and
+  `examples/azure/split-public`, and the runner host and sandbox settings,
+  commented out, in their `values-customer.yaml`.
+- `docs/azure-two-subscriptions-public-runbook.md`: step 14, the runner, and
+  the runner behind a shared Istio gateway.
+
+### Upgrading from 4.0.x
+1. Apply the infra unit. The plan adds two resources, the runner key and its
+   vault entry, and changes nothing else.
+2. Only for the runner: install chart 1.0.0-rc.12 with
+   `global.edge.runner.host`, apply the `runner` folder, then turn on
+   `global.sandbox.enabled` once the runner polls. Step 14 of the runbook has
+   the commands.
+
 ## [4.0.0] - 2026-10-24
 
 Breaking: 4.0.0. This repository no longer creates the sandbox runner, on

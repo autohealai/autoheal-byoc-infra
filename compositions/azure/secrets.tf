@@ -7,8 +7,8 @@
 #
 # Generated once and kept across upgrades: the per-service database passwords,
 # the JWT signing key, the Zitadel master key, the auth session secret, the first
-# admin password, the OAuth encryption and state signing keys and the tool
-# response server secret. Connection strings that carry a password are rebuilt
+# admin password, the OAuth encryption and state signing keys, the tool
+# response server secret and the runner key. Connection strings that carry a password are rebuilt
 # when the host or the password changes; the password is URL-encoded.
 #
 # Passed in by the customer (sensitive inputs): the Postgres admin password of a
@@ -58,6 +58,16 @@ resource "random_password" "tool_response_server_secret" {
   special = false
 }
 
+# Key a runner outside the cluster sends to reach Temporal through the edge
+# (the chart's global.edge.runner.host). The chart reads it only when that host
+# is set, so it is created on every install and costs nothing otherwise. It
+# needs letters and digits, at least 32. The runner composition takes it from
+# the runner_token output.
+resource "random_password" "runner_token" {
+  length  = 64
+  special = false
+}
+
 # Must be changed at first login. Meets Zitadel's default password policy.
 resource "random_password" "first_admin" {
   length           = 24
@@ -95,6 +105,7 @@ locals {
       "oauth-encryption-key",
       "oauth-state-signing-key",
       "tool-response-server-secret",
+      "runner-token",
     ],
     local.redis_enabled ? ["redis-access-key", "api-server-redis-url"] : [],
     nonsensitive(var.llm_api_key != "") ? ["llm-api-key"] : [],
@@ -121,6 +132,7 @@ locals {
     "oauth-encryption-key"        = random_bytes.oauth_encryption_key.base64
     "oauth-state-signing-key"     = random_bytes.oauth_state_signing_key.base64
     "tool-response-server-secret" = random_password.tool_response_server_secret.result
+    "runner-token"                = random_password.runner_token.result
     "redis-access-key"            = local.redis_access_key
     "api-server-redis-url"        = local.api_server_redis_url
     "llm-api-key"                 = var.llm_api_key

@@ -7,7 +7,10 @@ subscription**). The two VNets are not connected. The data services use public
 endpoints with firewalls, and users and webhooks reach Autoheal on a public IP.
 [The one-pager](azure-two-subscriptions-public.md) explains the layout, and
 [the comparison](azure-subscription-options.md) shows its limits. The runbook
-uses autoheal-byoc-infra **v4.1.0**.
+uses autoheal-byoc-infra **v4.1.1**. When a shared Istio gateway in the cluster
+takes all outside traffic, follow
+[the shared Istio gateway quickstart](azure-shared-istio-quickstart.md)
+instead; it links back to the steps here.
 
 The runbook has two roles. One person can do both:
 
@@ -586,7 +589,7 @@ files that are there already, so it does not overwrite your edits:
 
 ```bash
 mkdir -p "$WORK_DIR" && cd "$WORK_DIR"
-[ -d autoheal-byoc-infra ] || git clone --branch v4.1.0 https://github.com/autohealai/autoheal-byoc-infra.git
+[ -d autoheal-byoc-infra ] || git clone --branch v4.1.1 https://github.com/autohealai/autoheal-byoc-infra.git
 mkdir -p acme-autoheal
 [ -e acme-autoheal/root.hcl ] || cp autoheal-byoc-infra/examples/azure/root.hcl acme-autoheal/
 [ -e acme-autoheal/prod ] || cp -R autoheal-byoc-infra/examples/azure/split-public acme-autoheal/prod
@@ -631,7 +634,7 @@ az role assignment create --assignee "$APP_ID" --role "User Access Administrator
 Part B in [terraform-enterprise.md](terraform-enterprise.md):
 
 - Make the workspace `autoheal-infra-prod`, with the Terraform working
-  directory `compositions/azure`, on a branch of your copy at the tag v4.1.0. Set the workspace Terraform version to 1.7 or later.
+  directory `compositions/azure`, on a branch of your copy at the tag v4.1.1. Set the workspace Terraform version to 1.7 or later.
 - Add the four environment variables for the sign-in. `ARM_SUBSCRIPTION_ID`
   is `$DATA_SUB`. The composition does not read the cluster, so this workspace
   needs no access to the cluster subscription.
@@ -1107,7 +1110,7 @@ with Helm. Helm signs in as you, with the access from step 4:
 ```bash
 cd "$WORK_DIR"
 helm upgrade --install autoheal oci://public.ecr.aws/e4h3h0d9/charts/autoheal \
-  --version 1.0.0-rc.12 -n "$K8S_NAMESPACE" \
+  --version 1.0.0-rc.13 -n "$K8S_NAMESPACE" \
   -f values-infra.yaml -f "$VALUES_FILE" --atomic --wait --timeout 20m
 ```
 
@@ -1918,6 +1921,20 @@ another team owns. The chart can sit behind it, with `edge.mode: istio` and
 `edge.istio.gateway: <namespace>/<name>` in `$VALUES_FILE`, instead of the load
 balancer on `$PROXY_IP`. The gateway ends TLS, so its certificate is the one the
 users and the runner see.
+
+[The shared Istio gateway quickstart](azure-shared-istio-quickstart.md) is the
+whole install for this case, in four steps, with the example
+`examples/azure/split-istio`. In short, compared with this runbook:
+
+- Skip step 5: no public IP and no NSG rule.
+- In step 8b, leave out `proxy_ip` and `edge_exposure`, and set
+  `edge_mode = "istio"` and `create_dns_records = false`.
+- In step 8d, leave out `TF_VAR_tls_certificate`. When pods inside the cluster
+  see a certificate from a private CA on `auth.$AUTOHEAL_HOSTNAME`, set
+  `TF_VAR_edge_ca_certificate`.
+- In step 9b, the gateway owner points the three names at the gateway.
+- In step 11a, the `edge` block has `mode: istio` and `istio.gateway`, and no
+  `tls` block.
 
 For the runner of step 14, the gateway owner does four things before step 14c:
 

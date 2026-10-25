@@ -9,7 +9,7 @@ layout before the install.
 |--------|-------------------------|--------------------------------------------|
 | **One subscription** | The cluster and all data resources in one subscription | A private network in that subscription |
 | **Two subscriptions, connected VNets** | The cluster in the cluster subscription. All data resources in the data subscription | VNet peering (or a hub) and private endpoints. [Details](azure-two-subscriptions.md) |
-| **Two subscriptions, public endpoints** | As above | Public endpoints with firewalls. No VNet connection. [Details](azure-two-subscriptions-public.md), [runbook](azure-two-subscriptions-public-runbook.md) |
+| **Two subscriptions, public endpoints** | As above | Public endpoints with firewalls. No VNet connection. [Details](azure-two-subscriptions-public.md), [runbook](azure-two-subscriptions-public-runbook.md), [behind a shared Istio gateway](azure-shared-istio-quickstart.md) |
 
 Our recommendation: use one subscription when the cluster owner lets us make
 resources next to the cluster. Use connected VNets when the cluster must stay

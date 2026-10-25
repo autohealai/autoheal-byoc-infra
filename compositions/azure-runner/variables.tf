@@ -52,7 +52,7 @@ variable "resource_group_name" {
 variable "existing_resource_group_id" {
   type        = string
   default     = ""
-  description = "Resource ID of a resource group to put the runner in, for organizations that do not let the deployer create resource groups. Empty means we create one."
+  description = "Resource ID of a resource group in subscription_id to put the runner in, for organizations that do not let the deployer create resource groups. Empty means we create one."
 
   validation {
     condition     = var.existing_resource_group_id == "" || can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+$", var.existing_resource_group_id))
@@ -66,7 +66,7 @@ variable "existing_resource_group_id" {
 
 variable "temporal_address" {
   type        = string
-  description = "Where the runner reaches Temporal, as <host>:<port>. Through the edge: the chart's runner host on 443 (global.edge.runner.host), e.g. runner.autoheal.acme.example:443. Through the chart's runner load balancers: their private address on 7233, with temporal_tls = false."
+  description = "Where the runner reaches Temporal, as <host>:<port>. Through the edge: the chart's runner host on 443 (global.edge.runner.host), e.g. runner.autoheal.acme.example:443. Through the chart's runner load balancers: their private IPv4 address on 7233, with temporal_tls = false."
 
   validation {
     condition = (
@@ -80,7 +80,7 @@ variable "temporal_address" {
 variable "temporal_tls" {
   type        = bool
   default     = true
-  description = "Dial Temporal over TLS. True through the edge, where the chart's proxy checks temporal_token. False only for the chart's runner load balancers on a private route, where Temporal has no TLS and no key."
+  description = "Dial Temporal over TLS. True through the edge, where the chart's proxy checks temporal_token. False only for the chart's runner load balancers on a private route, where Temporal has no TLS and no key: temporal_address must then be a private IPv4 address."
 }
 
 variable "temporal_token" {
@@ -99,6 +99,11 @@ variable "temporal_server_name" {
   type        = string
   default     = ""
   description = "Name the runner checks in the edge certificate. Empty means the host of temporal_address. Set it only when the runner dials an address the certificate does not name."
+
+  validation {
+    condition     = var.temporal_server_name == "" || can(regex("^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$", var.temporal_server_name))
+    error_message = "temporal_server_name must be empty or a host name, such as runner.autoheal.acme.example."
+  }
 }
 
 variable "temporal_ca_certificate" {
@@ -115,7 +120,7 @@ variable "temporal_ca_certificate" {
 variable "tool_response_url" {
   type        = string
   default     = ""
-  description = "URL the runner posts sandbox tool results to, set as SANDBOX_TOOL_RESPONSE_CALLBACK_URL. Empty, the default, sends tool results through Temporal, so the runner needs nothing but temporal_address. With the chart's runner load balancers it may be http://<address>:8083/api/v1/internal/sandbox-tool-responses."
+  description = "URL the runner posts sandbox tool results to, set as SANDBOX_TOOL_RESPONSE_CALLBACK_URL. Empty, the default, sends tool results through Temporal, so the runner needs nothing but temporal_address. With the chart's runner load balancers it may be http://<address>:8083/api/v1/internal/sandbox-tool-responses. An http:// URL must be a private IPv4 address; https:// may be any host."
 
   validation {
     condition     = var.tool_response_url == "" || can(regex("^https?://[^\\s/:]+(:[0-9]{1,5})?(/[^\\s]*)?$", var.tool_response_url))
@@ -143,7 +148,7 @@ variable "runner_image" {
   description = "Repository the runner VMs pull runner-go from, without a tag. The default is the public registry. For a registry you copy the images into, such as acmeprodautoheal.azurecr.io/app/runner-go, also set acr_id. The VMs retry the pull until the image exists, so it may be pushed after the apply."
 
   validation {
-    condition     = var.runner_image != "" && !can(regex("@|:[^/]*$", var.runner_image))
+    condition     = can(regex("^[A-Za-z0-9][A-Za-z0-9._/:-]*$", var.runner_image)) && !can(regex("@|:[^/]*$", var.runner_image))
     error_message = "runner_image must be a repository without a tag or digest, such as public.ecr.aws/e4h3h0d9/app/runner-go. Set the tag with runner_image_tag."
   }
 }
@@ -163,12 +168,17 @@ variable "sandbox_image" {
   type        = string
   default     = ""
   description = "Fully qualified sandbox image the runner VMs pre-pull at boot. Empty skips the pre-pull."
+
+  validation {
+    condition     = var.sandbox_image == "" || can(regex("^[A-Za-z0-9][A-Za-z0-9._/:@-]*$", var.sandbox_image))
+    error_message = "sandbox_image must be empty or one image reference, such as public.ecr.aws/e4h3h0d9/app/sandbox:1.2.3, with no spaces."
+  }
 }
 
 variable "acr_id" {
   type        = string
   default     = ""
-  description = "Resource ID of an Azure Container Registry the runner pulls from. The runner identity gets AcrPull on it, and the VMs log in to it when runner_image is in it. Empty means the images are public and no login runs."
+  description = "Resource ID of an Azure Container Registry the runner pulls from: the registry of global.imageRegistry when you copy the images into your own. The runner identity gets AcrPull on it, and the VMs log in to it for the runner image and the sandbox images, even when runner_image is public. Empty means the images are public and no login runs."
 
   validation {
     condition     = var.acr_id == "" || can(regex("(?i)^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.ContainerRegistry/registries/[^/]+$", var.acr_id))

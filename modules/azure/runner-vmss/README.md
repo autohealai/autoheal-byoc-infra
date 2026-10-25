@@ -16,7 +16,11 @@ over TLS (`temporal_tls`) with the runner key (`temporal_token`), or the
 private address of the chart's runner load balancers with TLS off. The runner
 retries until Temporal answers. `temporal_ca_certificate` adds a private CA to
 the trust store runner-go reads. The key sits in `/opt/runner-go/config.env`,
-readable by root only. Before each start the systemd unit pulls `runner_image`
+readable by root only, and runner-go's lambda drivers are off
+(`DISABLED_DRIVERS`), since a lambda would run with that environment. Before
+each start the systemd unit blocks containers, sandboxes included, from the
+instance metadata service, so only the host uses the VM's identity, then pulls
+`runner_image`
 and retries with a backoff (15 seconds, doubling up to 5 minutes) until the
 pull succeeds, so the image may be pushed to a new registry after the apply
 without reimaging the VMs. `tool_response_callback_url` sets

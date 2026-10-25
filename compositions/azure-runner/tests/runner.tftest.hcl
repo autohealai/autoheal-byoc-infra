@@ -99,13 +99,8 @@ run "creates_network_and_runner" {
   }
 
   assert {
-    condition     = local.runner_image == "public.ecr.aws/e4h3h0d9/app/runner-go:chart-1.0.0-rc.12" && !local.runner_uses_acr
+    condition     = local.runner_image == "public.ecr.aws/e4h3h0d9/app/runner-go:chart-1.0.0-rc.12" && local.acr_name == ""
     error_message = "The runner pulls app/runner-go:chart-<chart_version> from the public registry, with no ACR login."
-  }
-
-  assert {
-    condition     = local.tool_response_url == ""
-    error_message = "Tool results go through Temporal by default."
   }
 
   assert {
@@ -188,12 +183,12 @@ run "runner_load_balancers" {
   }
 }
 
-# A tool_response_url on another host gets its own rule.
+# A tool_response_url on another host gets its own rule. https may be any host.
 run "tool_results_elsewhere" {
   command = plan
 
   variables {
-    temporal_address  = "temporal.acme.internal:7233"
+    temporal_address  = "10.40.15.253:7233"
     temporal_tls      = false
     temporal_token    = ""
     tool_response_url = "https://tools.acme.internal/api/v1/internal/sandbox-tool-responses"
@@ -202,10 +197,10 @@ run "tool_results_elsewhere" {
   assert {
     condition = output.required_network_owner_actions == [
       "Connect the runner VNet acme-prod-autoheal-runner (10.61.0.0/24, resource group rg-acme-prod-autoheal-runner) privately to the cluster's VNet, through your hub or a VNet peering. Do not publish Temporal on the internet: it has no login, and the traffic carries git tokens and command output.",
-      "Allow the runner subnet 10.61.0.0/24 to temporal.acme.internal on TCP 7233 (Temporal).",
+      "Allow the runner subnet 10.61.0.0/24 to 10.40.15.253 on TCP 7233 (Temporal).",
       "Allow the runner subnet 10.61.0.0/24 to tools.acme.internal on TCP 443 (sandbox tool results).",
     ]
-    error_message = "A host name is accepted, and the tool-result host gets its own rule on the URL's port."
+    error_message = "The tool-result host gets its own rule on the URL's port, and an https host name is accepted."
   }
 }
 
@@ -237,7 +232,7 @@ run "image_from_acr" {
   }
 
   assert {
-    condition     = local.runner_image == "acmeprodautoheal.azurecr.io/app/runner-go:test-1" && local.runner_uses_acr && local.acr_name == "acmeprodautoheal"
+    condition     = local.runner_image == "acmeprodautoheal.azurecr.io/app/runner-go:test-1" && local.acr_name == "acmeprodautoheal"
     error_message = "With the image in acr_id the VMs log in to it; runner_image_tag overrides the tag."
   }
 
@@ -247,8 +242,9 @@ run "image_from_acr" {
   }
 }
 
-# The deployer cannot grant roles: the AcrPull grant is listed instead. A public
-# runner image needs no registry login.
+# The deployer cannot grant roles: the AcrPull grant is listed instead. With a
+# public runner image the VMs still log in, for the sandbox images the chart
+# names in the same registry.
 run "acr_without_role_assignments" {
   command = plan
 
@@ -258,8 +254,8 @@ run "acr_without_role_assignments" {
   }
 
   assert {
-    condition     = length(output.required_role_assignments) == 1 && !local.runner_uses_acr
-    error_message = "The AcrPull grant is listed, and the public image needs no login."
+    condition     = length(output.required_role_assignments) == 1 && local.acr_name == "acmeprodautoheal"
+    error_message = "The AcrPull grant is listed, and the VMs log in to acr_id for the sandbox images."
   }
 }
 
@@ -317,6 +313,40 @@ run "temporal_address_must_be_private_without_tls" {
   expect_failures = [terraform_data.validate_inputs]
 }
 
+# A host name could resolve to a public address, so without TLS it is refused.
+run "temporal_host_name_refused_without_tls" {
+  command = plan
+
+  variables {
+    temporal_address = "temporal.acme.internal:7233"
+    temporal_tls     = false
+    temporal_token   = ""
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}
+
+# Tool results over plain http go only to a private address.
+run "http_tool_results_must_be_private" {
+  command = plan
+
+  variables {
+    tool_response_url = "http://20.30.40.60:8083/api/v1/internal/sandbox-tool-responses"
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}
+
+run "http_tool_results_host_name_refused" {
+  command = plan
+
+  variables {
+    tool_response_url = "http://tools.acme.internal:8083/api/v1/internal/sandbox-tool-responses"
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}
+
 # The chart's proxy refuses runner calls without the key.
 run "tls_needs_the_key" {
   command = plan
@@ -348,6 +378,37 @@ run "key_letters_and_digits" {
   }
 
   expect_failures = [var.temporal_token]
+}
+
+# These go into the VMs' boot file, where a line break would add settings.
+run "server_name_must_be_a_host_name" {
+  command = plan
+
+  variables {
+    temporal_server_name = "runner.autoheal.acme.example\nDEBUG_MODE=true"
+  }
+
+  expect_failures = [var.temporal_server_name]
+}
+
+run "sandbox_image_one_reference" {
+  command = plan
+
+  variables {
+    sandbox_image = "public.ecr.aws/e4h3h0d9/app/sandbox:1.2.3 || true"
+  }
+
+  expect_failures = [var.sandbox_image]
+}
+
+run "runner_image_no_spaces" {
+  command = plan
+
+  variables {
+    runner_image = "public.ecr.aws/e4h3h0d9/app/runner-go --privileged"
+  }
+
+  expect_failures = [var.runner_image]
 }
 
 run "ca_must_be_pem" {
@@ -420,6 +481,17 @@ run "address_space_prefix_in_range" {
   }
 
   expect_failures = [var.address_space]
+}
+
+# The resource group must be in subscription_id, where the provider works.
+run "existing_resource_group_in_subscription" {
+  command = plan
+
+  variables {
+    existing_resource_group_id = "/subscriptions/66666666-7777-8888-9999-000000000000/resourceGroups/rg-acme-runner"
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
 }
 
 # A VM's network interface must be in a subnet of its own subscription.

@@ -31,6 +31,13 @@ It creates, in `subscription_id`:
 
 It has no helm or kubernetes provider. The only providers are azurerm and tls.
 
+On the VMs, runner-go runs sandboxes only. Its lambda drivers are off
+(`DISABLED_DRIVERS`), since they would run with the runner's settings, the key
+included. Containers on the VMs, sandboxes included, cannot reach the instance
+metadata service, so only the host can use the VM identity. The runner-go unit
+adds that firewall rule before each start, and runner-go does not start without
+it.
+
 ## Order
 
 | Step | Composition | Needs |
@@ -54,10 +61,16 @@ cluster (reach it with `kubectl port-forward`) for a poller on task queue
 `runner-task-queue` in namespace `runners`, or on a runner VM:
 
 ```bash
-az vmss run-command invoke -g <resource group> -n <namespace>-<environment>-autoheal-runner \
-  --command-id RunShellScript --instance-id 0 \
-  --scripts "systemctl is-active runner-go; journalctl -u runner-go -n 50 --no-pager"
+RG=<resource group>
+VMSS=<namespace>-<environment>-autoheal-runner
+for id in $(az vmss list-instances -g "$RG" -n "$VMSS" --query '[].instanceId' -o tsv); do
+  echo "== VM $id"
+  az vmss run-command invoke -g "$RG" -n "$VMSS" --command-id RunShellScript --instance-id "$id" \
+    --scripts "systemctl is-active runner-go; journalctl -u runner-go -n 50 --no-pager"
+done
 ```
+
+Instance IDs are not always 0, 1 and so on, so the loop asks Azure for them.
 
 To stop sandboxes, set `global.sandbox.enabled: false` and apply the app.
 
@@ -67,9 +80,10 @@ The chart can also put the Temporal frontend on an internal load balancer at a
 private address in the AKS subnet (`temporalFrontendLoadBalancer`, see "Runner
 load balancers" in the chart's `docs/prerequisites.md`). Then set
 `temporal_address = "<that address>:7233"`, `temporal_tls = false` and no
-`temporal_token`. Temporal there has no TLS and no login, so the plan stops when
-the address is public, and the runner VNet needs a private connection to the
-cluster's VNet.
+`temporal_token`. Temporal there has no TLS and no login, so the address must be
+a private IPv4 address. The plan stops on a public address, and on a host name,
+which could resolve to a public one. The runner VNet needs a private connection
+to the cluster's VNet. The same goes for an `http://` `tool_response_url`.
 
 ## The network owner's part
 
@@ -110,18 +124,18 @@ one on the subnet if your policy needs it; the runner needs no inbound rule.
 | `namespace`, `environment`, `name` | `name` = `autoheal` | Naming, as in `compositions/azure`. Resources are `<namespace>-<environment>-<name>-runner...`. |
 | `tags` | `{}` | Tags on everything we create. |
 | `resource_group_name` | `""` | Empty means `rg-<namespace>-<environment>-<name>-runner`. |
-| `existing_resource_group_id` | `""` | A resource group to use instead of creating one. |
-| `temporal_address` | required | `<host>:<port>`: the chart's `global.edge.runner.host` and 443. With the runner load balancers, their private address and 7233. |
-| `temporal_tls` | `true` | Dial over TLS. `false` only with the runner load balancers on a private address. |
+| `existing_resource_group_id` | `""` | A resource group in `subscription_id` to use instead of creating one. |
+| `temporal_address` | required | `<host>:<port>`: the chart's `global.edge.runner.host` and 443. With the runner load balancers, their private IPv4 address and 7233. |
+| `temporal_tls` | `true` | Dial over TLS. `false` only with the runner load balancers, on a private IPv4 address. |
 | `temporal_token` | `""` | Sensitive. The runner key: the `runner_token` output of `compositions/azure`. Required with `temporal_tls`, empty without. Letters and digits, at least 32. |
-| `temporal_server_name` | `""` | Name to check in the edge certificate. Empty means the host of `temporal_address`. |
+| `temporal_server_name` | `""` | Host name to check in the edge certificate. Empty means the host of `temporal_address`. |
 | `temporal_ca_certificate` | `""` | PEM of a private CA that signed the edge certificate, such as the `edge_ca_certificate` of `compositions/azure`. The runner trusts it on top of the public CAs. |
-| `tool_response_url` | `""` | Empty sends tool results through Temporal. With the runner load balancers it may be `http://<address>:8083/api/v1/internal/sandbox-tool-responses`. |
+| `tool_response_url` | `""` | Empty sends tool results through Temporal. With the runner load balancers it may be `http://<address>:8083/api/v1/internal/sandbox-tool-responses`. An `http://` URL must be a private IPv4 address; `https://` may be any host. |
 | `chart_version` | required | The chart version of the app step. The image tag is `chart-<chart_version>`. |
-| `runner_image` | `public.ecr.aws/e4h3h0d9/app/runner-go` | Repository, without a tag. For your ACR copy, also set `acr_id`. |
+| `runner_image` | `public.ecr.aws/e4h3h0d9/app/runner-go` | Repository, without a tag or digest. For your ACR copy, also set `acr_id`. |
 | `runner_image_tag` | `""` | Overrides `chart-<chart_version>`. |
-| `sandbox_image` | `""` | Sandbox image to pre-pull at boot. |
-| `acr_id` | `""` | ACR the runner pulls from: AcrPull for the identity, and a registry login on the VMs when `runner_image` is in it. |
+| `sandbox_image` | `""` | One sandbox image reference, to pre-pull at boot. |
+| `acr_id` | `""` | The ACR of the chart's `global.imageRegistry`: AcrPull for the identity, and a registry login on the VMs. runner-go pulls the sandbox image from that registry, so the VMs log in even when `runner_image` is public. |
 | `create_role_assignments` | `true` | `false` lists the AcrPull grant in `required_role_assignments` instead. |
 | `existing_subnet_id` | `""` | A subnet in `subscription_id` that already has a route to the runner host and outbound access. No VNet or NAT gateway is created. |
 | `address_space` | `10.61.0.0/24` | Range of the VNet we create, all of it for `snet-runner`. |
@@ -164,6 +178,7 @@ from the `infra` folder and nothing from the cluster:
 dependency "infra" {
   config_path = "../infra"
   mock_outputs_allowed_terraform_commands = ["init", "validate", "plan"]
+  mock_outputs_merge_strategy_with_state  = "shallow"
   mock_outputs = { runner_token = "pendingpendingpendingpendingpending" }
 }
 
@@ -179,6 +194,10 @@ inputs = {
 ```
 
 The `app` folder's chart values set `global.edge.runner.host` to the same host.
+
+`shallow` matters on an upgrade from 4.0.x: the `infra` state has outputs but
+no `runner_token` until the 4.1.0 infra apply, and without it the runner plan
+fails. The apply never uses the placeholder.
 
 ## Upgrading
 
@@ -198,6 +217,7 @@ terraform test
 a brought subnet and resource group, the image and the registry login, the edge
 path and the runner load balancers, a public edge, the tool-result URL, the
 network owner's lines, the AcrPull grant listed instead of made, and the input
-checks (address, URL, image, resource IDs, address space, a public Temporal
-address without TLS, the key with and without TLS, the key's characters, the CA,
-a subnet in another subscription).
+checks (address, URL, images, server name, resource IDs, address space, a public
+address or a host name without TLS, an `http://` tool-result URL that is not a
+private address, the key with and without TLS, the key's characters, the CA, a
+resource group or subnet in another subscription).

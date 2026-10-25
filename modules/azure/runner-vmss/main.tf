@@ -16,10 +16,12 @@
 # Identity: a user-assigned MI (some policies forbid system-assigned on VMs/VMSS).
 # When images come from an ACR it is granted AcrPull and the host logs in with it,
 # and runner-go gets its own login file for the sandbox images it pulls itself;
-# when images are public (the default public ECR) no registry login runs. It does
-# NOT read Key Vault; the runner's config is the Temporal endpoint, its key and
-# CA, and optionally the api-server-go internal listener it posts tool results
-# to. The key is in the custom data, which Azure never returns on read, and in a
+# when images are public (the default public ECR) no registry login runs. Only
+# the host uses the identity: containers on the VM, sandboxes included, cannot
+# reach the instance metadata service (block-imds.sh). It does NOT read Key
+# Vault; the runner's config is the Temporal endpoint, its key and CA, and
+# optionally the api-server-go internal listener it posts tool results to. The
+# key is in the custom data, which Azure never returns on read, and in a
 # root-only file on the VMs. Naming and tags come from the null-label base
 # (module.this); see label.tf.
 

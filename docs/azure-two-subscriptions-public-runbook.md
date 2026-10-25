@@ -72,6 +72,7 @@ The runbook has two roles. One person can do both:
   - [14d. Make the runner](#14d-make-the-runner): [Terragrunt](#14d-terragrunt), [Terraform Enterprise](#14d-terraform-enterprise)
   - [14e. Check that the runner polls](#14e-check-that-the-runner-polls)
   - [14f. Turn on sandboxes](#14f-turn-on-sandboxes)
+  - [14g. Change the runner key](#14g-change-the-runner-key)
 - [Resume in a new shell](#resume-in-a-new-shell)
 - [Troubleshooting](#troubleshooting)
 - [Upgrade](#upgrade): [Terragrunt](#upgrade-with-terragrunt), [Terraform Enterprise](#upgrade-with-terraform-enterprise), [from 3.x](#upgrade-from-3x)
@@ -1106,7 +1107,7 @@ with Helm. Helm signs in as you, with the access from step 4:
 ```bash
 cd "$WORK_DIR"
 helm upgrade --install autoheal oci://public.ecr.aws/e4h3h0d9/charts/autoheal \
-  --version 1.0.0-rc.8 -n "$K8S_NAMESPACE" \
+  --version 1.0.0-rc.12 -n "$K8S_NAMESPACE" \
   -f values-infra.yaml -f "$VALUES_FILE" --atomic --wait --timeout 20m
 ```
 
@@ -1291,14 +1292,20 @@ certificate that does ([Get a TLS certificate](#get-a-tls-certificate)), set
 
 ### 14c. Turn on the runner route
 
-Add the runner host to your chart settings. Sandboxes stay off until step 14f:
+Add the runner host under `edge` in your chart settings. Sandboxes stay off
+until step 14f:
 
 ```bash
 check_values VALUES_FILE RUNNER_HOST
 grep -q '^    runner:' "$VALUES_FILE" ||
-  perl -pi -e 's/^(    mode: .*\n)/$1    runner:\n      host: $ENV{RUNNER_HOST}\n/' "$VALUES_FILE"
-grep -n -A1 'runner:' "$VALUES_FILE"
+  perl -0pi -e 's/^(  edge:\n)/$1    runner:\n      host: $ENV{RUNNER_HOST}\n/m' "$VALUES_FILE"
+grep -n -A1 '^    runner:' "$VALUES_FILE" ||
+  echo "STOP: no runner under edge in $VALUES_FILE"
 ```
+
+It must show `runner:` and `host: <your runner host>`. On `STOP`, the file has
+no `edge:` line indented by two spaces under `global:`: add the two lines under
+`edge:` by hand.
 
 Then install the chart again, as in step 11b. The proxy now answers on the
 runner host. Without the key it must show `401`:
@@ -1407,13 +1414,18 @@ kubectl logs -n "$K8S_NAMESPACE" -l app.kubernetes.io/name=autoheal-proxy -c env
   grep -F "$RUNNER_HOST" | grep '"upstream":"temporal"' | grep -cE '"status":"?200'
 ```
 
-It must show a number above 0. When it shows 0, read the runner's log on the
-first VM:
+It must show a number above 0. When it shows 0, read the runner's log on each
+VM. The VM numbers change when VMs are replaced, so the loop looks them up:
 
 ```bash
-az vmss run-command invoke --subscription "$DATA_SUB" -g "rg-$NAME_PREFIX-$ENVIRONMENT-autoheal-runner" \
-  -n "$NAME_PREFIX-$ENVIRONMENT-autoheal-runner" --command-id RunShellScript --instance-id 0 \
-  --scripts "systemctl is-active runner-go; journalctl -u runner-go -n 50 --no-pager" --query 'value[0].message' -o tsv
+RUNNER_RG="rg-$NAME_PREFIX-$ENVIRONMENT-autoheal-runner"
+RUNNER_VMSS="$NAME_PREFIX-$ENVIRONMENT-autoheal-runner"
+for id in $(az vmss list-instances --subscription "$DATA_SUB" -g "$RUNNER_RG" -n "$RUNNER_VMSS" --query '[].instanceId' -o tsv); do
+  echo "== VM $id"
+  az vmss run-command invoke --subscription "$DATA_SUB" -g "$RUNNER_RG" -n "$RUNNER_VMSS" \
+    --command-id RunShellScript --instance-id "$id" \
+    --scripts "systemctl is-active runner-go; journalctl -u runner-go -n 50 --no-pager" --query 'value[0].message' -o tsv
+done
 ```
 
 See [Troubleshooting](#troubleshooting) for the usual messages.
@@ -1425,9 +1437,13 @@ run waits for a sandbox that never starts, then fails:
 
 ```bash
 grep -q '^  sandbox:' "$VALUES_FILE" ||
-  perl -pi -e 's/^(  edge:\n)/  sandbox:\n    enabled: true\n$1/' "$VALUES_FILE"
-grep -n -A1 'sandbox:' "$VALUES_FILE"
+  perl -0pi -e 's/^(  edge:\n)/  sandbox:\n    enabled: true\n$1/m' "$VALUES_FILE"
+grep -n -A1 '^  sandbox:' "$VALUES_FILE" ||
+  echo "STOP: no sandbox under global in $VALUES_FILE"
 ```
+
+It must show `sandbox:` and `enabled: true`. On `STOP`, add the two lines under
+`global:` by hand; on `enabled: false`, change it to `true`.
 
 Then install the chart again, as in step 11b. To check, ask an agent in a new
 chat to run `uname -a` in a sandbox. The answer shows the Linux kernel of the
@@ -1435,6 +1451,53 @@ sandbox.
 
 To turn sandboxes off again, set `enabled: false` under `sandbox` and install
 the chart again.
+
+### 14g. Change the runner key
+
+Change the key when it may have leaked, or when your policy says so. There is
+one key at a time, so the runner gets `401` from when the proxy takes the new
+key until the runner VMs boot with it, about 5 to 10 minutes. Agent runs that
+need a sandbox in that time fail, and the runner apply restarts the VMs, which
+ends the sandboxes on them. Pick a quiet time, and do the three parts one after
+the other: within 15 minutes of the first, the proxy takes the new key by
+itself.
+
+1. Make a new key. With Terragrunt:
+
+   ```bash
+   cd "$WORK_DIR/acme-autoheal/prod/infra"
+   terragrunt apply -replace=random_password.runner_token
+   ```
+
+   With Terraform Enterprise, start a run in the infra workspace that replaces
+   `random_password.runner_token`. The plan replaces the key and updates its
+   vault entry `runner-token`, and changes nothing else.
+
+2. Give the proxy the new key now. The chart copies the vault into the cluster
+   every 15 minutes and restarts the proxy when the key changed; this does it
+   at once:
+
+   ```bash
+   JOB="autoheal-secrets-sync-$(date +%s)"
+   kubectl create job -n "$K8S_NAMESPACE" --from=cronjob/autoheal-secrets-sync "$JOB"
+   kubectl wait -n "$K8S_NAMESPACE" --for=condition=complete "job/$JOB" --timeout=5m
+   kubectl rollout status -n "$K8S_NAMESPACE" deployment/autoheal-proxy --timeout=5m
+   ```
+
+3. Give the runner the new key. With Terragrunt, the runner folder reads it
+   from the infra folder:
+
+   ```bash
+   cd "$WORK_DIR/acme-autoheal/prod/runner"
+   terragrunt apply
+   ```
+
+   With Terraform Enterprise, set `temporal_token` in `autoheal-runner-prod` to
+   the new value of the vault entry (the command in step 14d, item 2), then
+   start a run. The plan updates the VM scale set in place, and the apply
+   restarts each VM with the new key.
+
+Then check that the runner polls, as in step 14e.
 
 ## Resume in a new shell
 

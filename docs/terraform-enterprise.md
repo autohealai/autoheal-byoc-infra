@@ -322,7 +322,7 @@ The simplest path is Helm or Flux with `autoheal_values_yaml`:
 
 ```bash
 helm upgrade --install autoheal oci://public.ecr.aws/e4h3h0d9/charts/autoheal \
-  --version 1.0.0-rc.8 -n autoheal --create-namespace \
+  --version 1.0.0-rc.12 -n autoheal --create-namespace \
   -f values-infra.yaml -f values-customer.yaml --atomic --wait --timeout 20m
 ```
 

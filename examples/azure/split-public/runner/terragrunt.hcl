@@ -33,9 +33,11 @@ terraform {
 dependency "infra" {
   config_path = "../infra"
 
-  # Before ../infra is applied there are no outputs yet. The plan uses this
-  # placeholder; the apply always uses the real key.
+  # Before ../infra is applied there are no outputs yet, and an install still
+  # on 4.0.x has outputs but no runner_token. The plan uses this placeholder
+  # for what is missing (shallow); the apply always uses the real key.
   mock_outputs_allowed_terraform_commands = ["init", "validate", "plan"]
+  mock_outputs_merge_strategy_with_state  = "shallow"
   mock_outputs = {
     runner_token = "pendingpendingpendingpendingpending"
   }

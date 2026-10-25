@@ -34,6 +34,10 @@ write_files:
       ${indent(6, trimspace(temporal_ca_certificate))}
 %{ endif ~}
   # Root only: it holds the runner key. docker reads it as root at each start.
+  # DISABLED_DRIVERS turns off runner-go's lambda drivers. A lambda would run
+  # inside the runner container with its environment, the key included, and
+  # nothing in the chart starts lambdas. Sandboxes are containers of their own
+  # and get none of this environment.
   - path: /opt/runner-go/config.env
     permissions: '0600'
     content: |
@@ -56,6 +60,7 @@ write_files:
       LOCAL_DOCKER_CONFIG_PATH=/opt/runner-go/docker/config.json
 %{ endif ~}
       LAMBDA_DOWNLOAD_PATH=/var/lib/runner-go/lambdas
+      DISABLED_DRIVERS=shell,bubblewrap
       DATA_SOURCES_PATH=/var/lib/runner-go/datasources
       SANDBOX_BASE_DIR=/var/lib/runner-go/sandboxes
       AGENT_SESSION_SHARED_BASE_DIR=/var/lib/runner-go/agent-sessions
@@ -114,6 +119,21 @@ write_files:
       [Install]
       WantedBy=timers.target
 %{ endif ~}
+  - path: /usr/local/bin/block-imds.sh
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      # Keep containers away from the Azure instance metadata service. A
+      # sandbox that reached it could get a token for the VM's identity, which
+      # can pull from the registry. The rule is in Docker's DOCKER-USER chain,
+      # which sees only container traffic, so the host (acr-login.sh) keeps
+      # its access. Docker never changes the rules in that chain, but a reboot
+      # clears them, so this runs before each runner start. The reset makes
+      # runner-go's own instance ID lookup fail at once instead of timing out.
+      # 168.63.129.16 (Azure DNS and the platform) stays open.
+      set -euo pipefail
+      iptables -w -C DOCKER-USER -d 169.254.169.254/32 -p tcp -j REJECT --reject-with tcp-reset 2>/dev/null ||
+        iptables -w -I DOCKER-USER -d 169.254.169.254/32 -p tcp -j REJECT --reject-with tcp-reset
   - path: /usr/local/bin/runner-pull.sh
     permissions: '0755'
     content: |
@@ -150,6 +170,8 @@ write_files:
       # The pull step waits until the image exists, so it has no start timeout.
       TimeoutStartSec=infinity
       ExecStartPre=-/usr/bin/docker rm -f runner-go
+      # No "-": without the rule the runner does not start, and systemd retries.
+      ExecStartPre=/usr/local/bin/block-imds.sh
       ExecStartPre=/usr/local/bin/runner-pull.sh ${runner_image}
       # --group-add <docker-gid>: the runner container runs as uid/gid 1000
       # (alpine adduser 'runner'); the host docker.sock is root:docker mode 660,

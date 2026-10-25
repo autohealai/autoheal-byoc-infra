@@ -12,6 +12,7 @@ prod/
   app/values-customer.yaml   your chart settings
 split/                       the same, for an AKS cluster in another subscription, connected VNets
   cluster/terragrunt.hcl     reads that cluster and federates to it (compositions/azure-cluster)
+  runner/terragrunt.hcl      the sandbox runner, optional (compositions/azure-runner)
 split-public/                the same, with public endpoints instead of connected VNets
 cop-standin/                 internal test stand-in for that cluster; not for customers
 ```
@@ -120,6 +121,19 @@ It reads the cluster, checks that the OIDC issuer and the Key Vault CSI driver
 are on, federates the three workload identities to the cluster, and outputs the
 cluster's endpoint and CA certificate. The app folder takes `cluster` from it.
 
+The sandbox runner is optional and comes last. The comments at the top of
+`runner/terragrunt.hcl` list what to do first: the runner host in DNS and in
+the app folder's `global.edge.runner.host`, then an app apply. Then:
+
+```bash
+cd split/runner && terragrunt apply
+```
+
+Once the runner polls Temporal, set `global.sandbox.enabled: true` in
+`app/values-customer.yaml` and apply the app folder again. Step 14 of
+autoheal-byoc-infra's `docs/azure-two-subscriptions-public-runbook.md` has the
+commands and the checks.
+
 ## Upgrading
 
 Change the two numbers in `prod/versions.hcl` (after staging has run them), then
@@ -134,7 +148,7 @@ with them:
 ```bash
 cd prod/infra && terragrunt output -raw autoheal_values_yaml > values-infra.yaml
 helm upgrade --install autoheal oci://public.ecr.aws/e4h3h0d9/charts/autoheal \
-  --version 1.0.0-rc.8 -n autoheal --create-namespace \
+  --version 1.0.0-rc.12 -n autoheal --create-namespace \
   -f values-infra.yaml -f ../app/values-customer.yaml --atomic --wait --timeout 20m
 ```
 

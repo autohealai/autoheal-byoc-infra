@@ -7,7 +7,7 @@
 # key (temporal_token, the runner_token output of compositions/azure) with each
 # call, and the chart's proxy refuses calls without it. Tool results go through
 # Temporal too. With temporal_tls = false it reaches the chart's runner load
-# balancers on a private address instead, with no TLS and no key.
+# balancers on a private IPv4 address instead, with no TLS and no key.
 #
 # The runner only dials out. This composition never reads the cluster or its
 # subscription: the address is an input, and the network owner opens the path
@@ -37,23 +37,30 @@ locals {
   temporal_host = split(":", var.temporal_address)[0]
   temporal_port = split(":", var.temporal_address)[1]
 
-  # Empty sends tool results through Temporal.
-  tool_response_url = var.tool_response_url
-
-  # Scheme, host and port of tool_response_url, for the network rule.
-  tool_response      = local.tool_response_url == "" ? null : regex("^(https?)://([^/:]+)(?::([0-9]+))?", local.tool_response_url)
+  # Scheme, host and port of tool_response_url, for the network rule. An empty
+  # tool_response_url sends tool results through Temporal.
+  tool_response      = var.tool_response_url == "" ? null : regex("^(https?)://([^/:]+)(?::([0-9]+))?", var.tool_response_url)
   tool_response_host = local.tool_response == null ? "" : local.tool_response[1]
   tool_response_port = local.tool_response == null ? "" : coalesce(local.tool_response[2], local.tool_response[0] == "https" ? "443" : "80")
+
+  # Whether a host is an IPv4 address in the private ranges. A host name counts
+  # as not private: it could resolve to a public address.
+  private_ranges = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10"]
+  temporal_private = !can(cidrhost("${local.temporal_host}/32", 0)) ? false : anytrue([
+    for r in local.private_ranges : cidrhost("${local.temporal_host}/${split("/", r)[1]}", 0) == split("/", r)[0]
+  ])
+  tool_response_private = !can(cidrhost("${local.tool_response_host}/32", 0)) ? false : anytrue([
+    for r in local.private_ranges : cidrhost("${local.tool_response_host}/${split("/", r)[1]}", 0) == split("/", r)[0]
+  ])
 
   # --- Image ----------------------------------------------------------------
 
   runner_image = "${var.runner_image}:${var.runner_image_tag != "" ? var.runner_image_tag : "chart-${var.chart_version}"}"
 
-  # The ACR name, from its resource ID. The VMs log in to it only when the
-  # runner image comes from it (<name>.azurecr.io/...); public images need no
-  # login.
-  acr_name        = var.acr_id == "" ? "" : lower(split("/", var.acr_id)[8])
-  runner_uses_acr = local.acr_name != "" && startswith(lower(var.runner_image), "${local.acr_name}.azurecr.")
+  # The ACR name, from its resource ID. With acr_id the VMs always log in to
+  # it, even when runner_image is public: runner-go pulls the sandbox image the
+  # chart names, which comes from the same registry as the app images.
+  acr_name = var.acr_id == "" ? "" : lower(split("/", var.acr_id)[8])
 
   # --- Role grants ----------------------------------------------------------
 
@@ -83,8 +90,16 @@ resource "terraform_data" "validate_inputs" {
       error_message = "existing_subnet_id is in subscription ${try(split("/", var.existing_subnet_id)[2], "")}, but the runner VMs go in subscription_id (${var.subscription_id}). Azure puts a VM's network interface only in a subnet of its own subscription."
     }
     precondition {
-      condition     = var.temporal_tls || !local.temporal_public
-      error_message = "temporal_address (${local.temporal_host}) is a public address and temporal_tls is false. Without TLS Temporal has no key check, and the traffic carries git tokens and command output, so the runner load balancers take a private route only. To cross the internet, use the chart's runner host with temporal_tls = true."
+      condition     = local.create_resource_group || lower(try(split("/", var.existing_resource_group_id)[2], "")) == lower(var.subscription_id)
+      error_message = "existing_resource_group_id is in subscription ${try(split("/", var.existing_resource_group_id)[2], "")}, but the runner goes in subscription_id (${var.subscription_id}). The azurerm provider of this composition works in subscription_id only."
+    }
+    precondition {
+      condition     = var.temporal_tls || local.temporal_private
+      error_message = "temporal_tls is false, so temporal_address must be a private IPv4 address (in 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 or 100.64.0.0/10), such as the chart's runner load balancer. ${local.temporal_host} is a public address or a host name, which could resolve to one. Without TLS Temporal has no key check, and the traffic carries git tokens and command output. To cross the internet, use the chart's runner host with temporal_tls = true."
+    }
+    precondition {
+      condition     = local.tool_response == null ? true : (local.tool_response[0] == "https" || local.tool_response_private)
+      error_message = "An http:// tool_response_url must be a private IPv4 address (in 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 or 100.64.0.0/10), such as the chart's runner load balancer on 8083. ${local.tool_response_host} is a public address or a host name, which could resolve to one. Tool results carry command output: use https://, or leave tool_response_url empty to send them through Temporal."
     }
     precondition {
       condition     = !var.temporal_tls || nonsensitive(var.temporal_token != "")
@@ -95,16 +110,6 @@ resource "terraform_data" "validate_inputs" {
       error_message = "temporal_token is set but temporal_tls is false: the key would cross the network in plain text. Turn temporal_tls on, or leave the key empty for the runner load balancers."
     }
   }
-}
-
-locals {
-  # A temporal_address host that is an IPv4 address outside the private ranges.
-  # A host name is not checked.
-  temporal_is_ip = can(cidrhost("${local.temporal_host}/32", 0))
-  temporal_public = !local.temporal_is_ip ? false : !anytrue([
-    for r in ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10"] :
-    cidrhost("${local.temporal_host}/${split("/", r)[1]}", 0) == split("/", r)[0]
-  ])
 }
 
 # SSH key for the runner VMs when the customer passes none. The private half is
@@ -132,7 +137,7 @@ module "runner" {
   temporal_server_name       = var.temporal_server_name
   temporal_token             = var.temporal_token
   temporal_ca_certificate    = var.temporal_ca_certificate
-  tool_response_callback_url = local.tool_response_url
+  tool_response_callback_url = var.tool_response_url
   runner_image               = local.runner_image
   sandbox_image              = var.sandbox_image
   runner_name                = "${local.id}-runner"
@@ -149,9 +154,9 @@ module "runner" {
 
   admin_ssh_public_key = var.admin_ssh_public_key != "" ? var.admin_ssh_public_key : tls_private_key.runner[0].public_key_openssh
 
-  # AcrPull is gated on plan-time inputs. The VMs log in to the registry only
-  # when the runner image comes from it.
+  # AcrPull is gated on plan-time inputs. With acr_id the VMs log in to the
+  # registry, for the runner image and the sandbox images runner-go pulls.
   acr_id           = var.acr_id
   acr_pull_enabled = var.acr_id != "" && var.create_role_assignments
-  acr_name         = local.runner_uses_acr ? local.acr_name : ""
+  acr_name         = local.acr_name
 }

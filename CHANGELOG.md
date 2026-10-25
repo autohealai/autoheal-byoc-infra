@@ -28,16 +28,33 @@ to HTTP/1.1.
   (`existing_subnet_id`). `temporal_address` is the runner host on 443, and
   `temporal_token` the key. `temporal_ca_certificate` adds a private CA. With
   `temporal_tls = false` the runner reaches the chart's runner load balancers
-  on a private address instead, with no TLS and no key. It never reads the
+  on a private IPv4 address instead, with no TLS and no key. It never reads the
   cluster: `required_network_owner_actions` lists what the network owner opens.
+  With `acr_id` the VMs log in to that registry, since runner-go pulls the
+  sandbox image from the chart's `global.imageRegistry` too.
 - `modules/azure/runner-vmss`: TLS, the key and a CA for runner-go. The key goes
   in a root-only file on the VMs. An empty `tool_response_callback_url` sends
   tool results through Temporal.
 - Examples: a `runner` folder in `examples/azure/split` and
   `examples/azure/split-public`, and the runner host and sandbox settings,
   commented out, in their `values-customer.yaml`.
-- `docs/azure-two-subscriptions-public-runbook.md`: step 14, the runner, and
-  the runner behind a shared Istio gateway.
+- `docs/azure-two-subscriptions-public-runbook.md`: step 14, the runner, the
+  runner behind a shared Istio gateway, and step 14g, changing the runner key.
+  A new key stops the runner for about 5 to 10 minutes, so pick a quiet time.
+
+### Security
+- The runner key is in runner-go's environment, so runner-go's lambda drivers
+  are off (`DISABLED_DRIVERS=shell,bubblewrap`): a lambda would run with that
+  environment. Sandboxes get their own environment and run as before.
+- Containers on the runner VMs, sandboxes included, cannot reach the instance
+  metadata service, so they cannot get a token for the VM identity. The
+  runner-go unit adds the firewall rule (Docker's `DOCKER-USER` chain) before
+  each start, and runner-go does not start without it.
+- Without TLS, `temporal_address` must be a private IPv4 address; a host name
+  could resolve to a public one. An `http://` `tool_response_url` must be a
+  private IPv4 address too. Tool results carry command output.
+- The inputs that go into the VMs' boot file (`temporal_server_name`,
+  `runner_image`, `sandbox_image`) refuse spaces and line breaks.
 
 ### Upgrading from 4.0.x
 1. Apply the infra unit. The plan adds two resources, the runner key and its
@@ -46,6 +63,11 @@ to HTTP/1.1.
    `global.edge.runner.host`, apply the `runner` folder, then turn on
    `global.sandbox.enabled` once the runner polls. Step 14 of the runbook has
    the commands.
+
+The `runner` folder's `dependency "infra"` block sets
+`mock_outputs_merge_strategy_with_state = "shallow"`. Keep it: until the 4.1.0
+infra apply, the infra state has outputs but no `runner_token`, and without it
+the runner plan fails. The apply never uses the placeholder.
 
 ## [4.0.0] - 2026-10-24
 

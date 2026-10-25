@@ -1856,11 +1856,16 @@ another team owns. The chart can sit behind it, with `edge.mode: istio` and
 balancer on `$PROXY_IP`. The gateway ends TLS, so its certificate is the one the
 users and the runner see.
 
-For the runner of step 14, the gateway owner does three things before step 14c:
+For the runner of step 14, the gateway owner does four things before step 14c:
 
 - Adds `$RUNNER_HOST` to the `hosts` of the HTTPS server of the Gateway, and
   makes sure the gateway certificate covers it. A wildcard for
   `*.$AUTOHEAL_HOSTNAME` covers it.
+- Makes sure the gateway offers TLS 1.3 on `$RUNNER_HOST` and passes the
+  runner's gRPC through as HTTP/2. The runner refuses older TLS versions, and
+  gRPC does not work over HTTP/1.1. A WAF or load balancer in front of the
+  gateway that ends TLS must do the same. When it cannot, point the runner at
+  an address of the gateway that skips it, such as a private one.
 - Points the DNS record of step 14a at the address of the gateway instead of
   `$PROXY_IP`.
 - Lets the runner's outbound address in on TCP 443, after step 14d shows it

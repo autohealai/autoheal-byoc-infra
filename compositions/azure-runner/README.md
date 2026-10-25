@@ -14,6 +14,8 @@ passes the call to the chart's proxy, and the proxy passes it on to Temporal
 only when it carries the runner key (`temporal_token`, the `runner_token`
 output of `compositions/azure`). Any other call gets 401. Sandbox tool results
 go back through Temporal as well, so the runner needs one address and one port.
+The edge must offer TLS 1.3, since runner-go refuses older versions, and pass
+gRPC through as HTTP/2.
 
 The runner only dials out; nothing connects into it. This composition never
 reads the cluster and needs no access to the cluster's subscription: the

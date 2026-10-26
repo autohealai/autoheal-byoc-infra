@@ -286,9 +286,13 @@ You need:
   reject `global.llm.gateway`.
 - A gateway you run. It is not part of the install. The agents-py pods must
   reach it, for example as a service in its own namespace of the AKS cluster,
-  and it needs outbound access to the provider. For a cluster without internet
-  access, mirror its image into your registry. Portkey OSS is the
-  `portkeyai/gateway` image and listens on port 8787.
+  and it needs outbound access to the provider. Portkey OSS listens on port
+  8787. Its image is `portkeyai/gateway` on Docker Hub. The same image, copied
+  unchanged, is in the Autoheal registry for networks that allow
+  `public.ecr.aws` but not Docker Hub:
+  `public.ecr.aws/e4h3h0d9/external/portkey-gateway:1.15.2`
+  (`sha256:97f094d9c8a764cbfaa2a7138c0017b247ca923bb06db1b4c13b7f8a33b5200d`).
+  For a cluster without internet access, mirror it into your registry.
 
 **1. Store the gateway secrets.** Set them with the other secrets from Step 4,
 then plan and apply `prod/infra` again. Terraform writes them to Key Vault.

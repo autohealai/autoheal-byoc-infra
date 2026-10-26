@@ -1966,7 +1966,11 @@ of this install:
 - Run it where the agents-py pods reach it, for example as a service in its own
   namespace of the cluster:
   `http://portkey-gateway.llm-gateway.svc.cluster.local:8787/v1`. Portkey OSS
-  is the `portkeyai/gateway` image, on port 8787.
+  listens on port 8787. Pull its image from the Autoheal registry, like the
+  other images of this install:
+  `public.ecr.aws/e4h3h0d9/external/portkey-gateway:1.15.2`
+  (`sha256:97f094d9c8a764cbfaa2a7138c0017b247ca923bb06db1b4c13b7f8a33b5200d`).
+  It is the `portkeyai/gateway` image from Docker Hub, copied unchanged.
 - The gateway must route the embedding model `text-embedding-3-large` to a model
   that returns 1024 dimensions.
 - For Portkey OSS, the config in `PORTKEY_CONFIG_FILE` holds the routing and

@@ -28,7 +28,7 @@ gateway:
 - The chart adds Istio VirtualServices bound to the gateway. It makes no
   Gateway and no load balancer.
 
-It uses autoheal-byoc-infra **v4.1.1** and chart **1.0.0-rc.13**.
+It uses autoheal-byoc-infra **v4.1.2** and chart **1.0.0-rc.13**.
 
 ## Before you start: what the cluster owner provides
 

@@ -6,6 +6,14 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Docs: the Portkey gateway image is also in the Autoheal registry, as
+  `public.ecr.aws/e4h3h0d9/external/portkey-gateway:1.15.2`. It is the Docker
+  Hub `portkeyai/gateway` image, copied unchanged by digest, for networks that
+  allow `public.ecr.aws` but not Docker Hub. The getting-started guide and the
+  two-subscription runbook name it.
+
 ## [4.1.1] - 2026-10-25
 
 Docs and examples only. The modules and compositions are the same as 4.1.0, so

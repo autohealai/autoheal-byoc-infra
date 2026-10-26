@@ -6,8 +6,29 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
-### Changed
+## [4.1.2] - 2026-10-26
 
+The storage account we create allows no anonymous read, so an Azure Policy that
+requires it no longer denies the infra apply. An install moving from 4.1.1
+plans one in-place update of that storage account in the infra unit, and no
+change in the cluster, app and runner units. An install that brings its own
+storage account (`existing_storage_account_id`) plans no change.
+
+### Fixed
+- `modules/azure/blob`: sets `allow_nested_items_to_be_public = false`. The
+  provider default is `true`, which only allows a container to be made public;
+  every container we and the app create is private. A tenant policy such as
+  "Storage account public access should be disallowed" denied the create with
+  `RequestDisallowedByPolicy`.
+
+### Changed
+- Docs: three new troubleshooting rows in
+  `docs/azure-two-subscriptions-public-runbook.md` and `docs/getting-started.md`
+  for the infra apply: `AuthorizationFailed` on `roleAssignments/write`,
+  `RequestDisallowedByPolicy`, and Postgres `The value of the 'Version' should
+  be in: []`, which means the subscription may not create a Postgres flexible
+  server in that region.
+- Examples and docs pin v4.1.2. The chart stays 1.0.0-rc.13.
 - Docs: the Portkey gateway image is also in the Autoheal registry, as
   `public.ecr.aws/e4h3h0d9/external/portkey-gateway:1.15.2`. It is the Docker
   Hub `portkeyai/gateway` image, copied unchanged by digest, for networks that

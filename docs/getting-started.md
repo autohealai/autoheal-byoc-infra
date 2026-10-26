@@ -135,7 +135,7 @@ az account set --subscription "<subscription-id>"   # az account show --query id
 Copy `examples/azure` from a released tag into a repository you own:
 
 ```bash
-git clone --branch v4.1.1 https://github.com/autohealai/autoheal-byoc-infra.git
+git clone --branch v4.1.2 https://github.com/autohealai/autoheal-byoc-infra.git
 mkdir acme-autoheal && cp -r autoheal-byoc-infra/examples/azure/. acme-autoheal/
 cd acme-autoheal
 ```
@@ -424,7 +424,7 @@ A first apply takes roughly 30 minutes; EKS and Aurora are the slow parts.
 ### Step 2: Copy the example into your repository
 
 ```bash
-git clone --branch v4.1.1 https://github.com/autohealai/autoheal-byoc-infra.git
+git clone --branch v4.1.2 https://github.com/autohealai/autoheal-byoc-infra.git
 mkdir acme-autoheal && cp -r autoheal-byoc-infra/examples/aws/. acme-autoheal/
 cd acme-autoheal
 ```
@@ -581,6 +581,8 @@ brought vault.
 |---------|--------------|-----|
 | `terragrunt init` fails with a backend error or 403 | the state storage account does not exist, the names do not match `root.hcl`, or you lack Storage Blob Data Contributor on it | run Step 3; a new grant can take a few minutes to apply |
 | `apply` fails with `AuthorizationFailed` on a role assignment | the identity cannot write role assignments | grant Owner, or Contributor + User Access Administrator, or set `create_role_assignments = false` |
+| `apply` fails with `RequestDisallowedByPolicy` | an Azure Policy in your tenant denies a setting of the resource; the message names the policy | send us the message. From 4.1.2 the storage account allows no anonymous read, which such policies usually require |
+| `apply` fails on Postgres with `The value of the 'Version' should be in: []` | the subscription may not create a Postgres flexible server in that region | `az postgres flexible-server list-skus --location <region> -o table` shows nothing; ask Azure support for region access, or use another region |
 | the apply stops listing missing role grants | `create_role_assignments = false` and the grants are not made yet | make the grants in `required_role_assignments`, then apply again |
 | `plan` errors with "No apply-time path" or "No runtime path" to the Blob account or Key Vault | the firewalls deny all with no path open | set `deployer_ip_ranges` and `private_endpoints_enabled = true` |
 | `plan` errors that a hostname is not inside the zone | `hostname` is not under `existing_dns_zone_id` | fix the hostname, or set `create_dns_records = false` |

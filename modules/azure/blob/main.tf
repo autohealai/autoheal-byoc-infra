@@ -22,6 +22,12 @@ resource "azurerm_storage_account" "this" {
   min_tls_version          = "TLS1_2"
   tags                     = module.this.tags
 
+  # No container in this account may allow anonymous reads. Every container we
+  # and the app create is private, but the provider default (true) leaves the
+  # account-level switch on, and Azure Policy commonly denies an account with it
+  # on ("Storage account public access should be disallowed").
+  allow_nested_items_to_be_public = false
+
   # The Git Registry keeps one container per tenant (autoheal-<tenant-id>) in this
   # account and needs a flat namespace: Copy Blob + delete is its rename, and
   # hierarchical namespace changes those semantics. Set it explicitly; it cannot

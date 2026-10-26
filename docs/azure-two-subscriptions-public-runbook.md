@@ -7,7 +7,7 @@ subscription**). The two VNets are not connected. The data services use public
 endpoints with firewalls, and users and webhooks reach Autoheal on a public IP.
 [The one-pager](azure-two-subscriptions-public.md) explains the layout, and
 [the comparison](azure-subscription-options.md) shows its limits. The runbook
-uses autoheal-byoc-infra **v4.1.1**. When a shared Istio gateway in the cluster
+uses autoheal-byoc-infra **v4.1.2**. When a shared Istio gateway in the cluster
 takes all outside traffic, follow
 [the shared Istio gateway quickstart](azure-shared-istio-quickstart.md)
 instead; it links back to the steps here.
@@ -589,7 +589,7 @@ files that are there already, so it does not overwrite your edits:
 
 ```bash
 mkdir -p "$WORK_DIR" && cd "$WORK_DIR"
-[ -d autoheal-byoc-infra ] || git clone --branch v4.1.1 https://github.com/autohealai/autoheal-byoc-infra.git
+[ -d autoheal-byoc-infra ] || git clone --branch v4.1.2 https://github.com/autohealai/autoheal-byoc-infra.git
 mkdir -p acme-autoheal
 [ -e acme-autoheal/root.hcl ] || cp autoheal-byoc-infra/examples/azure/root.hcl acme-autoheal/
 [ -e acme-autoheal/prod ] || cp -R autoheal-byoc-infra/examples/azure/split-public acme-autoheal/prod
@@ -634,7 +634,7 @@ az role assignment create --assignee "$APP_ID" --role "User Access Administrator
 Part B in [terraform-enterprise.md](terraform-enterprise.md):
 
 - Make the workspace `autoheal-infra-prod`, with the Terraform working
-  directory `compositions/azure`, on a branch of your copy at the tag v4.1.1. Set the workspace Terraform version to 1.7 or later.
+  directory `compositions/azure`, on a branch of your copy at the tag v4.1.2. Set the workspace Terraform version to 1.7 or later.
 - Add the four environment variables for the sign-in. `ARM_SUBSCRIPTION_ID`
   is `$DATA_SUB`. The composition does not read the cluster, so this workspace
   needs no access to the cluster subscription.
@@ -1559,6 +1559,9 @@ before you apply step 9a.
 | Step 9a fails with `registering resource provider ... connection may have been reset` | A network break while Terraform registered the resource providers                                       | Run the command again                                                                                                  |
 | Step 9a stops on "workload_egress_ip_ranges"                                          | An input from step 8b is missing or private                                                             | Set it as the message says                                                                                             |
 | Step 9a fails with 403 on Key Vault entries                                           | `deployer_ip_ranges` is not the address of the apply host                                               | Find the address again (step 8a) and update the input                                                                  |
+| Step 9a fails with `AuthorizationFailed` on `roleAssignments/write`                   | You cannot grant roles in the resource group                                                            | Get User Access Administrator on the resource group, or set `create_role_assignments = false` in step 8b               |
+| Step 9a fails with `RequestDisallowedByPolicy`                                        | An Azure Policy denies a setting of the resource. The message names the policy                          | Send us the message. From 4.1.2 the storage account allows no anonymous read                                           |
+| Step 9a fails on Postgres: `The value of the 'Version' should be in: []`              | The subscription may not create a Postgres flexible server in `$LOCATION`                               | Run `az postgres flexible-server list-skus -l "$LOCATION"`. If empty, ask Azure support for region access              |
 | Step 9c fails with `AuthorizationFailed` or a service endpoint error                  | No `Microsoft.Storage` service endpoint on the subnet, or no right on the subnet or the storage account | Do step 4d, and check the two rights in step 9c                                                                        |
 | Step 10 fails to read the cluster                                                     | The Cluster User Role is not in effect yet, or was given to another identity                            | Wait 10 minutes and apply again. With Terraform Enterprise: check that `DEPLOYER_ID` is the workspace identity         |
 | Step 10 stops on "has no OIDC issuer"                                                 | The OIDC issuer or workload identity is off                                                             | Do step 3, then apply step 10 again                                                                                    |

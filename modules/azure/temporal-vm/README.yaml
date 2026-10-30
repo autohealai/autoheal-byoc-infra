@@ -1,0 +1,50 @@
+name: azure/temporal-vm
+title: Autoheal BYOC - Azure Temporal VM
+description: |-
+  One VM that runs the Temporal server for an install whose cluster cannot host
+  it. The app and the runner reach it over the internet on TCP 7233. Temporal
+  listens on 127.0.0.1 only; in front of it a proxy (Envoy) ends TLS 1.3 and
+  checks a key, as the chart's proxy guards the runner host. The app key opens
+  the worker API in every namespace. The runner key opens GetSystemInfo, which
+  the Go SDK calls first with no namespace header, and the worker API in the
+  runners namespace. Both open the gRPC health check. Any other call gets 401.
+  The namespace check reads the temporal-namespace header, which a stock SDK
+  sets, so it keeps a misconfigured runner out of the other namespaces. It is
+  not a hard boundary: a hand-made gRPC client with the runner key can send the
+  header and another namespace in the body, and Envoy cannot read the body. The
+  routes match any host name.
+
+  The VM has a static public IP and a VNet of its own that is connected to
+  nothing. The NSG lets in TCP 7233 from allowed_source_cidrs and denies the
+  rest, SSH included. Password login is off; the admin user has an SSH key
+  only, and az vm run-command reaches the host. Temporal keeps its data in
+  Postgres (the temporal and temporal_visibility databases), so the VM holds no
+  state.
+
+  cloud-init installs Docker and four systemd units, each a container on the
+  host network. temporal-schema sets up or upgrades the schema in both
+  databases and retries until Postgres answers. temporal-server runs Temporal
+  and is enabled only when start_temporal is true. temporal-namespaces creates
+  the agents, runners and notifications namespaces (3-day retention) after each
+  start. temporal-edge runs the proxy and is always on. Each unit pulls its
+  image and retries with a backoff until the pull succeeds. The database
+  password, the keys and the TLS key sit in root-only files (the TLS key and
+  the proxy config belong to the proxy's user, uid 65532).
+
+  Any change to the custom data replaces the VM: start_temporal, a key, the
+  certificate, an image or the database password. The public IP is a separate
+  resource and stays, so clients and firewall rules keep working. Moving from
+  start_temporal false to true is a one-variable change that replaces the VM
+  with one that starts Temporal. Naming and tags follow the repo's null-label
+  convention (see label.tf and docs/MODULE_STANDARD.md).
+
+usage: |-
+  See examples/basic for a runnable configuration.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: compositions/azure-temporal (keys, certificate, Postgres firewall rule)
+    url: ../../../compositions/azure-temporal
+  - name: compositions/azure-runner (a client of this VM)
+    url: ../../../compositions/azure-runner

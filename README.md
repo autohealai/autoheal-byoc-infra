@@ -21,6 +21,10 @@ On Azure, an optional fourth folder runs after the app: `compositions/azure-runn
 makes the sandbox runner VMs, which reach Temporal through the edge on a
 hostname of their own, with the runner key from the infra folder.
 
+For a cluster that cannot run the Temporal server, `compositions/azure-temporal`
+runs it on a VM of its own, against the install's Postgres. The app and the
+runner reach it on the VM's public IP, port 7233, with TLS and a key.
+
 Customers run compositions, never individual modules.
 
 ## Layout
@@ -28,13 +32,15 @@ Customers run compositions, never individual modules.
 ```
 modules/            Building blocks, one concern each.
   azure/            VNet, AKS, PostgreSQL Flexible, Managed Redis, Blob, Key Vault,
-                    ACR, DNS records, private endpoints, identities, runner VMSS.
+                    ACR, DNS records, private endpoints, identities, runner VMSS,
+                    Temporal VM.
   aws/              VPC, EKS, Aurora, ElastiCache, S3, KMS, Secrets Manager, ECR,
                     Route 53 records, NLBs, Pod Identity roles.
 compositions/       Full wiring, one per cloud, plus the app install.
   azure/            Create, bring or mix every Azure building block.
   azure-cluster/    For an AKS cluster you bring: read it, federate the identities.
   azure-runner/     Optional sandbox runner VMs outside the cluster.
+  azure-temporal/   Optional Temporal server on a VM outside the cluster.
   aws/              Create, bring or mix every AWS building block.
   app/              The chart, on any cloud (helm_release), and the AWS Load
                     Balancer Controller on EKS.

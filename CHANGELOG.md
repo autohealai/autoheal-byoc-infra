@@ -6,6 +6,29 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- `modules/azure/temporal-vm`: one Ubuntu VM that runs the Temporal server
+  against the install's Postgres, for a cluster that cannot run it. Temporal
+  listens on 127.0.0.1. An Envoy proxy on TCP 7233 ends TLS 1.3 and checks the
+  key: the app key opens the worker API in every namespace, the runner key
+  opens `GetSystemInfo` and the worker API in the `runners` namespace, both
+  open the health check, and any other call gets 401. The namespace check
+  reads a header a stock SDK sets; it is not a hard boundary against a
+  hand-made gRPC client with the runner key. The VM has a static
+  public IP and a VNet of its own; the NSG lets in 7233 from
+  `allowed_source_cidrs` only, no SSH. systemd units set up the schema, run
+  Temporal (only with `start_temporal = true`), create the `agents`, `runners`
+  and `notifications` namespaces and run the proxy.
+- `compositions/azure-temporal`: the VM, the app key, a private CA and the
+  proxy's certificate for `temporal.autoheal.internal`, and a Postgres
+  firewall rule for the VM's IP. With `key_vault_id` it writes the vault
+  entries `temporal-app-key` and `temporal-ca`. Its outputs
+  `temporal_address`, `temporal_server_name` and `temporal_ca_certificate` go
+  to `compositions/azure-runner` under the same names. Plan-only tests with
+  mocked providers in `tests/`.
+- `examples/azure/split-istio/temporal`: the Terragrunt unit, between infra
+  and app.
+
 ## [4.1.2] - 2026-10-26
 
 The storage account we create allows no anonymous read, so an Azure Policy that

@@ -1,0 +1,504 @@
+#cloud-config
+package_update: true
+packages:
+  - docker.io
+write_files:
+  # Docker settings as on the runner VMs: capped json-file logs, overlay2 and
+  # live-restore. Written before the docker.io package installs, so the daemon
+  # starts with them. containerd-snapshotter false keeps the overlay2 store.
+  - path: /etc/docker/daemon.json
+    permissions: '0644'
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "10m",
+          "max-file": "3"
+        },
+        "storage-driver": "overlay2",
+        "features": {
+          "containerd-snapshotter": false
+        },
+        "userland-proxy": false,
+        "live-restore": true
+      }
+  # The Temporal config. The server image renders it to docker.yaml at each
+  # start, filling {{ .Env.X }} from /etc/temporal/temporal.env, so this file
+  # holds no secret and the image's user (temporal, uid 1000) may read it.
+  # Every port is on 127.0.0.1: the proxy on 7233 is the only way in.
+  # numHistoryShards must match the database and can never change.
+  - path: /etc/temporal/config/config_template.yaml
+    permissions: '0644'
+    content: |
+      log:
+        stdout: true
+        level: "debug,info"
+
+      persistence:
+        defaultStore: default
+        visibilityStore: visibility
+        numHistoryShards: ${num_history_shards}
+        datastores:
+          default:
+            sql:
+              pluginName: "postgres12"
+              driverName: "postgres12"
+              databaseName: "temporal"
+              connectAddr: "${postgres_fqdn}:5432"
+              connectProtocol: "tcp"
+              user: "temporal_user"
+              password: {{ .Env.TEMPORAL_STORE_PASSWORD | quote }}
+              maxConnLifetime: 1h
+              maxConns: 20
+              maxIdleConns: 20
+              secretName: ""
+              tls:
+                enabled: true
+                enableHostVerification: false
+          visibility:
+            sql:
+              pluginName: "postgres12"
+              driverName: "postgres12"
+              databaseName: "temporal_visibility"
+              connectAddr: "${postgres_fqdn}:5432"
+              connectProtocol: "tcp"
+              user: "temporal_user"
+              password: {{ .Env.TEMPORAL_VISIBILITY_STORE_PASSWORD | quote }}
+              maxConnLifetime: 1h
+              maxConns: 20
+              maxIdleConns: 20
+              secretName: ""
+              tls:
+                enabled: true
+                enableHostVerification: false
+
+      # No pprof block: pprof stays off.
+      global:
+        membership:
+          name: temporal
+          maxJoinDuration: 30s
+          broadcastAddress: "127.0.0.1"
+        metrics:
+          tags:
+            type: "{{ .Env.SERVICES }}"
+          prometheus:
+            timerType: histogram
+            listenAddress: "127.0.0.1:9090"
+
+      services:
+        frontend:
+          rpc:
+            grpcPort: 17233
+            httpPort: 17243
+            membershipPort: 6933
+            bindOnIP: "127.0.0.1"
+        history:
+          rpc:
+            grpcPort: 7234
+            membershipPort: 6934
+            bindOnIP: "127.0.0.1"
+        matching:
+          rpc:
+            grpcPort: 7235
+            membershipPort: 6935
+            bindOnIP: "127.0.0.1"
+        worker:
+          rpc:
+            membershipPort: 6939
+            bindOnIP: "127.0.0.1"
+
+      clusterMetadata:
+        enableGlobalDomain: false
+        failoverVersionIncrement: 10
+        masterClusterName: "active"
+        currentClusterName: "active"
+        clusterInformation:
+          active:
+            enabled: true
+            initialFailoverVersion: 1
+            rpcName: "temporal-frontend"
+            rpcAddress: "127.0.0.1:17233"
+            httpAddress: "127.0.0.1:17243"
+
+      dcRedirectionPolicy:
+        policy: "noop"
+        toDC: ""
+
+      archival:
+        status: "disabled"
+
+      publicClient:
+        hostPort: "127.0.0.1:17233"
+
+      dynamicConfigClient:
+        filepath: "/etc/temporal/dynamic_config/dynamic_config.yaml"
+        pollInterval: "10s"
+  # Empty: Temporal's defaults. The server reads it every 10 seconds.
+  - path: /etc/temporal/dynamic_config/dynamic_config.yaml
+    permissions: '0644'
+    content: ""
+  # Root only: it holds the database password. docker reads it as root at each
+  # start and passes it to the server (TEMPORAL_*_PASSWORD, SERVICES) and to the
+  # schema tool (SQL_*). The schema settings are the chart's schema job's.
+  - path: /etc/temporal/temporal.env
+    permissions: '0600'
+    content: |
+      TEMPORAL_STORE_PASSWORD=${temporal_db_password}
+      TEMPORAL_VISIBILITY_STORE_PASSWORD=${temporal_db_password}
+      SERVICES=history:matching:frontend:worker
+      BIND_ON_IP=127.0.0.1
+      TEMPORAL_ADDRESS=127.0.0.1:17233
+      SQL_PLUGIN=postgres12
+      SQL_HOST=${postgres_fqdn}
+      SQL_PORT=5432
+      SQL_USER=temporal_user
+      SQL_PASSWORD=${temporal_db_password}
+      SQL_TLS=true
+      SQL_TLS_DISABLE_HOST_VERIFICATION=true
+  # The certificate the proxy serves, for temporal.autoheal.internal.
+  - path: /etc/temporal-edge/tls.crt
+    permissions: '0644'
+    content: |
+      ${indent(6, trimspace(tls_certificate))}
+  # Its key. runcmd gives it to the proxy's user.
+  - path: /etc/temporal-edge/tls.key
+    permissions: '0600'
+    content: |
+      ${indent(6, trimspace(tls_private_key))}
+  # The proxy. It holds both keys, so only the proxy's user and root read it.
+  - path: /etc/temporal-edge/envoy.yaml
+    permissions: '0600'
+    content: |
+      # Proxy in front of the Temporal frontend on 127.0.0.1:17233. TLS 1.3 and
+      # HTTP/2 only. A call goes on only with one of the two keys, which is
+      # removed before the call goes on. The app key opens the worker API
+      # (WorkflowService) in every namespace. The runner key opens
+      # GetSystemInfo, the worker API in the runners namespace, and nothing
+      # else. Both open the gRPC health check. OperatorService and the rest of
+      # Temporal stay closed even with a key. Anything else gets 401, which
+      # gRPC clients report as Unauthenticated.
+      # The namespace check reads the temporal-namespace header, which a stock
+      # SDK sets from the request, so it keeps a misconfigured runner out of
+      # the other namespaces. It is not a hard boundary: a hand-made gRPC
+      # client with the runner key can send the header and another namespace
+      # in the body, and Envoy cannot read the body.
+      # The routes do not look at the host: the Python SDK sends
+      # temporal.autoheal.internal as the authority, Go clients send the IP.
+      admin:
+        address:
+          socket_address: { address: 127.0.0.1, port_value: 9901 }
+      static_resources:
+        listeners:
+          - name: temporal
+            address:
+              socket_address: { address: 0.0.0.0, port_value: 7233 }
+            filter_chains:
+              - transport_socket:
+                  name: envoy.transport_sockets.tls
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+                    common_tls_context:
+                      tls_params:
+                        tls_minimum_protocol_version: TLSv1_3
+                        tls_maximum_protocol_version: TLSv1_3
+                      alpn_protocols: [h2]
+                      tls_certificates:
+                        - certificate_chain: { filename: /etc/temporal-edge/tls.crt }
+                          private_key: { filename: /etc/temporal-edge/tls.key }
+                filters:
+                  - name: envoy.filters.network.http_connection_manager
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                      stat_prefix: temporal
+                      codec_type: AUTO
+                      use_remote_address: true
+                      normalize_path: true
+                      merge_slashes: true
+                      # gRPC paths never carry escaped slashes.
+                      path_with_escaped_slashes_action: REJECT_REQUEST
+                      access_log:
+                        - name: envoy.access_loggers.stdout
+                          typed_config:
+                            "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+                            log_format:
+                              json_format:
+                                time: "%START_TIME%"
+                                authority: "%REQ(:AUTHORITY)%"
+                                path: "%REQ(:PATH)%"
+                                namespace: "%REQ(TEMPORAL-NAMESPACE)%"
+                                status: "%RESPONSE_CODE%"
+                                grpc_status: "%GRPC_STATUS%"
+                                flags: "%RESPONSE_FLAGS%"
+                                details: "%RESPONSE_CODE_DETAILS%"
+                                duration_ms: "%DURATION%"
+                                client: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"
+                      http_filters:
+                        - name: envoy.filters.http.router
+                          typed_config:
+                            "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+                      route_config:
+                        name: temporal
+                        virtual_hosts:
+                          - name: temporal
+                            domains: ["*"]
+                            routes:
+                              # The app: the worker API in any namespace.
+                              - match:
+                                  prefix: "/temporal.api.workflowservice.v1.WorkflowService/"
+                                  headers:
+                                    - name: authorization
+                                      string_match: { exact: "Bearer ${app_key}" }
+                                request_headers_to_remove: [authorization]
+                                route:
+                                  cluster: temporal
+                                  # Workers hold long polls open.
+                                  timeout: 0s
+                                  idle_timeout: 3600s
+                              # The runner, first call: client.Dial asks for the server's
+                              # capabilities. The Go SDK sends no namespace header on it
+                              # because the request has no namespace field.
+                              - match:
+                                  path: "/temporal.api.workflowservice.v1.WorkflowService/GetSystemInfo"
+                                  headers:
+                                    - name: authorization
+                                      string_match: { exact: "Bearer ${runner_token}" }
+                                request_headers_to_remove: [authorization]
+                                route:
+                                  cluster: temporal
+                                  timeout: 0s
+                                  idle_timeout: 3600s
+                              # The runner: the worker API in the runners namespace only.
+                              - match:
+                                  prefix: "/temporal.api.workflowservice.v1.WorkflowService/"
+                                  headers:
+                                    - name: authorization
+                                      string_match: { exact: "Bearer ${runner_token}" }
+                                    - name: temporal-namespace
+                                      string_match: { exact: runners }
+                                request_headers_to_remove: [authorization]
+                                route:
+                                  cluster: temporal
+                                  timeout: 0s
+                                  idle_timeout: 3600s
+                              # The health check, with either key.
+                              - match:
+                                  prefix: "/grpc.health.v1.Health/"
+                                  headers:
+                                    - name: authorization
+                                      string_match: { exact: "Bearer ${app_key}" }
+                                request_headers_to_remove: [authorization]
+                                route:
+                                  cluster: temporal
+                                  timeout: 0s
+                                  idle_timeout: 3600s
+                              - match:
+                                  prefix: "/grpc.health.v1.Health/"
+                                  headers:
+                                    - name: authorization
+                                      string_match: { exact: "Bearer ${runner_token}" }
+                                request_headers_to_remove: [authorization]
+                                route:
+                                  cluster: temporal
+                                  timeout: 0s
+                                  idle_timeout: 3600s
+                              - match: { prefix: / }
+                                direct_response:
+                                  status: 401
+                                  body: { inline_string: "key missing or wrong\n" }
+        clusters:
+          - name: temporal
+            type: STATIC
+            connect_timeout: 2s
+            lb_policy: ROUND_ROBIN
+            # Always HTTP/2: the frontend speaks only gRPC.
+            typed_extension_protocol_options:
+              envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+                "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+                explicit_http_config:
+                  http2_protocol_options: {}
+            # Every worker poll is an open request. Envoy's default of 1024 at
+            # once would turn the rest away with 503.
+            circuit_breakers:
+              thresholds:
+                - max_connections: 8192
+                  max_pending_requests: 8192
+                  max_requests: 8192
+            load_assignment:
+              cluster_name: temporal
+              endpoints:
+                - lb_endpoints:
+                    - endpoint:
+                        address:
+                          socket_address: { address: 127.0.0.1, port_value: 17233 }
+  - path: /usr/local/bin/temporal-pull.sh
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      # Pull an image, retrying until it succeeds: 15s, doubling up to 5
+      # minutes. The VM may boot before its outbound path or the registry
+      # answers.
+      image="$1"
+      delay=15
+      while true; do
+        /usr/bin/docker pull "$image" && exit 0
+        echo "pull of $image failed, retrying in $delay seconds"
+        sleep "$delay"
+        delay=$(( delay * 2 ))
+        if [ "$delay" -gt 300 ]; then delay=300; fi
+      done
+  - path: /usr/local/bin/temporal-schema.sh
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      # Set up or upgrade the schema in both databases, with the four commands
+      # of the chart's schema job. Each is safe to run again: setup-schema -v
+      # 0.0 only adds the version tables when they are missing, and
+      # update-schema applies only the versions a database lacks. Until
+      # Postgres lets the VM in and the databases exist, a run fails, waits
+      # and tries again: 15s, doubling up to 5 minutes.
+      image="$1"
+      sql() {
+        db="$1"
+        shift
+        /usr/bin/docker run --rm --network host --env-file /etc/temporal/temporal.env \
+          -e SQL_DATABASE="$db" --entrypoint temporal-sql-tool "$image" "$@"
+      }
+      /usr/local/bin/temporal-pull.sh "$image"
+      delay=15
+      while true; do
+        if sql temporal setup-schema -v 0.0 &&
+          sql temporal_visibility setup-schema -v 0.0 &&
+          sql temporal update-schema --schema-dir /etc/temporal/schema/postgresql/v12/temporal/versioned &&
+          sql temporal_visibility update-schema --schema-dir /etc/temporal/schema/postgresql/v12/visibility/versioned; then
+          exit 0
+        fi
+        echo "schema setup failed, retrying in $delay seconds"
+        sleep "$delay"
+        delay=$(( delay * 2 ))
+        if [ "$delay" -gt 300 ]; then delay=300; fi
+      done
+  - path: /usr/local/bin/temporal-namespaces.sh
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      # Create the namespaces the app and the runner use, with a 3-day
+      # retention, unless they exist. The server answers a few seconds after
+      # it starts, so a failed run waits and tries again: 5s, doubling up to
+      # 1 minute.
+      image="$1"
+      ns() {
+        /usr/bin/docker run --rm --network host -e TEMPORAL_ADDRESS=127.0.0.1:17233 --entrypoint /bin/sh "$image" \
+          -c "temporal operator namespace describe -n $1 || temporal operator namespace create -n $1 --retention 3d"
+      }
+      /usr/local/bin/temporal-pull.sh "$image"
+      delay=5
+      while true; do
+        if ns agents && ns runners && ns notifications; then
+          exit 0
+        fi
+        echo "namespace setup failed, retrying in $delay seconds"
+        sleep "$delay"
+        delay=$(( delay * 2 ))
+        if [ "$delay" -gt 60 ]; then delay=60; fi
+      done
+  # A oneshot with no [Install]: temporal-server pulls it in and starts after
+  # it, on every start of the VM.
+  - path: /etc/systemd/system/temporal-schema.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Temporal schema setup and upgrade
+      After=docker.service network-online.target
+      Wants=network-online.target
+      Requires=docker.service
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      # The script waits until Postgres answers, so it has no start timeout.
+      TimeoutStartSec=infinity
+      ExecStart=/usr/local/bin/temporal-schema.sh ${temporal_admin_tools_image}
+  # Installed always, enabled only with start_temporal (see runcmd).
+  - path: /etc/systemd/system/temporal-server.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Temporal server
+      After=docker.service network-online.target temporal-schema.service
+      Wants=network-online.target
+      Requires=docker.service temporal-schema.service
+      # No start limit: a failed start is retried for as long as it takes.
+      StartLimitIntervalSec=0
+      [Service]
+      Restart=always
+      RestartSec=10
+      TimeoutStartSec=infinity
+      ExecStartPre=-/usr/bin/docker rm -f temporal-server
+      ExecStartPre=/usr/local/bin/temporal-pull.sh ${temporal_server_image}
+      # Host network, so 127.0.0.1 is the VM's loopback and the proxy reaches
+      # the frontend there. The config is mounted over the image's template;
+      # the image writes the rendered docker.yaml next to it.
+      ExecStart=/usr/bin/docker run --rm --name temporal-server --network host \
+        --env-file /etc/temporal/temporal.env \
+        -v /etc/temporal/config/config_template.yaml:/etc/temporal/config/config_template.yaml:ro \
+        -v /etc/temporal/dynamic_config:/etc/temporal/dynamic_config:ro \
+        ${temporal_server_image}
+      ExecStop=/usr/bin/docker stop temporal-server
+      [Install]
+      WantedBy=multi-user.target
+  # Runs after each start of temporal-server, which wants it once enabled.
+  - path: /etc/systemd/system/temporal-namespaces.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Temporal namespaces agents, runners and notifications
+      After=temporal-server.service
+      Requires=temporal-server.service
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      TimeoutStartSec=infinity
+      ExecStart=/usr/local/bin/temporal-namespaces.sh ${temporal_admin_tools_image}
+      [Install]
+      WantedBy=temporal-server.service
+  # The proxy, on whether Temporal runs or not. Without Temporal it answers a
+  # call with a key with 503.
+  - path: /etc/systemd/system/temporal-edge.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Proxy for Temporal on 7233 (TLS and key check)
+      After=docker.service network-online.target
+      Wants=network-online.target
+      Requires=docker.service
+      StartLimitIntervalSec=0
+      [Service]
+      Restart=always
+      RestartSec=10
+      TimeoutStartSec=infinity
+      ExecStartPre=-/usr/bin/docker rm -f temporal-edge
+      ExecStartPre=/usr/local/bin/temporal-pull.sh ${proxy_image}
+      # The image's user is uid 65532, which owns the key and the config.
+      ExecStart=/usr/bin/docker run --rm --name temporal-edge --network host \
+        -v /etc/temporal-edge:/etc/temporal-edge:ro \
+        ${proxy_image} -c /etc/temporal-edge/envoy.yaml --disable-hot-restart --log-level info
+      ExecStop=/usr/bin/docker stop temporal-edge
+      [Install]
+      WantedBy=multi-user.target
+runcmd:
+  # The proxy runs as uid 65532 (distroless nonroot), which has no name on the
+  # host, so write_files cannot make it the owner.
+  - chown 65532:65532 /etc/temporal-edge/envoy.yaml /etc/temporal-edge/tls.key
+  - systemctl enable --now docker
+  - systemctl daemon-reload
+  # --no-block: the starts wait in temporal-pull.sh until the image is pulled,
+  # which must not hold up cloud-init.
+  - systemctl enable temporal-edge.service
+  - systemctl start --no-block temporal-edge.service
+%{ if start_temporal ~}
+  # temporal-server runs temporal-schema before it and temporal-namespaces after it.
+  - systemctl enable temporal-server.service temporal-namespaces.service
+  - systemctl start --no-block temporal-server.service temporal-namespaces.service
+%{ else ~}
+  # start_temporal is false: Temporal is installed but stays off. Setting it to
+  # true replaces the VM with one that starts it.
+%{ endif ~}

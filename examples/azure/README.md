@@ -15,6 +15,7 @@ split/                       the same, for an AKS cluster in another subscriptio
   runner/terragrunt.hcl      the sandbox runner, optional (compositions/azure-runner)
 split-public/                the same, with public endpoints instead of connected VNets
 split-istio/                 the same as split-public, behind a shared Istio gateway instead of a public IP
+  temporal/terragrunt.hcl    Temporal on a VM, optional (compositions/azure-temporal)
 cop-standin/                 internal test stand-in for that cluster; not for customers
 ```
 
@@ -139,6 +140,14 @@ Once the runner polls Temporal, set `global.sandbox.enabled: true` in
 `app/values-customer.yaml` and apply the app folder again. Step 14 of
 autoheal-byoc-infra's `docs/azure-two-subscriptions-public-runbook.md` has the
 commands and the checks.
+
+When the cluster cannot run the Temporal server, `split-istio/temporal` runs it
+on a VM of its own, with TLS and a key on port 7233. It goes between infra and
+app, with Temporal installed but off; you start it once the in-cluster Temporal
+is gone, since two servers on one database break it. The comments at the top of
+`temporal/terragrunt.hcl` and the README of `compositions/azure-temporal` list
+the steps. The database password comes from the vault entry
+`temporal-db-password` as `TF_VAR_temporal_db_password`.
 
 ## Upgrading
 

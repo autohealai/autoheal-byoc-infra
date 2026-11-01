@@ -15,7 +15,8 @@ of this runs.
 over TLS (`temporal_tls`) with the runner key (`temporal_token`), or the
 private address of the chart's runner load balancers with TLS off. The runner
 retries until Temporal answers. `temporal_ca_certificate` adds a private CA to
-the trust store runner-go reads. The key sits in `/opt/runner-go/config.env`,
+the trust store runner-go reads; with `temporal_ip` it goes to runner-go's
+Temporal client only (`TEMPORAL_TLS_CA_FILE`). The key sits in `/opt/runner-go/config.env`,
 readable by root only, and runner-go's lambda drivers are off
 (`DISABLED_DRIVERS`), since a lambda would run with that environment. Before
 each start the systemd unit blocks containers, sandboxes included, from the
@@ -27,6 +28,13 @@ without reimaging the VMs. `tool_response_callback_url` sets
 `SANDBOX_TOOL_RESPONSE_CALLBACK_URL`; empty sends sandbox tool results through
 Temporal. Naming and tags follow the repo's null-label convention (see
 `label.tf` and [docs/MODULE_STANDARD.md](../../../docs/MODULE_STANDARD.md)).
+
+With `temporal_ip`, the IP of a Temporal VM from `compositions/azure-temporal`,
+runner-go runs on a Docker network of its own (`runner_network_cidr`), and the
+same unit adds a rule that resets TCP 7233 to that IP from any other
+container, sandboxes included. Sandboxes stay on Docker's default bridge;
+runner-go drives them through the Docker socket, not over the network. With
+`temporal_ip` empty the cloud-init is the same as before it existed.
 
 ## Usage
 
@@ -83,11 +91,13 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Resource group the VMSS lands in (created by the composition). | `string` | n/a | yes |
 | <a name="input_runner_image"></a> [runner\_image](#input\_runner\_image) | Fully qualified runner-go image, e.g. public.ecr.aws/e4h3h0d9/app/runner-go:chart-1.0.0. | `string` | n/a | yes |
 | <a name="input_runner_name"></a> [runner\_name](#input\_runner\_name) | NAME env the worker registers under. | `string` | `"runner-byoc-aks"` | no |
+| <a name="input_runner_network_cidr"></a> [runner\_network\_cidr](#input\_runner\_network\_cidr) | Address range of runner-go's own Docker network, used only with temporal\_ip. Containers from this range may reach temporal\_ip on TCP 7233; no others. It must not overlap the VNet, the routes the runner uses, or Docker's default bridge (172.17.0.0/16). | `string` | `"172.31.255.240/28"` | no |
 | <a name="input_sandbox_image"></a> [sandbox\_image](#input\_sandbox\_image) | Fully qualified sandbox image to pre-pull on boot. Empty skips the pre-pull. | `string` | `""` | no |
 | <a name="input_subnet_id"></a> [subnet\_id](#input\_subnet\_id) | Runner subnet id (snet-runner from compositions/azure-runner, or the customer's). Egress is via that subnet's NAT gateway; the VMSS gets no public IP. | `string` | n/a | yes |
 | <a name="input_tags"></a> [tags](#input\_tags) | Additional tags, merged into the generated tag set. | `map(string)` | `{}` | no |
-| <a name="input_temporal_ca_certificate"></a> [temporal\_ca\_certificate](#input\_temporal\_ca\_certificate) | PEM of the CA that signed the Temporal certificate, when the system trust store does not have it, such as a private CA on the edge. The runner trusts it in addition to the system CAs. Empty adds none. | `string` | `""` | no |
+| <a name="input_temporal_ca_certificate"></a> [temporal\_ca\_certificate](#input\_temporal\_ca\_certificate) | PEM of the CA that signed the Temporal certificate, when the system trust store does not have it, such as a private CA on the edge or on a Temporal VM. Through the edge, runner-go trusts it in addition to the system CAs (SSL\_CERT\_DIR). With temporal\_ip, only runner-go's Temporal client trusts it (TEMPORAL\_TLS\_CA\_FILE), which needs a runner-go that reads that variable. Empty adds none. | `string` | `""` | no |
 | <a name="input_temporal_host"></a> [temporal\_host](#input\_temporal\_host) | Temporal frontend host:port the runner polls, set as TEMPORAL\_HOST: the chart's runner host on 443, e.g. runner.autoheal.acme.example:443, or the private address of a Temporal load balancer on 7233. | `string` | n/a | yes |
+| <a name="input_temporal_ip"></a> [temporal\_ip](#input\_temporal\_ip) | Public IP of a Temporal VM (the temporal\_ip output of compositions/azure-temporal). When set, runner-go runs on a Docker network of its own (runner\_network\_cidr) and the VM rejects TCP 7233 to this IP from every other container, sandboxes included. Empty changes nothing. | `string` | `""` | no |
 | <a name="input_temporal_server_name"></a> [temporal\_server\_name](#input\_temporal\_server\_name) | Name the runner checks in the Temporal certificate (TEMPORAL\_SERVER\_NAME). Empty means the host of temporal\_host. | `string` | `""` | no |
 | <a name="input_temporal_tls"></a> [temporal\_tls](#input\_temporal\_tls) | Dial Temporal over TLS (TEMPORAL\_TLS). True for the chart's runner host; false only for a Temporal load balancer on a private route. | `bool` | `true` | no |
 | <a name="input_temporal_token"></a> [temporal\_token](#input\_temporal\_token) | Key the runner sends with each Temporal call (TEMPORAL\_TOKEN): the vault entry runner-token that the chart's proxy checks on the runner host. Written to a root-only file on the VMs. Empty sends none. | `string` | `""` | no |

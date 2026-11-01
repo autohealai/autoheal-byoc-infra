@@ -24,6 +24,12 @@
 # key is in the custom data, which Azure never returns on read, and in a
 # root-only file on the VMs. Naming and tags come from the null-label base
 # (module.this); see label.tf.
+#
+# With temporal_ip (the IP of a Temporal VM from compositions/azure-temporal),
+# runner-go runs on a Docker network of its own (runner_network_cidr), and no
+# other container on the VM may reach that IP on TCP 7233. Sandboxes stay on
+# Docker's default bridge; runner-go drives them through the Docker socket, not
+# over the network. Empty temporal_ip leaves the custom data as it was.
 
 resource "azurerm_user_assigned_identity" "runner" {
   name                = "${module.this.id}-uai"
@@ -39,6 +45,26 @@ resource "azurerm_role_assignment" "acr_pull" {
   principal_id         = azurerm_user_assigned_identity.runner.principal_id
 }
 
+locals {
+  # Managed-identity ACR auth; host az login --identity uses this client id.
+  cloud_init = templatefile("${path.module}/cloudinit.yaml.tftpl", {
+    temporal_host              = var.temporal_host
+    temporal_tls               = var.temporal_tls
+    temporal_server_name       = var.temporal_server_name
+    temporal_token             = var.temporal_token
+    temporal_ca_certificate    = var.temporal_ca_certificate
+    tool_response_callback_url = var.tool_response_callback_url
+    temporal_ip                = var.temporal_ip
+    runner_network_cidr        = var.runner_network_cidr
+    runner_image               = var.runner_image
+    sandbox_image              = var.sandbox_image
+    runner_name                = var.runner_name
+    max_concurrent_activities  = var.max_concurrent_activities
+    uami_client_id             = azurerm_user_assigned_identity.runner.client_id
+    acr_name                   = var.acr_name
+  })
+}
+
 resource "azurerm_linux_virtual_machine_scale_set" "runner" {
   name                = module.this.id
   resource_group_name = var.resource_group_name
@@ -49,21 +75,7 @@ resource "azurerm_linux_virtual_machine_scale_set" "runner" {
   upgrade_mode        = var.upgrade_mode
   overprovision       = false
 
-  # Managed-identity ACR auth; host az login --identity uses this client id.
-  custom_data = base64encode(templatefile("${path.module}/cloudinit.yaml.tftpl", {
-    temporal_host              = var.temporal_host
-    temporal_tls               = var.temporal_tls
-    temporal_server_name       = var.temporal_server_name
-    temporal_token             = var.temporal_token
-    temporal_ca_certificate    = var.temporal_ca_certificate
-    tool_response_callback_url = var.tool_response_callback_url
-    runner_image               = var.runner_image
-    sandbox_image              = var.sandbox_image
-    runner_name                = var.runner_name
-    max_concurrent_activities  = var.max_concurrent_activities
-    uami_client_id             = azurerm_user_assigned_identity.runner.client_id
-    acr_name                   = var.acr_name
-  }))
+  custom_data = base64encode(local.cloud_init)
 
   admin_ssh_key {
     username   = var.admin_username

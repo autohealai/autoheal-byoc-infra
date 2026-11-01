@@ -1,0 +1,564 @@
+#cloud-config
+package_update: true
+packages:
+  - docker.io
+  # temporal-secrets.sh reads Key Vault with curl and jq. temporal-guard.sh
+  # asks Postgres with psql.
+  - curl
+  - jq
+  - postgresql-client
+write_files:
+  # Docker settings as on the runner VMs: capped json-file logs, overlay2 and
+  # live-restore. Written before the docker.io package installs, so the daemon
+  # starts with them. containerd-snapshotter false keeps the overlay2 store.
+  - path: /etc/docker/daemon.json
+    permissions: '0644'
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "10m",
+          "max-file": "3"
+        },
+        "storage-driver": "overlay2",
+        "features": {
+          "containerd-snapshotter": false
+        },
+        "userland-proxy": false,
+        "live-restore": true
+      }
+%{ if logs_enabled ~}
+  # The Azure Monitor agent reads syslog. The units log to the journal, which
+  # passes each line on to syslog under the unit's SyslogIdentifier.
+  - path: /etc/systemd/journald.conf.d/50-forward-to-syslog.conf
+    permissions: '0644'
+    content: |
+      [Journal]
+      ForwardToSyslog=yes
+%{ endif ~}
+  # The Temporal config. The server image renders it to docker.yaml at each
+  # start, filling {{ .Env.X }} from /etc/temporal/temporal.env, so this file
+  # holds no secret and the image's user (temporal, uid 1000) may read it.
+  # Every Temporal port is on 127.0.0.1: the gate on 7233 is the only way in.
+  # numHistoryShards must match the database and can never change.
+  - path: /etc/temporal/config/config_template.yaml
+    permissions: '0644'
+    content: |
+      log:
+        stdout: true
+        level: "debug,info"
+
+      persistence:
+        defaultStore: default
+        visibilityStore: visibility
+        numHistoryShards: ${num_history_shards}
+        datastores:
+          default:
+            sql:
+              pluginName: "postgres12"
+              driverName: "postgres12"
+              databaseName: "temporal"
+              connectAddr: "${postgres_fqdn}:5432"
+              connectProtocol: "tcp"
+              user: "temporal_user"
+              password: {{ .Env.TEMPORAL_STORE_PASSWORD | quote }}
+              maxConnLifetime: 1h
+              maxConns: 20
+              maxIdleConns: 20
+              secretName: ""
+              # sslmode verify-full: the server's name and chain are checked
+              # against the image's CAs, which hold the roots Azure Postgres
+              # chains to.
+              tls:
+                enabled: true
+                enableHostVerification: true
+          visibility:
+            sql:
+              pluginName: "postgres12"
+              driverName: "postgres12"
+              databaseName: "temporal_visibility"
+              connectAddr: "${postgres_fqdn}:5432"
+              connectProtocol: "tcp"
+              user: "temporal_user"
+              password: {{ .Env.TEMPORAL_VISIBILITY_STORE_PASSWORD | quote }}
+              maxConnLifetime: 1h
+              maxConns: 20
+              maxIdleConns: 20
+              secretName: ""
+              tls:
+                enabled: true
+                enableHostVerification: true
+
+      # No pprof block: pprof stays off.
+      global:
+        membership:
+          name: temporal
+          maxJoinDuration: 30s
+          broadcastAddress: "127.0.0.1"
+        metrics:
+          tags:
+            type: "{{ .Env.SERVICES }}"
+          prometheus:
+            timerType: histogram
+            listenAddress: "127.0.0.1:9090"
+
+      services:
+        frontend:
+          rpc:
+            grpcPort: 17233
+            httpPort: 17243
+            membershipPort: 6933
+            bindOnIP: "127.0.0.1"
+        history:
+          rpc:
+            grpcPort: 7234
+            membershipPort: 6934
+            bindOnIP: "127.0.0.1"
+        matching:
+          rpc:
+            grpcPort: 7235
+            membershipPort: 6935
+            bindOnIP: "127.0.0.1"
+        worker:
+          rpc:
+            membershipPort: 6939
+            bindOnIP: "127.0.0.1"
+
+      clusterMetadata:
+        enableGlobalDomain: false
+        failoverVersionIncrement: 10
+        masterClusterName: "active"
+        currentClusterName: "active"
+        clusterInformation:
+          active:
+            enabled: true
+            initialFailoverVersion: 1
+            rpcName: "temporal-frontend"
+            rpcAddress: "127.0.0.1:17233"
+            httpAddress: "127.0.0.1:17243"
+
+      dcRedirectionPolicy:
+        policy: "noop"
+        toDC: ""
+
+      archival:
+        status: "disabled"
+
+      publicClient:
+        hostPort: "127.0.0.1:17233"
+
+      dynamicConfigClient:
+        filepath: "/etc/temporal/dynamic_config/dynamic_config.yaml"
+        pollInterval: "10s"
+  # Empty: Temporal's defaults. The server reads it every 10 seconds.
+  - path: /etc/temporal/dynamic_config/dynamic_config.yaml
+    permissions: '0644'
+    content: ""
+  # Root only: it holds the database password. docker reads it as root at each
+  # start and passes it to the server (TEMPORAL_*_PASSWORD, SERVICES) and to the
+  # schema tool (SQL_*). temporal-guard.sh reads the SQL_* lines. The schema
+  # settings are the chart's schema job's.
+  - path: /etc/temporal/temporal.env
+    permissions: '0600'
+    content: |
+      TEMPORAL_STORE_PASSWORD=${temporal_db_password}
+      TEMPORAL_VISIBILITY_STORE_PASSWORD=${temporal_db_password}
+      SERVICES=history:matching:frontend:worker
+      BIND_ON_IP=127.0.0.1
+      TEMPORAL_ADDRESS=127.0.0.1:17233
+      SQL_PLUGIN=postgres12
+      SQL_HOST=${postgres_fqdn}
+      SQL_PORT=5432
+      SQL_USER=temporal_user
+      SQL_PASSWORD=${temporal_db_password}
+      SQL_TLS=true
+  # Where temporal-secrets.sh reads the keys and the certificate: the vault,
+  # the VM identity's client ID and the entry names. No secret.
+  - path: /etc/temporal-edge/edge.conf
+    permissions: '0644'
+    content: |
+      KEY_VAULT_URI='${key_vault_uri}'
+      IDENTITY_CLIENT_ID='${identity_client_id}'
+      API_SERVER_KEY_ENTRY='${api_server_key_secret_name}'
+      AGENTS_KEY_ENTRY='${agents_key_secret_name}'
+      RUNNER_KEY_ENTRY='${runner_key_secret_name}'
+      CERTIFICATE_ENTRY='${certificate_secret_name}'
+  # The WorkflowService calls the runner key may make, one per line.
+  - path: /etc/temporal-edge/runner-methods
+    permissions: '0644'
+    content: |
+      ${indent(6, join("\n", runner_allowed_methods))}
+  # The calls every key gets 401 on, one per line.
+  - path: /etc/temporal-edge/denied-methods
+    permissions: '0644'
+    content: |
+      ${indent(6, join("\n", denied_methods))}
+  # The gate. No secret in it: the certificate and the routes, which hold the
+  # keys, come from files that temporal-secrets.sh writes and the gate watches.
+  - path: /etc/temporal-edge/envoy.yaml
+    permissions: '0644'
+    content: |
+      # Gate in front of the Temporal frontend on 127.0.0.1:17233. TLS 1.3 and
+      # HTTP/2 only. A call goes on only with a key (authorization: Bearer
+      # <key>), which is removed before the call goes on. The routes, from
+      # routes/routes.json, in order: the gRPC health check with any key; the
+      # runner_allowed_methods calls with a runner key; 401 for the calls in
+      # denied-methods with any key; the rest of WorkflowService with an app
+      # key (api-server or agents); 401 for anything else, which gRPC clients
+      # report as Unauthenticated. OperatorService and the rest of Temporal
+      # stay closed even with a key. The routes do not look at the host.
+      #
+      # When a watched file is replaced, the gate loads it and keeps open
+      # connections.
+      #
+      # The second listener answers the load balancer's probe: 200 on /healthz
+      # while the gate's own gRPC health check on Temporal passes, else 503.
+      #
+      # Envoy loads a certificate from a file (SDS) only with a node id and
+      # cluster set. Any name works.
+      node:
+        id: temporal-edge
+        cluster: temporal-edge
+      admin:
+        address:
+          socket_address: { address: 127.0.0.1, port_value: 9901 }
+      static_resources:
+        listeners:
+          - name: temporal
+            address:
+              socket_address: { address: 0.0.0.0, port_value: 7233 }
+            filter_chains:
+              - transport_socket:
+                  name: envoy.transport_sockets.tls
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+                    common_tls_context:
+                      tls_params:
+                        tls_minimum_protocol_version: TLSv1_3
+                        tls_maximum_protocol_version: TLSv1_3
+                      alpn_protocols: [h2]
+                      tls_certificate_sds_secret_configs:
+                        - name: temporal-cert
+                          sds_config:
+                            resource_api_version: V3
+                            path_config_source:
+                              path: /var/lib/temporal-edge/cert/cert.json
+                              watched_directory: { path: /var/lib/temporal-edge/cert }
+                filters:
+                  - name: envoy.filters.network.http_connection_manager
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                      stat_prefix: temporal
+                      codec_type: AUTO
+                      use_remote_address: true
+                      normalize_path: true
+                      merge_slashes: true
+                      # gRPC paths never carry escaped slashes.
+                      path_with_escaped_slashes_action: REJECT_REQUEST
+                      # route is the route's name: the key's role, entry and
+                      # Key Vault version, or denied or unauthorized. Never the
+                      # key itself.
+                      access_log:
+                        - name: envoy.access_loggers.stdout
+                          typed_config:
+                            "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+                            log_format:
+                              json_format:
+                                time: "%START_TIME%"
+                                path: "%REQ(:PATH)%"
+                                route: "%ROUTE_NAME%"
+                                namespace: "%REQ(TEMPORAL-NAMESPACE)%"
+                                status: "%RESPONSE_CODE%"
+                                grpc_status: "%GRPC_STATUS%"
+                                flags: "%RESPONSE_FLAGS%"
+                                details: "%RESPONSE_CODE_DETAILS%"
+                                duration_ms: "%DURATION%"
+                                authority: "%REQ(:AUTHORITY)%"
+                                client: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"
+                      http_filters:
+                        - name: envoy.filters.http.router
+                          typed_config:
+                            "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+                      rds:
+                        route_config_name: temporal
+                        config_source:
+                          resource_api_version: V3
+                          path_config_source:
+                            path: /var/lib/temporal-edge/routes/routes.json
+                            watched_directory: { path: /var/lib/temporal-edge/routes }
+          - name: health
+            address:
+              socket_address: { address: 0.0.0.0, port_value: ${health_port} }
+            filter_chains:
+              - filters:
+                  - name: envoy.filters.network.http_connection_manager
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                      stat_prefix: health
+                      codec_type: AUTO
+                      http_filters:
+                        - name: envoy.filters.http.health_check
+                          typed_config:
+                            "@type": type.googleapis.com/envoy.extensions.filters.http.health_check.v3.HealthCheck
+                            pass_through_mode: false
+                            headers:
+                              - name: ":path"
+                                string_match: { exact: /healthz }
+                            # 503 unless the one Temporal endpoint passes the
+                            # active check below.
+                            cluster_min_healthy_percentages:
+                              temporal: { value: 100 }
+                        - name: envoy.filters.http.router
+                          typed_config:
+                            "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+                      route_config:
+                        name: health
+                        virtual_hosts:
+                          - name: health
+                            domains: ["*"]
+                            routes:
+                              - match: { prefix: / }
+                                direct_response: { status: 404 }
+        clusters:
+          - name: temporal
+            type: STATIC
+            connect_timeout: 2s
+            lb_policy: ROUND_ROBIN
+            # Always HTTP/2: the frontend speaks only gRPC.
+            typed_extension_protocol_options:
+              envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+                "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+                explicit_http_config:
+                  http2_protocol_options: {}
+            # Every worker poll is an open request. Envoy's default of 1024 at
+            # once would turn the rest away with 503.
+            circuit_breakers:
+              thresholds:
+                - max_connections: 8192
+                  max_pending_requests: 8192
+                  max_requests: 8192
+            # The frontend's own gRPC health service. It reports SERVING once
+            # the server is up and has joined its cluster. Calls still go on
+            # while the check fails, so the gate can be tested on the VM.
+            health_checks:
+              - timeout: 2s
+                interval: 5s
+                no_traffic_interval: 5s
+                unhealthy_threshold: 2
+                healthy_threshold: 1
+                grpc_health_check:
+                  service_name: temporal.api.workflowservice.v1.WorkflowService
+            load_assignment:
+              cluster_name: temporal
+              endpoints:
+                - lb_endpoints:
+                    - endpoint:
+                        address:
+                          socket_address: { address: 127.0.0.1, port_value: 17233 }
+  - path: /usr/local/bin/temporal-secrets.sh
+    permissions: '0755'
+    content: |
+      ${indent(6, chomp(secrets_script))}
+  - path: /usr/local/bin/temporal-guard.sh
+    permissions: '0755'
+    content: |
+      ${indent(6, chomp(guard_script))}
+  - path: /usr/local/bin/temporal-pull.sh
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      # Pull an image, retrying until it succeeds: 15s, doubling up to 5
+      # minutes. The VM may boot before its outbound path or the registry
+      # answers.
+      image="$1"
+      delay=15
+      while true; do
+        /usr/bin/docker pull "$image" && exit 0
+        echo "pull of $image failed, retrying in $delay seconds"
+        sleep "$delay"
+        delay=$(( delay * 2 ))
+        if [ "$delay" -gt 300 ]; then delay=300; fi
+      done
+  - path: /usr/local/bin/temporal-schema.sh
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      # Set up or upgrade the schema in both databases, with the four commands
+      # of the chart's schema job. Each is safe to run again: setup-schema -v
+      # 0.0 only adds the version tables when they are missing, and
+      # update-schema applies only the versions a database lacks. Until
+      # Postgres lets the VM in and the databases exist, a run fails, waits
+      # and tries again: 15s, doubling up to 5 minutes.
+      image="$1"
+      sql() {
+        db="$1"
+        shift
+        /usr/bin/docker run --rm --network host --env-file /etc/temporal/temporal.env \
+          -e SQL_DATABASE="$db" --entrypoint temporal-sql-tool "$image" "$@"
+      }
+      /usr/local/bin/temporal-pull.sh "$image"
+      delay=15
+      while true; do
+        if sql temporal setup-schema -v 0.0 &&
+          sql temporal_visibility setup-schema -v 0.0 &&
+          sql temporal update-schema --schema-dir /etc/temporal/schema/postgresql/v12/temporal/versioned &&
+          sql temporal_visibility update-schema --schema-dir /etc/temporal/schema/postgresql/v12/visibility/versioned; then
+          exit 0
+        fi
+        echo "schema setup failed, retrying in $delay seconds"
+        sleep "$delay"
+        delay=$(( delay * 2 ))
+        if [ "$delay" -gt 300 ]; then delay=300; fi
+      done
+  - path: /usr/local/bin/temporal-namespaces.sh
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      # Create the namespaces the app and the runner use, with a 3-day
+      # retention, unless they exist. The server answers a few seconds after
+      # it starts, so a failed run waits and tries again: 5s, doubling up to
+      # 1 minute.
+      image="$1"
+      ns() {
+        /usr/bin/docker run --rm --network host -e TEMPORAL_ADDRESS=127.0.0.1:17233 --entrypoint /bin/sh "$image" \
+          -c "temporal operator namespace describe -n $1 || temporal operator namespace create -n $1 --retention 3d"
+      }
+      /usr/local/bin/temporal-pull.sh "$image"
+      delay=5
+      while true; do
+        if ns agents && ns runners && ns notifications; then
+          exit 0
+        fi
+        echo "namespace setup failed, retrying in $delay seconds"
+        sleep "$delay"
+        delay=$(( delay * 2 ))
+        if [ "$delay" -gt 60 ]; then delay=60; fi
+      done
+  # Reads the keys and the certificate from Key Vault. A failed run leaves the
+  # gate's files as they are; the timer runs it again.
+  - path: /etc/systemd/system/temporal-secrets.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Temporal gate keys and certificate from Key Vault
+      After=network-online.target
+      Wants=network-online.target
+      [Service]
+      Type=oneshot
+      TimeoutStartSec=5min
+      SyslogIdentifier=temporal-secrets
+      ExecStart=/usr/local/bin/temporal-secrets.sh
+  # At boot and every 5 minutes after the last run.
+  - path: /etc/systemd/system/temporal-secrets.timer
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Refresh the Temporal gate keys and certificate every 5 minutes
+      [Timer]
+      OnBootSec=1min
+      OnUnitActiveSec=5min
+      [Install]
+      WantedBy=timers.target
+  # Installed always, enabled only with start_temporal (see runcmd). The guard
+  # runs before the schema step and again just before the start, and fails
+  # while another Temporal server uses the database; the unit then retries
+  # every 10 seconds. systemctl stop temporal-server gives up.
+  - path: /etc/systemd/system/temporal-server.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Temporal server
+      After=docker.service network-online.target
+      Wants=network-online.target
+      Requires=docker.service
+      # No start limit: a failed start is retried for as long as it takes.
+      StartLimitIntervalSec=0
+      [Service]
+      Restart=always
+      RestartSec=10
+      TimeoutStartSec=infinity
+      SyslogIdentifier=temporal-server
+      ExecStartPre=-/usr/bin/docker rm -f temporal-server
+      ExecStartPre=/usr/local/bin/temporal-pull.sh ${temporal_server_image}
+      ExecStartPre=/usr/local/bin/temporal-guard.sh
+      ExecStartPre=/usr/local/bin/temporal-schema.sh ${temporal_admin_tools_image}
+      ExecStartPre=/usr/local/bin/temporal-guard.sh
+      # Host network, so 127.0.0.1 is the VM's loopback and the gate reaches
+      # the frontend there. The config is mounted over the image's template;
+      # the image writes the rendered docker.yaml next to it.
+      ExecStart=/usr/bin/docker run --rm --name temporal-server --network host \
+        --env-file /etc/temporal/temporal.env \
+        -v /etc/temporal/config/config_template.yaml:/etc/temporal/config/config_template.yaml:ro \
+        -v /etc/temporal/dynamic_config:/etc/temporal/dynamic_config:ro \
+        ${temporal_server_image}
+      ExecStop=/usr/bin/docker stop temporal-server
+      [Install]
+      WantedBy=multi-user.target
+  # Runs after each start of temporal-server, which wants it once enabled.
+  - path: /etc/systemd/system/temporal-namespaces.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Temporal namespaces agents, runners and notifications
+      After=temporal-server.service
+      Requires=temporal-server.service
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      TimeoutStartSec=infinity
+      ExecStart=/usr/local/bin/temporal-namespaces.sh ${temporal_admin_tools_image}
+      SyslogIdentifier=temporal-namespaces
+      [Install]
+      WantedBy=temporal-server.service
+  # The gate, on whether Temporal runs or not. Without Temporal it answers a
+  # call with a key with 503 and the health listener with 503. It starts once
+  # temporal-secrets.sh has written its files. It mounts the directories, not
+  # the files, so it sees each new file moved in.
+  - path: /etc/systemd/system/temporal-edge.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Temporal gate on 7233 (TLS and key check) and the health listener
+      After=docker.service network-online.target
+      Wants=network-online.target
+      Requires=docker.service
+      StartLimitIntervalSec=0
+      [Service]
+      Restart=always
+      RestartSec=10
+      TimeoutStartSec=infinity
+      SyslogIdentifier=temporal-edge
+      ExecStartPre=-/usr/bin/docker rm -f temporal-edge
+      ExecStartPre=/usr/local/bin/temporal-pull.sh ${proxy_image}
+      ExecStartPre=/usr/local/bin/temporal-secrets.sh --wait
+      # The image's user is uid 65532, which owns the cert and routes files.
+      ExecStart=/usr/bin/docker run --rm --name temporal-edge --network host \
+        -v /etc/temporal-edge:/etc/temporal-edge:ro \
+        -v /var/lib/temporal-edge/cert:/var/lib/temporal-edge/cert:ro \
+        -v /var/lib/temporal-edge/routes:/var/lib/temporal-edge/routes:ro \
+        ${proxy_image} -c /etc/temporal-edge/envoy.yaml --disable-hot-restart --log-level info
+      ExecStop=/usr/bin/docker stop temporal-edge
+      [Install]
+      WantedBy=multi-user.target
+runcmd:
+  - systemctl enable --now docker
+%{ if logs_enabled ~}
+  - systemctl restart systemd-journald
+%{ endif ~}
+  - systemctl daemon-reload
+  - systemctl enable --now temporal-secrets.timer
+  # --no-block: the start waits in temporal-pull.sh and temporal-secrets.sh,
+  # which must not hold up cloud-init.
+  - systemctl enable temporal-edge.service
+  - systemctl start --no-block temporal-edge.service
+%{ if start_temporal ~}
+  # temporal-server runs the guard and the schema step before it and
+  # temporal-namespaces after it.
+  - systemctl enable temporal-server.service temporal-namespaces.service
+  - systemctl start --no-block temporal-server.service temporal-namespaces.service
+%{ else ~}
+  # start_temporal is false: Temporal is installed but stays off. At the
+  # cutover the operator starts it with az vmss run-command
+  # (systemctl enable --now temporal-server.service temporal-namespaces.service)
+  # and then sets start_temporal to true, so a reimaged VM starts it at boot.
+%{ endif ~}

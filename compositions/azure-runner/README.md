@@ -85,6 +85,37 @@ a private IPv4 address. The plan stops on a public address, and on a host name,
 which could resolve to a public one. The runner VNet needs a private connection
 to the cluster's VNet. The same goes for an `http://` `tool_response_url`.
 
+### On a Temporal VM
+
+When the cluster cannot host Temporal, `compositions/azure-temporal` runs it on
+a VM with a static public IP, behind a gate that takes TLS 1.3 and the same
+runner key (the vault entry `runner-token`). Take its outputs:
+
+- `temporal_address` = its `temporal_address` (`<temporal_ip>:7233`, or its
+  `dns_name` on 7233);
+- `temporal_server_name` = its `temporal_server_name`;
+- `temporal_ca_certificate` = its `temporal_ca_certificate`, with its private
+  CA. Only runner-go's Temporal client trusts it (`TEMPORAL_TLS_CA_FILE`); git
+  and the other HTTPS calls keep the public CAs. The runner-go image must read
+  that variable, as the one for the chart release with
+  `global.temporal.external` does; an older one fails the certificate check;
+- `temporal_ip` = its `temporal_ip`.
+
+`temporal_tls` stays `true` and `temporal_token` is the `runner_token` output,
+as through the edge. The VM's certificate holds names only, no IP, so with
+`temporal_address` on the IP the composition refuses an empty
+`temporal_server_name`; it also refuses `temporal_tls = false`. With
+`temporal_ip` set, runner-go runs on a Docker network of its own on each VM
+(`runner_network_cidr`), and a firewall rule next to the metadata rule resets
+TCP 7233 to that IP from any other container, sandboxes included. Sandboxes
+stay on Docker's default bridge; runner-go drives them through the Docker
+socket, not over the network. With `temporal_ip` empty the VMs' cloud-init is
+the same, byte for byte, as before it existed.
+
+The runner reaches the VM over the internet, from the NAT gateway's IP
+(`egress_ip`). Add that IP to `allowed_source_cidrs` of
+`compositions/azure-temporal`.
+
 ## The network owner's part
 
 `required_network_owner_actions` lists it in plain sentences. In short:
@@ -100,6 +131,10 @@ to the cluster's VNet. The same goes for an `http://` `tool_response_url`.
   certificate must cover it, and a shared Istio Gateway must list it in its
   hosts. When a private CA signed the certificate, pass the CA as
   `temporal_ca_certificate`.
+
+With `temporal_ip` the list is shorter: add the runner's outbound IP to
+`allowed_source_cidrs` of `compositions/azure-temporal`, and point the VM's
+`dns_name`, when the runner dials it, at `temporal_ip`.
 
 The key keeps Temporal closed to anyone else who reaches the edge, and TLS keeps
 the key, the git tokens and the command output off the wire. With the runner
@@ -125,11 +160,13 @@ one on the subnet if your policy needs it; the runner needs no inbound rule.
 | `tags` | `{}` | Tags on everything we create. |
 | `resource_group_name` | `""` | Empty means `rg-<namespace>-<environment>-<name>-runner`. |
 | `existing_resource_group_id` | `""` | A resource group in `subscription_id` to use instead of creating one. |
-| `temporal_address` | required | `<host>:<port>`: the chart's `global.edge.runner.host` and 443. With the runner load balancers, their private IPv4 address and 7233. |
+| `temporal_address` | required | `<host>:<port>`: the chart's `global.edge.runner.host` and 443. With the runner load balancers, their private IPv4 address and 7233. On a Temporal VM, the `temporal_address` output of `compositions/azure-temporal`. |
 | `temporal_tls` | `true` | Dial over TLS. `false` only with the runner load balancers, on a private IPv4 address. |
 | `temporal_token` | `""` | Sensitive. The runner key: the `runner_token` output of `compositions/azure`. Required with `temporal_tls`, empty without. Letters and digits, at least 32. |
-| `temporal_server_name` | `""` | Host name to check in the edge certificate. Empty means the host of `temporal_address`. |
-| `temporal_ca_certificate` | `""` | PEM of a private CA that signed the edge certificate, such as the `edge_ca_certificate` of `compositions/azure`. The runner trusts it on top of the public CAs. |
+| `temporal_server_name` | `""` | Host name to check in the edge certificate. Empty means the host of `temporal_address`. On a Temporal VM, its `temporal_server_name` output. |
+| `temporal_ca_certificate` | `""` | PEM of a private CA that signed the edge certificate, such as the `edge_ca_certificate` of `compositions/azure`, or the `temporal_ca_certificate` of `compositions/azure-temporal` (two CAs while it moves to a new CA). Through the edge, runner-go trusts it on top of the public CAs. With `temporal_ip`, only its Temporal client trusts it. |
+| `temporal_ip` | `""` | The `temporal_ip` output of `compositions/azure-temporal`. Puts runner-go on its own Docker network and keeps other containers off TCP 7233 to that IP. Needs `temporal_tls`. An IP in `temporal_address` must be this one. Empty changes nothing on the VMs. |
+| `runner_network_cidr` | `172.31.255.240/28` | With `temporal_ip`, the range of runner-go's own Docker network. Change it when it overlaps the VNet, a route the runner uses, or Docker's default bridge. |
 | `tool_response_url` | `""` | Empty sends tool results through Temporal. With the runner load balancers it may be `http://<address>:8083/api/v1/internal/sandbox-tool-responses`. An `http://` URL must be a private IPv4 address; `https://` may be any host. |
 | `chart_version` | required | The chart version of the app step. The image tag is `chart-<chart_version>`. |
 | `runner_image` | `public.ecr.aws/e4h3h0d9/app/runner-go` | Repository, without a tag or digest. For your ACR copy, also set `acr_id`. |
@@ -206,6 +243,9 @@ the apply updates and reimages each VM in place (the azurerm features
 `roll_instances_when_required` and `reimage_on_manual_upgrade`, both on by
 default). A sandbox running on a VM during the reimage fails.
 
+Setting or changing `temporal_ip` changes the custom data, so it reimages the
+VMs the same way. Leaving it empty does not.
+
 ## Tests
 
 ```bash
@@ -215,9 +255,19 @@ terraform test
 
 `tests/runner.tftest.hcl` plans against mocked providers: the network we create,
 a brought subnet and resource group, the image and the registry login, the edge
-path and the runner load balancers, a public edge, the tool-result URL, the
-network owner's lines, the AcrPull grant listed instead of made, and the input
-checks (address, URL, images, server name, resource IDs, address space, a public
-address or a host name without TLS, an `http://` tool-result URL that is not a
-private address, the key with and without TLS, the key's characters, the CA, a
-resource group or subnet in another subscription).
+path and the runner load balancers, a public edge, a Temporal VM by IP and by
+name, the tool-result URL, the network owner's lines, the AcrPull grant listed
+instead of made, and the input checks (address, URL, images, server name,
+resource IDs, address space, a public address or a host name without TLS, an
+`http://` tool-result URL that is not a private address, the key with and
+without TLS, the key's characters, the CA, a resource group or subnet in
+another subscription, `temporal_ip` without TLS, not matching the address, or
+not an IPv4 address).
+
+`tests/cloudinit.tftest.hcl` applies `modules/azure/runner-vmss` against a
+mocked provider and compares its cloud-init with `tests/fixtures/`: the
+cloud-init of the release before `temporal_ip`, rendered from that release's
+template, once with the defaults and once with every option. Without
+`temporal_ip` it must match byte for byte, and the custom data must be its
+base64. With `temporal_ip` it must add the runner network and the 7233 rule and
+nothing else.

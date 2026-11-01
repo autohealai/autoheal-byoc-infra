@@ -62,7 +62,7 @@ variable "temporal_token" {
 variable "temporal_ca_certificate" {
   type        = string
   default     = ""
-  description = "PEM of the CA that signed the Temporal certificate, when the system trust store does not have it, such as a private CA on the edge. The runner trusts it in addition to the system CAs. Empty adds none."
+  description = "PEM of the CA that signed the Temporal certificate, when the system trust store does not have it, such as a private CA on the edge or on a Temporal VM. Through the edge, runner-go trusts it in addition to the system CAs (SSL_CERT_DIR). With temporal_ip, only runner-go's Temporal client trusts it (TEMPORAL_TLS_CA_FILE), which needs a runner-go that reads that variable. Empty adds none."
 
   validation {
     condition     = var.temporal_ca_certificate == "" || can(regex("-----BEGIN CERTIFICATE-----", var.temporal_ca_certificate))
@@ -78,6 +78,28 @@ variable "tool_response_callback_url" {
   validation {
     condition     = var.tool_response_callback_url == "" || can(regex("^https?://[^\\s]+$", var.tool_response_callback_url))
     error_message = "tool_response_callback_url must be empty or an http(s) URL."
+  }
+}
+
+variable "temporal_ip" {
+  type        = string
+  default     = ""
+  description = "Public IP of a Temporal VM (the temporal_ip output of compositions/azure-temporal). When set, runner-go runs on a Docker network of its own (runner_network_cidr) and the VM rejects TCP 7233 to this IP from every other container, sandboxes included. Empty changes nothing."
+
+  validation {
+    condition     = var.temporal_ip == "" || (can(regex("^[0-9]{1,3}(\\.[0-9]{1,3}){3}$", var.temporal_ip)) && can(cidrhost("${var.temporal_ip}/32", 0)))
+    error_message = "temporal_ip must be empty or an IPv4 address."
+  }
+}
+
+variable "runner_network_cidr" {
+  type        = string
+  default     = "172.31.255.240/28"
+  description = "Address range of runner-go's own Docker network, used only with temporal_ip. Containers from this range may reach temporal_ip on TCP 7233; no others. It must not overlap the VNet, the routes the runner uses, or Docker's default bridge (172.17.0.0/16)."
+
+  validation {
+    condition     = can(cidrhost(var.runner_network_cidr, 0)) && can(regex("^[0-9.]+/[0-9]{1,2}$", var.runner_network_cidr)) && try(cidrsubnet(var.runner_network_cidr, 0, 0) == var.runner_network_cidr, false)
+    error_message = "runner_network_cidr must be an IPv4 network with no host bits set, such as 172.31.255.240/28."
   }
 }
 

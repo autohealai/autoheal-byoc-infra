@@ -1,8 +1,9 @@
 # Plans of compositions/azure-runner against mocked providers: the network we
 # create or the subnet we use, the image and registry login, the path to
-# Temporal (through the edge, or the runner load balancers), the network
-# owner's rules, and the input checks. Nothing here reaches
-# Azure. (OpenTofu needs every attribute of a mocked object.)
+# Temporal (through the edge, the runner load balancers or a Temporal VM), the
+# network owner's rules, and the input checks. Nothing here reaches Azure.
+# (OpenTofu needs every attribute of a mocked object.) The runner VMs'
+# cloud-init is tested in cloudinit.tftest.hcl.
 
 mock_provider "azurerm" {
   mock_data "azurerm_subnet" {
@@ -58,7 +59,7 @@ variables {
   namespace        = "acme"
   environment      = "prod"
   temporal_address = "runner.autoheal.acme.example:443"
-  temporal_token   = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ01"
+  temporal_token   = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ01" # pragma: allowlist secret
   chart_version    = "1.0.0-rc.12"
 }
 
@@ -220,6 +221,47 @@ run "public_edge_address" {
   }
 }
 
+# A Temporal VM of compositions/azure-temporal, dialed on its IP with the
+# private CA. The owner lets the NAT gateway's IP into the VM.
+run "temporal_vm_by_ip" {
+  command = plan
+
+  variables {
+    temporal_address        = "198.51.100.7:7233"
+    temporal_ip             = "198.51.100.7"
+    temporal_server_name    = "temporal.autoheal.internal"
+    temporal_ca_certificate = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+  }
+
+  assert {
+    condition = output.required_network_owner_actions == [
+      "Add the runner's outbound IP (the egress_ip output, the NAT gateway's IP) to allowed_source_cidrs of compositions/azure-temporal, so the Temporal VM 198.51.100.7 lets the runner in on TCP 7233.",
+    ]
+    error_message = "With temporal_ip the owner adds the NAT gateway's IP to the Temporal VM's allowed_source_cidrs, and nothing points at the edge."
+  }
+}
+
+# The Temporal VM on its DNS name, from a brought subnet: the owner also points
+# the name at the IP.
+run "temporal_vm_by_name_from_existing_subnet" {
+  command = plan
+
+  variables {
+    temporal_address   = "temporal.acme.example:7233"
+    temporal_ip        = "198.51.100.7"
+    existing_subnet_id = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-acme-net/providers/Microsoft.Network/virtualNetworks/vnet-acme-hub/subnets/snet-runner"
+  }
+
+  assert {
+    condition = output.required_network_owner_actions == [
+      "Add the runner's outbound IP to allowed_source_cidrs of compositions/azure-temporal, so the Temporal VM 198.51.100.7 lets the runner in on TCP 7233.",
+      "Point temporal.acme.example at the Temporal VM's IP 198.51.100.7. It must be the dns_name of compositions/azure-temporal, so the gate's certificate covers it.",
+      "The runner subnet snet-runner uses your routes and no NAT gateway is created: it needs a route to temporal.acme.example and outbound access to the image registry (public.ecr.aws), the git hosts and the endpoints the tools call.",
+    ]
+    error_message = "A DNS name for the Temporal VM must point at temporal_ip, and a brought subnet needs its own route."
+  }
+}
+
 # The runner image from the customer's ACR: AcrPull for the runner identity and
 # a registry login on the VMs. runner_image_tag overrides the tag.
 run "image_from_acr" {
@@ -324,6 +366,70 @@ run "temporal_host_name_refused_without_tls" {
   }
 
   expect_failures = [terraform_data.validate_inputs]
+}
+
+# The gate on a Temporal VM takes TLS only.
+run "temporal_ip_needs_tls" {
+  command = plan
+
+  variables {
+    temporal_address = "10.40.15.253:7233"
+    temporal_tls     = false
+    temporal_token   = ""
+    temporal_ip      = "10.40.15.253"
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}
+
+# Dialed on its IP, the Temporal VM's certificate does not cover the address:
+# the runner must check the name in it.
+run "temporal_ip_on_an_ip_needs_server_name" {
+  command = plan
+
+  variables {
+    temporal_address = "198.51.100.7:7233"
+    temporal_ip      = "198.51.100.7"
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}
+
+# An IP in temporal_address must be temporal_ip, or the 7233 rule on the runner
+# VMs guards the wrong address.
+run "temporal_ip_must_match_address" {
+  command = plan
+
+  variables {
+    temporal_address = "198.51.100.8:7233"
+    temporal_ip      = "198.51.100.7"
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}
+
+run "temporal_ip_must_be_ipv4" {
+  command = plan
+
+  variables {
+    temporal_address = "198.51.100.7:7233"
+    temporal_ip      = "198.51.100"
+  }
+
+  expect_failures = [var.temporal_ip]
+}
+
+run "runner_network_without_host_bits" {
+  command = plan
+
+  variables {
+    temporal_address     = "198.51.100.7:7233"
+    temporal_ip          = "198.51.100.7"
+    temporal_server_name = "temporal.autoheal.internal"
+    runner_network_cidr  = "172.31.255.241/28"
+  }
+
+  expect_failures = [var.runner_network_cidr]
 }
 
 # Tool results over plain http go only to a private address.

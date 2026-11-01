@@ -6,10 +6,13 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-11-01
+
 For accounts where a central team owns IAM roles and security groups. Both are
 opt-in: an install that sets neither input plans no change. The role and the
 load balancer's security group move to index [0] in state, which Terraform and
-OpenTofu do on their own without replacing anything.
+OpenTofu do on their own without replacing anything. The Azure modules and
+compositions are the same as 4.1.2, so an Azure install plans no change.
 
 ### Added
 - `compositions/aws`: `existing_secrets_role_arn`, `existing_api_server_role_arn`
@@ -27,6 +30,9 @@ OpenTofu do on their own without replacing anything.
   `loadbalancer`.
 - `modules/aws/pod-identity`: `existing_role_arn`.
 - `modules/aws/nlb`: `existing_security_group_id`.
+
+### Changed
+- Examples and docs pin v4.2.0. The chart stays 1.0.0-rc.13.
 
 ## [4.1.2] - 2026-10-26
 

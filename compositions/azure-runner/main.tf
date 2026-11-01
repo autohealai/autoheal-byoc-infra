@@ -9,6 +9,11 @@
 # Temporal too. With temporal_tls = false it reaches the chart's runner load
 # balancers on a private IPv4 address instead, with no TLS and no key.
 #
+# When the cluster cannot host Temporal, compositions/azure-temporal runs it on
+# a VM with a public IP, behind a gate that takes TLS and the same runner key.
+# The runner dials that IP (or its DNS name) on 7233, and temporal_ip tells the
+# runner VMs to keep every container but runner-go away from it.
+#
 # The runner only dials out. This composition never reads the cluster or its
 # subscription: the address is an input, and the network owner opens the path
 # listed in required_network_owner_actions. Until then the runner keeps
@@ -106,6 +111,14 @@ resource "terraform_data" "validate_inputs" {
       error_message = "temporal_token is required with temporal_tls: the chart's proxy refuses runner calls without the key. Pass the runner_token output of compositions/azure."
     }
     precondition {
+      condition     = var.temporal_ip == "" || var.temporal_tls
+      error_message = "temporal_ip is set, so the runner dials the Temporal VM of compositions/azure-temporal, whose gate takes TLS only. Set temporal_tls = true."
+    }
+    precondition {
+      condition     = var.temporal_ip == "" || !can(cidrhost("${local.temporal_host}/32", 0)) || local.temporal_host == var.temporal_ip
+      error_message = "temporal_address is on ${local.temporal_host}, but temporal_ip is ${var.temporal_ip}. With temporal_ip, use the temporal_address output of compositions/azure-temporal: <temporal_ip>:7233, or its dns_name on 7233."
+    }
+    precondition {
       condition     = var.temporal_tls || nonsensitive(var.temporal_token == "")
       error_message = "temporal_token is set but temporal_tls is false: the key would cross the network in plain text. Turn temporal_tls on, or leave the key empty for the runner load balancers."
     }
@@ -138,6 +151,7 @@ module "runner" {
   temporal_token             = var.temporal_token
   temporal_ca_certificate    = var.temporal_ca_certificate
   tool_response_callback_url = var.tool_response_url
+  temporal_ip                = var.temporal_ip
   runner_image               = local.runner_image
   sandbox_image              = var.sandbox_image
   runner_name                = "${local.id}-runner"

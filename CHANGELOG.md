@@ -7,25 +7,48 @@ All notable changes to this repo are documented here. Format follows
 ## [Unreleased]
 
 ### Added
-- `modules/azure/temporal-vm`: one Ubuntu VM that runs the Temporal server
-  against the install's Postgres, for a cluster that cannot run it. Temporal
-  listens on 127.0.0.1. An Envoy proxy on TCP 7233 ends TLS 1.3 and checks the
-  key: the app key opens the worker API in every namespace, the runner key
-  opens `GetSystemInfo` and the worker API in the `runners` namespace, both
-  open the health check, and any other call gets 401. The namespace check
-  reads a header a stock SDK sets; it is not a hard boundary against a
-  hand-made gRPC client with the runner key. The VM has a static
-  public IP and a VNet of its own; the NSG lets in 7233 from
-  `allowed_source_cidrs` only, no SSH. systemd units set up the schema, run
-  Temporal (only with `start_temporal = true`), create the `agents`, `runners`
-  and `notifications` namespaces and run the proxy.
-- `compositions/azure-temporal`: the VM, the app key, a private CA and the
-  proxy's certificate for `temporal.autoheal.internal`, and a Postgres
-  firewall rule for the VM's IP. With `key_vault_id` it writes the vault
-  entries `temporal-app-key` and `temporal-ca`. Its outputs
-  `temporal_address`, `temporal_server_name` and `temporal_ca_certificate` go
-  to `compositions/azure-runner` under the same names. Plan-only tests with
-  mocked providers in `tests/`.
+- `modules/azure/temporal-vm`: the Temporal server on a VM of its own, against
+  the install's Postgres, for a cluster that cannot run it. The VM is the only
+  instance of a scale set (upgrade mode Manual, no overprovisioning) behind a
+  Standard load balancer with one static IP, which also carries the VM's
+  outbound traffic. The VM has no public IP. The NSG lets in TCP 7233 from
+  `allowed_source_cidrs` and the load balancer's probe, and denies the rest,
+  SSH included. Temporal listens on 127.0.0.1.
+- A gate on that VM (Envoy) ends TLS 1.3 on 7233 and checks a key per call.
+  The api-server-go and agents-py keys may call all of WorkflowService except
+  7 calls refused for every key (namespace changes, batch operations and
+  deletes). The runner key may make the calls in `runner_allowed_methods`
+  only. The health check takes any key. Every other call gets 401. The gate
+  drops the key before Temporal, and its access log names the key's entry and
+  version, never the key.
+- On that VM a timer reads the keys and the certificate from Key Vault with
+  the VM's identity, at boot and every 5 minutes. The gate takes the two
+  newest enabled versions of each key, so keys and certificates rotate with no
+  reimage. Before each start, Temporal refuses to run while another Temporal
+  server wrote a membership heartbeat in the database in the last 60 seconds.
+  `start_temporal` is false by default; the cutover starts Temporal with
+  `az vmss run-command`, then sets it to true.
+- With `log_analytics_workspace_id`, the Azure Monitor agent sends the VM's
+  logs to that workspace. A metric alert on the load balancer's health probe
+  notifies `action_group_ids`; it is on while `start_temporal` is true.
+- `compositions/azure-temporal`: the VM; the api-server-go and agents-py keys
+  in the install vault (`temporal-api-server-key`, `temporal-agents-key`);
+  and either a private CA with the gate's certificate (`temporal-tls`,
+  `temporal-ca`) or a vault certificate for `dns_name` (`certificate_name`).
+  The VM's identity gets Key Vault Secrets User on each entry it reads, the
+  runner's `runner-token` included, and nothing else. A Postgres firewall rule
+  lets the VM's IP in. It does not change the vault's network rules: add
+  `temporal_ip` to `workload_egress_ip_ranges` of `compositions/azure`.
+  Outputs `temporal_address`, `temporal_ip`, `temporal_server_name` and
+  `temporal_ca_certificate` go to the runner and the app. Tests with mocked
+  providers in `tests/`.
+- `temporal_ip` in `modules/azure/runner-vmss` and `compositions/azure-runner`,
+  empty by default. When set, runner-go runs on a Docker network of its own
+  (`runner_network_cidr` in the module, `172.31.255.240/28` by default), and a
+  rule next to the metadata rule resets TCP 7233 to that IP from any other
+  container, sandboxes included. Left empty, the runner VMs' cloud-init is the
+  same byte for byte, so the runner plans no change. A test compares it with
+  the cloud-init of 4.1.2.
 - `examples/azure/split-istio/temporal`: the Terragrunt unit, between infra
   and app.
 

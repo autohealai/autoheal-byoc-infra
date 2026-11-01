@@ -81,6 +81,28 @@ variable "tool_response_callback_url" {
   }
 }
 
+variable "temporal_ip" {
+  type        = string
+  default     = ""
+  description = "Public IP of a Temporal VM (the temporal_ip output of compositions/azure-temporal). When set, runner-go runs on a Docker network of its own (runner_network_cidr) and the VM rejects TCP 7233 to this IP from every other container, sandboxes included. Empty changes nothing."
+
+  validation {
+    condition     = var.temporal_ip == "" || (can(regex("^[0-9]{1,3}(\\.[0-9]{1,3}){3}$", var.temporal_ip)) && can(cidrhost("${var.temporal_ip}/32", 0)))
+    error_message = "temporal_ip must be empty or an IPv4 address."
+  }
+}
+
+variable "runner_network_cidr" {
+  type        = string
+  default     = "172.31.255.240/28"
+  description = "Address range of runner-go's own Docker network, used only with temporal_ip. Containers from this range may reach temporal_ip on TCP 7233; no others. It must not overlap the VNet, the routes the runner uses, or Docker's default bridge (172.17.0.0/16)."
+
+  validation {
+    condition     = can(cidrhost(var.runner_network_cidr, 0)) && can(regex("^[0-9.]+/[0-9]{1,2}$", var.runner_network_cidr)) && try(cidrsubnet(var.runner_network_cidr, 0, 0) == var.runner_network_cidr, false)
+    error_message = "runner_network_cidr must be an IPv4 network with no host bits set, such as 172.31.255.240/28."
+  }
+}
+
 variable "runner_image" {
   type        = string
   description = "Fully qualified runner-go image, e.g. public.ecr.aws/e4h3h0d9/app/runner-go:chart-1.0.0."

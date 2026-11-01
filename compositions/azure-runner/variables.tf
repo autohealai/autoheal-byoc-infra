@@ -66,7 +66,7 @@ variable "existing_resource_group_id" {
 
 variable "temporal_address" {
   type        = string
-  description = "Where the runner reaches Temporal, as <host>:<port>. Through the edge: the chart's runner host on 443 (global.edge.runner.host), e.g. runner.autoheal.acme.example:443. Through the chart's runner load balancers: their private IPv4 address on 7233, with temporal_tls = false."
+  description = "Where the runner reaches Temporal, as <host>:<port>. Through the edge: the chart's runner host on 443 (global.edge.runner.host), e.g. runner.autoheal.acme.example:443. Through the chart's runner load balancers: their private IPv4 address on 7233, with temporal_tls = false. On a Temporal VM: the temporal_address output of compositions/azure-temporal, with temporal_ip."
 
   validation {
     condition = (
@@ -87,7 +87,7 @@ variable "temporal_token" {
   type        = string
   default     = ""
   sensitive   = true
-  description = "The runner key: the runner_token output of compositions/azure, the vault entry runner-token. The runner sends it with each call and the chart's proxy refuses calls without it. Required with temporal_tls; empty without. It is in the VMs' custom data, which Azure never returns on read, and in this state."
+  description = "The runner key: the runner_token output of compositions/azure, the vault entry runner-token. The runner sends it with each call and the chart's proxy, or the gate on a Temporal VM, refuses calls without it. Required with temporal_tls; empty without. It is in the VMs' custom data, which Azure never returns on read, and in this state."
 
   validation {
     condition     = var.temporal_token == "" || can(regex("^[A-Za-z0-9]{32,}$", var.temporal_token))
@@ -98,7 +98,7 @@ variable "temporal_token" {
 variable "temporal_server_name" {
   type        = string
   default     = ""
-  description = "Name the runner checks in the edge certificate. Empty means the host of temporal_address. Set it only when the runner dials an address the certificate does not name."
+  description = "Name the runner checks in the edge certificate. Empty means the host of temporal_address. Set it only when the runner dials an address the certificate does not name. On a Temporal VM: the temporal_server_name output of compositions/azure-temporal."
 
   validation {
     condition     = var.temporal_server_name == "" || can(regex("^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$", var.temporal_server_name))
@@ -109,11 +109,22 @@ variable "temporal_server_name" {
 variable "temporal_ca_certificate" {
   type        = string
   default     = ""
-  description = "PEM of the CA that signed the edge certificate, when it is a private CA: the edge_ca_certificate of compositions/azure. The runner trusts it in addition to the public CAs. Empty when a public CA signed it."
+  description = "PEM of the CA that signed the edge certificate, when it is a private CA: the edge_ca_certificate of compositions/azure, or the temporal_ca_certificate output of compositions/azure-temporal. The runner trusts it in addition to the public CAs. Empty when a public CA signed it."
 
   validation {
     condition     = var.temporal_ca_certificate == "" || can(regex("-----BEGIN CERTIFICATE-----", var.temporal_ca_certificate))
     error_message = "temporal_ca_certificate must be empty or a PEM certificate."
+  }
+}
+
+variable "temporal_ip" {
+  type        = string
+  default     = ""
+  description = "IP of the Temporal VM: the temporal_ip output of compositions/azure-temporal. When set, runner-go runs on a Docker network of its own on each runner VM, and no other container there, sandboxes included, may reach this IP on TCP 7233. Needs temporal_tls. Empty, the default, changes nothing on the VMs."
+
+  validation {
+    condition     = var.temporal_ip == "" || (can(regex("^[0-9]{1,3}(\\.[0-9]{1,3}){3}$", var.temporal_ip)) && can(cidrhost("${var.temporal_ip}/32", 0)))
+    error_message = "temporal_ip must be empty or an IPv4 address: the temporal_ip output of compositions/azure-temporal."
   }
 }
 

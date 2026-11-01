@@ -96,23 +96,81 @@ variable "allowed_source_cidrs" {
 }
 
 # ---------------------------------------------------------------------------
-# Keys and Postgres
+# Name and certificate
 # ---------------------------------------------------------------------------
 
-variable "runner_token" {
+variable "dns_name" {
   type        = string
-  sensitive   = true
-  description = "The runner key: the runner_token output of compositions/azure, the vault entry runner-token. The proxy lets it into the runners namespace only. Pass the same key to compositions/azure-runner as temporal_token."
+  default     = ""
+  description = "DNS name clients dial, e.g. temporal.acme.example.com. You make the record; point it at the temporal_ip output. Empty means clients dial the IP. With the private CA the certificate covers this name and temporal.autoheal.internal. Required with certificate_name."
 
   validation {
-    condition     = can(regex("^[A-Za-z0-9]{32,}$", var.runner_token))
-    error_message = "runner_token must be letters and digits, at least 32 of them: the runner_token output of compositions/azure."
+    condition     = var.dns_name == "" || can(regex("^([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\\.)+[A-Za-z]{2,}$", var.dns_name))
+    error_message = "dns_name must be empty or a DNS name such as temporal.acme.example.com."
+  }
+}
+
+variable "certificate_name" {
+  type        = string
+  default     = ""
+  description = "Name of a Key Vault certificate in key_vault_id for the gate, issued for dns_name by a CA the clients already trust. Empty means we make a private CA and a certificate and write them as the entries temporal-tls and temporal-ca. Renewing the vault certificate needs no apply: the gate serves its newest version within 5 minutes."
+
+  validation {
+    condition     = var.certificate_name == "" || can(regex("^[0-9A-Za-z-]{1,127}$", var.certificate_name))
+    error_message = "certificate_name must be empty or a Key Vault certificate name: letters, digits and dashes."
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Key Vault and Postgres
+# ---------------------------------------------------------------------------
+
+variable "key_vault_id" {
+  type        = string
+  description = "Resource ID of the install vault of compositions/azure, the one with runner-token. We write the two app keys there (and temporal-tls and temporal-ca with the private CA), and the VM reads its entries from it. The vault must use Azure RBAC and let in the temporal_ip output: see the README."
+
+  validation {
+    condition     = can(regex("(?i)^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.KeyVault/vaults/[^/]+$", var.key_vault_id))
+    error_message = "key_vault_id must be the resource ID of a Microsoft.KeyVault/vaults resource."
+  }
+}
+
+variable "api_server_key_secret_name" {
+  type        = string
+  default     = "temporal-api-server-key"
+  description = "Vault entry we write with the api-server-go key. The chart reads the same entry."
+
+  validation {
+    condition     = can(regex("^[0-9A-Za-z-]{1,127}$", var.api_server_key_secret_name))
+    error_message = "api_server_key_secret_name must be a Key Vault secret name: letters, digits and dashes."
+  }
+}
+
+variable "agents_key_secret_name" {
+  type        = string
+  default     = "temporal-agents-key"
+  description = "Vault entry we write with the agents-py key. The chart reads the same entry."
+
+  validation {
+    condition     = can(regex("^[0-9A-Za-z-]{1,127}$", var.agents_key_secret_name))
+    error_message = "agents_key_secret_name must be a Key Vault secret name: letters, digits and dashes."
+  }
+}
+
+variable "runner_key_secret_name" {
+  type        = string
+  default     = "runner-token"
+  description = "Vault entry with the runner key, which compositions/azure writes. We only grant the VM read on it. Pass the same key to compositions/azure-runner as temporal_token."
+
+  validation {
+    condition     = can(regex("^[0-9A-Za-z-]{1,127}$", var.runner_key_secret_name))
+    error_message = "runner_key_secret_name must be a Key Vault secret name: letters, digits and dashes."
   }
 }
 
 variable "postgres_server_id" {
   type        = string
-  description = "Resource ID of the install's Postgres flexible server, in subscription_id. We add a firewall rule on it for the VM's public IP."
+  description = "Resource ID of the install's Postgres flexible server, in subscription_id. We add a firewall rule on it for the load balancer's IP."
 
   validation {
     condition     = can(regex("(?i)^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.DBforPostgreSQL/flexibleServers/[^/]+$", var.postgres_server_id))
@@ -141,15 +199,30 @@ variable "temporal_db_password" {
   }
 }
 
-variable "key_vault_id" {
-  type        = string
-  default     = null
-  description = "Resource ID of a Key Vault to write the entries temporal-app-key and temporal-ca to, such as the install vault of compositions/azure. Null writes nothing."
+# ---------------------------------------------------------------------------
+# Gate
+# ---------------------------------------------------------------------------
 
-  validation {
-    condition     = var.key_vault_id == null || can(regex("(?i)^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.KeyVault/vaults/[^/]+$", var.key_vault_id))
-    error_message = "key_vault_id must be null or the resource ID of a Microsoft.KeyVault/vaults resource."
-  }
+variable "runner_allowed_methods" {
+  type        = list(string)
+  default     = null
+  description = "WorkflowService methods the runner key may call, by name. Null means the list in modules/azure/temporal-vm, the calls of the Temporal Go SDK worker in runner-go. The gate's access log shows each call with its route, for checking a new list."
+}
+
+# ---------------------------------------------------------------------------
+# Logs and alert
+# ---------------------------------------------------------------------------
+
+variable "log_analytics_workspace_id" {
+  type        = string
+  default     = ""
+  description = "Resource ID of a Log Analytics workspace for the VM's logs: the gate, the key refresh and Temporal. Empty sends nothing."
+}
+
+variable "action_group_ids" {
+  type        = list(string)
+  default     = []
+  description = "Resource IDs of action groups the health alert notifies. The alert is on once start_temporal is true."
 }
 
 # ---------------------------------------------------------------------------
@@ -159,7 +232,7 @@ variable "key_vault_id" {
 variable "start_temporal" {
   type        = bool
   default     = false
-  description = "Start the Temporal server on the VM. False leaves it installed but off, and only the proxy runs. Changing it replaces the VM; the public IP stays."
+  description = "Start the Temporal server when the VM boots. False leaves it installed but off, and only the gate runs. Changing it changes the scale set model only; the VM takes it at its next reimage. The cutover starts Temporal with az vmss run-command first: see the README."
 }
 
 variable "vm_size" {
@@ -183,5 +256,5 @@ variable "temporal_admin_tools_image" {
 variable "proxy_image" {
   type        = string
   default     = "public.ecr.aws/e4h3h0d9/external/envoy:distroless-v1.35.6"
-  description = "Envoy image for the proxy on 7233, the one the chart's proxy runs."
+  description = "Envoy image for the gate on 7233, the one the chart's proxy runs."
 }

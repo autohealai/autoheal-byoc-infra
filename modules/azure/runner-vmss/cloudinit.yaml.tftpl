@@ -134,6 +134,13 @@ write_files:
       set -euo pipefail
       iptables -w -C DOCKER-USER -d 169.254.169.254/32 -p tcp -j REJECT --reject-with tcp-reset 2>/dev/null ||
         iptables -w -I DOCKER-USER -d 169.254.169.254/32 -p tcp -j REJECT --reject-with tcp-reset
+%{ if temporal_ip != "" ~}
+      # Only runner-go, on its own network (${runner_network_cidr}), may reach
+      # the Temporal VM on TCP 7233. Any other container, a sandbox included,
+      # gets a reset. The gate on the VM checks the key too.
+      iptables -w -C DOCKER-USER ! -s ${runner_network_cidr} -d ${temporal_ip}/32 -p tcp --dport 7233 -j REJECT --reject-with tcp-reset 2>/dev/null ||
+        iptables -w -I DOCKER-USER ! -s ${runner_network_cidr} -d ${temporal_ip}/32 -p tcp --dport 7233 -j REJECT --reject-with tcp-reset
+%{ endif ~}
   - path: /usr/local/bin/runner-pull.sh
     permissions: '0755'
     content: |
@@ -172,6 +179,12 @@ write_files:
       ExecStartPre=-/usr/bin/docker rm -f runner-go
       # No "-": without the rule the runner does not start, and systemd retries.
       ExecStartPre=/usr/local/bin/block-imds.sh
+%{ if temporal_ip != "" ~}
+      # runner-go's own network, the only source block-imds.sh lets reach the
+      # Temporal VM. Sandboxes stay on the default bridge: runner-go drives them
+      # through the Docker socket, not over the network.
+      ExecStartPre=/bin/sh -c '/usr/bin/docker network inspect runner-go >/dev/null 2>&1 || /usr/bin/docker network create --subnet ${runner_network_cidr} runner-go'
+%{ endif ~}
       ExecStartPre=/usr/local/bin/runner-pull.sh ${runner_image}
       # --group-add <docker-gid>: the runner container runs as uid/gid 1000
       # (alpine adduser 'runner'); the host docker.sock is root:docker mode 660,
@@ -197,6 +210,9 @@ write_files:
       # --hostname value, which is not a container name, so it is set to the
       # container name here. The host queue uses the kernel host name, not this.
       ExecStart=/usr/bin/docker run --rm --name runner-go --hostname %H -e HOSTNAME=runner-go --group-add __DOCKER_GID__ \
+%{ if temporal_ip != "" ~}
+        --network runner-go \
+%{ endif ~}
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v /var/lib/runner-go/lambdas:/var/lib/runner-go/lambdas \
         -v /var/lib/runner-go/datasources:/var/lib/runner-go/datasources \

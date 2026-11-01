@@ -1,6 +1,7 @@
-# Temporal VM with start_temporal off: only the proxy runs. Doubles as the CI
-# validate fixture. compositions/azure-temporal makes the keys, the certificate
-# and the Postgres firewall rule; this fixture takes them as inputs.
+# Temporal VM with start_temporal off: only the gate runs. Doubles as the CI
+# validate fixture. compositions/azure-temporal makes the keys, the certificate,
+# the Key Vault role assignments and the Postgres firewall rule; this fixture
+# takes the vault and the entry names as inputs.
 
 terraform {
   required_version = ">= 1.6"
@@ -13,36 +14,18 @@ terraform {
 }
 
 provider "azurerm" {
-  features {}
-}
-
-variable "runner_token" {
-  type        = string
-  sensitive   = true
-  description = "The runner key: the runner_token output of compositions/azure."
-}
-
-variable "app_key" {
-  type        = string
-  sensitive   = true
-  description = "The app key: any random string of 32 or more letters and digits."
+  features {
+    # The VM changes only when the operator reimages it.
+    virtual_machine_scale_set {
+      roll_instances_when_required = false
+    }
+  }
 }
 
 variable "temporal_db_password" {
   type        = string
   sensitive   = true
   description = "Password of temporal_user: the temporal-db-password secret in the install's Key Vault."
-}
-
-variable "tls_certificate" {
-  type        = string
-  description = "PEM of the server certificate for temporal.autoheal.internal."
-}
-
-variable "tls_private_key" {
-  type        = string
-  sensitive   = true
-  description = "PEM of the certificate's private key."
 }
 
 module "temporal" {
@@ -66,10 +49,9 @@ module "temporal" {
   postgres_fqdn        = "acme-play-autoheal-db.postgres.database.azure.com"
   temporal_db_password = var.temporal_db_password
 
-  app_key         = var.app_key
-  runner_token    = var.runner_token
-  tls_certificate = var.tls_certificate
-  tls_private_key = var.tls_private_key
+  # The VM's identity needs Key Vault Secrets User on each of these entries.
+  key_vault_uri           = "https://kv-acme-play-autoheal.vault.azure.net/"
+  certificate_secret_name = "temporal-tls"
 
   admin_ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAM example"
 }
@@ -77,4 +59,9 @@ module "temporal" {
 output "temporal_address" {
   description = "Address clients dial."
   value       = "${module.temporal.public_ip}:7233"
+}
+
+output "identity_principal_id" {
+  description = "Principal to grant Key Vault Secrets User on the key and certificate entries."
+  value       = module.temporal.identity_principal_id
 }

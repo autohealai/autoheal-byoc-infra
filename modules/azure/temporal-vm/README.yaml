@@ -3,40 +3,103 @@ title: Autoheal BYOC - Azure Temporal VM
 description: |-
   One VM that runs the Temporal server for an install whose cluster cannot host
   it. The app and the runner reach it over the internet on TCP 7233. Temporal
-  listens on 127.0.0.1 only; in front of it a proxy (Envoy) ends TLS 1.3 and
-  checks a key, as the chart's proxy guards the runner host. The app key opens
-  the worker API in every namespace. The runner key opens GetSystemInfo, which
-  the Go SDK calls first with no namespace header, and the worker API in the
-  runners namespace. Both open the gRPC health check. Any other call gets 401.
-  The namespace check reads the temporal-namespace header, which a stock SDK
-  sets, so it keeps a misconfigured runner out of the other namespaces. It is
-  not a hard boundary: a hand-made gRPC client with the runner key can send the
-  header and another namespace in the body, and Envoy cannot read the body. The
-  routes match any host name.
+  listens on 127.0.0.1 only. In front of it a gate (Envoy) ends TLS 1.3 and
+  checks a key on each call. Clients send authorization: Bearer <key>, and the
+  gate removes the header before the call goes on. Its routes, in order:
 
-  The VM has a static public IP and a VNet of its own that is connected to
-  nothing. The NSG lets in TCP 7233 from allowed_source_cidrs and denies the
-  rest, SSH included. Password login is off; the admin user has an SSH key
-  only, and az vm run-command reaches the host. Temporal keeps its data in
-  Postgres (the temporal and temporal_visibility databases), so the VM holds no
+  1. /grpc.health.v1.Health/ with any valid key.
+  2. The runner key: the WorkflowService calls in runner_allowed_methods.
+  3. Every key: 401 on RegisterNamespace, UpdateNamespace, DeprecateNamespace,
+     StartBatchOperation, DeleteWorkflowExecution, DeleteWorkerDeployment and
+     DeleteWorkerDeploymentVersion.
+  4. The app keys (api-server and agents-py): the rest of WorkflowService.
+  5. Anything else: 401, which gRPC clients report as Unauthenticated.
+
+  OperatorService stays closed even with a key, and the routes match any host
+  name. The default runner_allowed_methods is what runner-go and the Temporal
+  Go SDK worker call. The access log records each call's path and the key's
+  entry and Key Vault version, never the key, so the list can be checked
+  against real traffic.
+
+  The keys and the certificate live in Key Vault, not in the custom data. A
+  timer (temporal-secrets) reads them at boot and every 5 minutes with the
+  VM's identity. For each key entry it takes the two newest enabled versions, so
+  a client can move to a new version before the old one is disabled. The
+  certificate entry is one secret with the certificate, its chain and the
+  private key, as PEM (application/x-pem-file) or base64 PKCS#12
+  (application/x-pkcs12); the secret behind a Key Vault certificate has this
+  form. The gate reloads a changed file and keeps open connections. When a
+  refresh fails, the gate keeps the last good keys and certificate.
+
+  The VM is the only instance of a scale set behind a Standard public load
+  balancer with one static IP. The load balancer forwards TCP 7233 and gives
+  the VM its way out on the same IP (an outbound rule), so Postgres, Key Vault
+  and the clients' firewalls see one address. The VM has no public IP of its
+  own and a VNet that is connected to nothing. The NSG lets in TCP 7233 from
+  allowed_source_cidrs and the load balancer (AzureLoadBalancer) on 7233
+  and health_port, and denies the rest, SSH included. Password login is off;
+  az vmss run-command reaches the host. Temporal keeps its data in Postgres
+  (the temporal and temporal_visibility databases), so the VM holds no
   state.
 
-  cloud-init installs Docker and four systemd units, each a container on the
-  host network. temporal-schema sets up or upgrades the schema in both
-  databases and retries until Postgres answers. temporal-server runs Temporal
-  and is enabled only when start_temporal is true. temporal-namespaces creates
-  the agents, runners and notifications namespaces (3-day retention) after each
-  start. temporal-edge runs the proxy and is always on. Each unit pulls its
-  image and retries with a backoff until the pull succeeds. The database
-  password, the keys and the TLS key sit in root-only files (the TLS key and
-  the proxy config belong to the proxy's user, uid 65532).
+  The load balancer probes the gate's health listener (health_port,
+  /healthz). It answers 200 only while the gate's own gRPC health check on
+  Temporal passes. While Temporal is off the probe fails and the load balancer
+  sends no new connections to the VM, so checks before the cutover run on the
+  VM itself.
 
-  Any change to the custom data replaces the VM: start_temporal, a key, the
-  certificate, an image or the database password. The public IP is a separate
-  resource and stays, so clients and firewall rules keep working. Moving from
-  start_temporal false to true is a one-variable change that replaces the VM
-  with one that starts Temporal. Naming and tags follow the repo's null-label
-  convention (see label.tf and docs/MODULE_STANDARD.md).
+  The scale set has exactly one instance, upgrade mode Manual and no
+  overprovisioning, so Azure never runs two of these VMs at once. Two Temporal
+  servers on one database corrupt it. A change to the custom data (an image,
+  runner_allowed_methods, start_temporal, the database password) updates
+  the scale set model only. It reaches the VM when the operator runs
+  az vmss update-instances and then az vmss reimage, which works in place.
+  Set the provider feature virtual_machine_scale_set { roll_instances_when_required = false }
+  so an apply never does this on its own; compositions/azure-temporal sets it.
+  A new key or certificate version needs neither: the timer picks it up.
+
+  cloud-init installs Docker and these systemd units, each a container on the
+  host network:
+
+  - temporal-edge runs the gate and is always on. It starts once
+    temporal-secrets has written its certificate and routes files.
+  - temporal-secrets.timer refreshes the keys and the certificate.
+  - temporal-server runs Temporal. Before the start it runs a guard, the
+    schema step and the guard again. The guard (scripts/temporal-guard.sh)
+    reads cluster_membership and fails while any member wrote a heartbeat in
+    the last 60 seconds: another Temporal server uses the database. The unit
+    then retries every 10 seconds. It is enabled at boot only when
+    start_temporal is true.
+  - temporal-namespaces creates the agents, runners and notifications
+    namespaces (3-day retention) after each start.
+
+  Each unit pulls its image and retries with a backoff until the pull succeeds.
+  The database password is in the custom data, which Azure never returns on
+  read, and in a root-only file.
+
+  start_temporal defaults to false: the gate runs and Temporal stays off. At
+  the cutover, once the cluster's Temporal has stopped, the operator starts it
+  on the VM (the instance ID comes from az vmss list-instances):
+
+  sh
+  az vmss run-command invoke -g <resource group> -n <vmss_name> --instance-id <id> \
+    --command-id RunShellScript \
+    --scripts "systemctl enable --now temporal-server.service temporal-namespaces.service"
+
+
+  Then set start_temporal = true and apply. That changes only the scale set
+  model, so a later reimage starts Temporal at boot. It also turns on the
+  health alert.
+
+  With log_analytics_workspace_id set, the module adds the Azure Monitor
+  agent (signed in with the VM's identity) and a data collection rule that
+  sends the daemon syslog facility to the workspace. The units log to the
+  journal as temporal-edge, temporal-secrets and temporal-server, and
+  journald passes the lines on to syslog. The health alert fires when the load
+  balancer's probe (DipAvailability) has stayed below 100 for 5 minutes and
+  notifies action_group_ids; it exists with or without a workspace. Naming
+  and tags follow the repo's null-label convention (see label.tf and
+  docs/MODULE_STANDARD.md).
 
 usage: |-
   See examples/basic for a runnable configuration.
@@ -44,7 +107,7 @@ usage: |-
 related:
   - name: Module standard
     url: ../../../docs/MODULE_STANDARD.md
-  - name: compositions/azure-temporal (keys, certificate, Postgres firewall rule)
+  - name: compositions/azure-temporal (keys, certificate, Key Vault access, Postgres firewall rule)
     url: ../../../compositions/azure-temporal
   - name: compositions/azure-runner (a client of this VM)
     url: ../../../compositions/azure-runner

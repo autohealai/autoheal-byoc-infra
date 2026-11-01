@@ -25,16 +25,26 @@ locals {
     local.tool_response_host == local.temporal_host ? "Temporal and sandbox tool results" : "Temporal"
   )
 
+  # With temporal_ip the runner dials a Temporal VM of
+  # compositions/azure-temporal over the internet. The VM's NSG takes the
+  # runner's outbound IP through allowed_source_cidrs.
+  temporal_vm = var.temporal_ip != ""
+
   network_owner_actions = concat(
-    local.create_network ? [
+    local.create_network && !local.temporal_vm ? [
       var.temporal_tls ?
       "Give the runner VNet ${local.id}-runner (${var.address_space}, resource group ${local.resource_group_name}) a route to ${local.temporal_host}: connect it privately to the edge's network, through your hub or a VNet peering, or let it reach a public edge through its NAT gateway." :
       "Connect the runner VNet ${local.id}-runner (${var.address_space}, resource group ${local.resource_group_name}) privately to the cluster's VNet, through your hub or a VNet peering. Do not publish Temporal on the internet: it has no login, and the traffic carries git tokens and command output.",
     ] : [],
-    [
+    local.temporal_vm ? [
+      "Add the runner's outbound IP${local.create_network ? " (the egress_ip output, the NAT gateway's IP)" : ""} to allowed_source_cidrs of compositions/azure-temporal, so the Temporal VM ${var.temporal_ip} lets the runner in on TCP ${local.temporal_port}.",
+      ] : [
       "Allow the runner subnet ${local.subnet_cidr}${local.create_network && var.temporal_tls ? ", or its NAT gateway's IP over the internet (the egress_ip output)," : ""} to ${local.temporal_host} on TCP ${join(" and ", local.temporal_ports)} (${local.temporal_purpose}).",
     ],
-    var.temporal_tls ? [
+    local.temporal_vm && local.temporal_host != var.temporal_ip ? [
+      "Point ${local.temporal_host} at the Temporal VM's IP ${var.temporal_ip}. It must be the dns_name of compositions/azure-temporal, so the gate's certificate covers it.",
+    ] : [],
+    var.temporal_tls && !local.temporal_vm ? [
       "Point ${local.temporal_host} at the edge like the app hostnames: it is the chart's global.edge.runner.host. The edge certificate must cover it, and a shared Istio Gateway must list it in its hosts.",
     ] : [],
     local.tool_response_host != "" && local.tool_response_host != local.temporal_host ? [
@@ -77,7 +87,7 @@ output "vmss_id" {
 }
 
 output "required_network_owner_actions" {
-  description = "What the network owner must do, as readable lines: give the runner a route to temporal_address and allow it there, and, through the edge, point the runner host at the edge. With existing_subnet_id, also the outbound access the subnet needs."
+  description = "What the network owner must do, as readable lines: give the runner a route to temporal_address and allow it there, and, through the edge, point the runner host at the edge. With temporal_ip, add the runner's outbound IP to the Temporal VM's allowed_source_cidrs instead. With existing_subnet_id, also the outbound access the subnet needs."
   value       = local.network_owner_actions
 }
 

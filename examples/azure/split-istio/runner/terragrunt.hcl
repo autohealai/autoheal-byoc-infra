@@ -20,6 +20,13 @@
 #
 # Once the runner polls Temporal, set global.sandbox.enabled to true in
 # ../app/values-customer.yaml and apply ../app again.
+#
+# With Temporal on a VM (../temporal), the runner dials the VM instead, and
+# steps 2 and 3 above are not needed: apply this unit at step 6 of
+# ../temporal, with the dependency and the inputs marked "Temporal VM" below
+# in place of temporal_address and temporal_ca_certificate. On each runner VM
+# only runner-go may then reach the Temporal VM; sandboxes cannot. Then add
+# this unit's egress_ip output to allowed_source_cidrs in ../temporal.
 
 locals {
   v = read_terragrunt_config(find_in_parent_folders("versions.hcl")).locals
@@ -48,6 +55,11 @@ dependency "infra" {
   }
 }
 
+# Temporal VM: the address, name, CA and IP of the VM.
+# dependency "temporal" {
+#   config_path = "../temporal"
+# }
+
 inputs = {
   namespace   = "acme"
   environment = "prod"
@@ -63,6 +75,14 @@ inputs = {
   # when a private CA signed it: the same file as edge_ca_certificate in
   # ../infra. Public CAs need nothing here.
   # temporal_ca_certificate = file("${get_terragrunt_dir()}/edge-ca.pem")
+
+  # Temporal VM, in place of the two inputs above. The CA output is null when
+  # ../temporal uses a vault certificate (certificate_name); the runner then
+  # takes "".
+  # temporal_address        = dependency.temporal.outputs.temporal_address
+  # temporal_server_name    = dependency.temporal.outputs.temporal_server_name
+  # temporal_ca_certificate = dependency.temporal.outputs.temporal_ca_certificate == null ? "" : dependency.temporal.outputs.temporal_ca_certificate
+  # temporal_ip             = dependency.temporal.outputs.temporal_ip
 
   # The runner image is runner-go:chart-<chart_version>, so it moves with the
   # chart.

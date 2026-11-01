@@ -35,7 +35,7 @@ locals { v = read_terragrunt_config(find_in_parent_folders("versions.hcl")).loca
 
 include "root" { path = find_in_parent_folders("root.hcl") }
 
-# compositions/azure-temporal is new after 4.1.2: infra_version in
+# compositions/azure-temporal is new after 4.2.0: infra_version in
 # versions.hcl must be a release that has it.
 terraform {
   source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure-temporal?ref=v${local.v.infra_version}"

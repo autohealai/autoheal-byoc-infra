@@ -9,6 +9,10 @@
 # listener on 8090. The load balancer is internal in the private subnets, or
 # internet-facing in the public subnets (edge_exposure). Clients connect from
 # edge_allowed_cidr_blocks, default the VPC CIDR.
+#
+# With existing_edge_security_group_id the load balancer uses that group and we
+# add no security group rule, on it or on the nodes' group. The
+# required_edge_owner_actions output lists the rules its owner adds.
 
 module "edge_nlb" {
   source = "../../modules/aws/nlb"
@@ -36,11 +40,23 @@ module "edge_nlb" {
     }
   }
 
-  allowed_cidr_blocks       = length(var.edge_allowed_cidr_blocks) > 0 ? var.edge_allowed_cidr_blocks : [local.vpc_cidr_block]
-  target_security_group_ids = [local.node_security_group_id]
+  existing_security_group_id = var.existing_edge_security_group_id
+  allowed_cidr_blocks        = local.edge_allowed_cidr_blocks
+  target_security_group_ids  = local.edge_sg_brought ? [] : [local.node_security_group_id]
 }
 
 locals {
+  edge_allowed_cidr_blocks = length(var.edge_allowed_cidr_blocks) > 0 ? var.edge_allowed_cidr_blocks : [local.vpc_cidr_block]
+  edge_sg_brought          = local.create_edge_lb && var.existing_edge_security_group_id != ""
+
+  # Listed in the required_edge_owner_actions output: the rules we would have
+  # made, for the owner of a brought edge security group.
+  edge_owner_actions = local.edge_sg_brought ? [
+    "Ingress rules on security group ${var.existing_edge_security_group_id} allowing TCP 443 and 80 from ${join(", ", local.edge_allowed_cidr_blocks)}: the clients of the edge load balancer",
+    "Egress rules on security group ${var.existing_edge_security_group_id} allowing TCP ${join(" and ", local.lb_target_ports)} to ${local.vpc_cidr_block}: the load balancer sends traffic and health checks to the proxy pods",
+    "Ingress rules on security group ${local.node_security_group_id}, the security group the cluster's pods run with, allowing TCP ${join(" and ", local.lb_target_ports)} from ${var.existing_edge_security_group_id}",
+  ] : []
+
   # Target group ARNs the chart binds to, keyed by the chart's names. Empty
   # unless edge_mode is loadbalancer.
   target_group_arns = { for k, v in {

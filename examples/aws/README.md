@@ -26,6 +26,8 @@ building block takes an `existing_*` ID; uncomment the ones you already have.
 | Your network | `existing_network` (VPC and subnet IDs). In `loadbalancer` mode the nodes' security group must allow the edge NLB on the target ports; see the chart's `docs/prerequisites.md`. |
 | Your cluster, database, cache, buckets, key or registry | `existing_eks_cluster_arn`, `existing_postgres_arn`, `existing_redis_arn`, `existing_attachments_bucket_arn`, `existing_artifacts_bucket_arn`, `existing_kms_key_arn`, `existing_registry_url` |
 | Pod Identity associations made by your administrators | `create_pod_identity_associations = false`, then run the commands in the `required_role_assignments` output |
+| Workload IAM roles made by a central team | `existing_secrets_role_arn`, `existing_api_server_role_arn`, `existing_agents_worker_role_arn`, with the trust and policies from the `required_role_policies` output |
+| The edge load balancer's security group, owned by a central team | `existing_edge_security_group_id`, then add the rules in the `required_edge_owner_actions` output |
 | DNS outside Route 53 | `create_dns_records = false`, then create the records in the `required_dns_records` output |
 
 A brought resource is only read. Mixes that cannot work (a brought cluster

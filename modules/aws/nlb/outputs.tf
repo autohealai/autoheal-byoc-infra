@@ -24,8 +24,8 @@ output "zone_id" {
 }
 
 output "security_group_id" {
-  description = "ID of the NLB security group."
-  value       = aws_security_group.this.id
+  description = "ID of the NLB security group: the one we created, or existing_security_group_id when brought."
+  value       = local.security_group_id
 }
 
 output "target_group_arns" {

@@ -24,9 +24,9 @@ One file per building block.
 | `redis.tf` | ElastiCache for Valkey with TLS and an AUTH token. Brought: `existing_redis_arn`. |
 | `storage.tf` | The attachments, artifacts and tenant buckets. Brought: `existing_attachments_bucket_arn`, `existing_artifacts_bucket_arn`. |
 | `registry.tf` | ECR pull-through cache of the public Autoheal registry, only with `create_registry = true`. Brought: `existing_registry_url`. |
-| `identity.tf` | IAM roles, one per chart workload group, bound to the chart's service accounts through EKS Pod Identity. |
+| `identity.tf` | IAM roles, one per chart workload group, bound to the chart's service accounts through EKS Pod Identity. Brought: `existing_secrets_role_arn`, `existing_api_server_role_arn`, `existing_agents_worker_role_arn`. |
 | `secrets.tf` | Every secret the chart reads, generated or passed in, written to Secrets Manager. |
-| `load-balancers.tf` | The edge Network Load Balancer, in `loadbalancer` mode. |
+| `load-balancers.tf` | The edge Network Load Balancer, in `loadbalancer` mode. Brought: `existing_edge_security_group_id`, its security group. |
 | `dns.tf` | Records for the three hostnames in your Route 53 zone. |
 | `validation.tf` | Plan-time checks with plain messages. |
 | `autoheal-values.tf` | The `autoheal_values` hand-off to the chart. |
@@ -48,7 +48,17 @@ interface endpoints.
 
 We change no security group of a brought database or Redis.
 `required_datastore_owner_actions` lists the rule its owner adds so the pods can
-connect.
+connect. With `existing_edge_security_group_id` we add no security group rule
+at all; `required_edge_owner_actions` lists the rules.
+
+With the `existing_*_role_arn` inputs we create no workload IAM role and bind
+the service accounts to the brought roles. `required_role_policies` gives the
+trust policy and the inline policies to attach to each. Those policies name the
+KMS key and the buckets, so they are known at plan time only when the key and
+buckets are brought as well; otherwise attach them from the output after the
+first apply, before the workloads start. When we create the Pod Identity
+associations, the deployer needs `iam:PassRole` on the brought roles
+(`required_cluster_owner_actions` lists it for a brought cluster).
 
 The provider refuses to run with credentials for any account other than
 `account_id`.
@@ -253,6 +263,8 @@ the chart pulls from your mirror, which must hold the images under `app/` and
 | `required_dns_records` | Records for a person to create (`name`, `type`, `value`), filled when we do not create them. |
 | `required_cluster_owner_actions` | What the owner of a brought cluster must do, as readable lines: an access entry and IAM permissions for the deployer, the Pod Identity agent and Secrets Store CSI add-ons, and, when they apply, the AWS Load Balancer Controller (`loadbalancer` mode), a path to a private API endpoint and image pull access for the nodes. Filled only with `existing_eks_cluster_arn`. |
 | `required_datastore_owner_actions` | What the owner of a brought database or Redis must do: a security group rule letting the pods in on its port. Filled only with `existing_postgres_arn` or `existing_redis_arn`. |
+| `required_edge_owner_actions` | What the owner of a brought edge security group must do: listener ingress from the clients, egress to the proxy pods, and ingress on the nodes' security group from it. Filled only with `existing_edge_security_group_id` in `loadbalancer` mode. |
+| `required_role_policies` | Per workload role (`secrets`, `api_server`, `agents_worker`): the service accounts, the Pod Identity trust policy and the inline policy JSON. For a central team that creates the roles (`existing_*_role_arn`). Always filled. |
 | `network` | `vpc_id`, `vpc_cidr_block`, `private_subnet_ids`, `data_subnet_ids`, `public_subnet_ids`. |
 
 `autoheal_values` keys:

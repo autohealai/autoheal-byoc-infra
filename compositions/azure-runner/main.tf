@@ -119,6 +119,10 @@ resource "terraform_data" "validate_inputs" {
       error_message = "temporal_address is on ${local.temporal_host}, but temporal_ip is ${var.temporal_ip}. With temporal_ip, use the temporal_address output of compositions/azure-temporal: <temporal_ip>:7233, or its dns_name on 7233."
     }
     precondition {
+      condition     = var.temporal_ip == "" || !can(cidrhost("${local.temporal_host}/32", 0)) || var.temporal_server_name != ""
+      error_message = "temporal_address is the IP ${local.temporal_host}, and the Temporal VM's certificate holds names only (temporal.autoheal.internal, or its dns_name), so the runner would fail the name check. Set temporal_server_name to the temporal_server_name output of compositions/azure-temporal."
+    }
+    precondition {
       condition     = var.temporal_tls || nonsensitive(var.temporal_token == "")
       error_message = "temporal_token is set but temporal_tls is false: the key would cross the network in plain text. Turn temporal_tls on, or leave the key empty for the runner load balancers."
     }

@@ -48,7 +48,11 @@ All notable changes to this repo are documented here. Format follows
   rule next to the metadata rule resets TCP 7233 to that IP from any other
   container, sandboxes included. A private CA (`temporal_ca_certificate`) then
   goes to runner-go's Temporal client only, as `TEMPORAL_TLS_CA_FILE`, in place
-  of `SSL_CERT_DIR`; that needs a runner-go that reads the variable. Left
+  of `SSL_CERT_DIR`; that needs a runner-go that reads the variable. The
+  composition refuses `temporal_ip` with `temporal_tls = false`, with an IP
+  in `temporal_address` other than `temporal_ip`, or with `temporal_address`
+  on the IP and no `temporal_server_name`, since the VM's certificate holds
+  names only. Left
   empty, the runner VMs' cloud-init is the same byte for byte, so the runner
   plans no change. A test compares it with the cloud-init of 4.1.2.
 - `examples/azure/split-istio/temporal`: the Terragrunt unit, between infra

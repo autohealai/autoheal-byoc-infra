@@ -382,6 +382,19 @@ run "temporal_ip_needs_tls" {
   expect_failures = [terraform_data.validate_inputs]
 }
 
+# Dialed on its IP, the Temporal VM's certificate does not cover the address:
+# the runner must check the name in it.
+run "temporal_ip_on_an_ip_needs_server_name" {
+  command = plan
+
+  variables {
+    temporal_address = "198.51.100.7:7233"
+    temporal_ip      = "198.51.100.7"
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}
+
 # An IP in temporal_address must be temporal_ip, or the 7233 rule on the runner
 # VMs guards the wrong address.
 run "temporal_ip_must_match_address" {

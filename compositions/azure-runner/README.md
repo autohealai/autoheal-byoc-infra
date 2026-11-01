@@ -102,7 +102,10 @@ runner key (the vault entry `runner-token`). Take its outputs:
 - `temporal_ip` = its `temporal_ip`.
 
 `temporal_tls` stays `true` and `temporal_token` is the `runner_token` output,
-as through the edge. With `temporal_ip` set, runner-go runs on a Docker network
+as through the edge. The VM's certificate holds names only, no IP, so with
+`temporal_address` on the IP the composition refuses an empty
+`temporal_server_name`; it also refuses `temporal_tls = false`. With
+`temporal_ip` set, runner-go runs on a Docker network
 of its own on each VM, and a firewall rule next to the metadata rule resets
 TCP 7233 to that IP from any other container, sandboxes included. Sandboxes
 stay on Docker's default bridge; runner-go drives them through the Docker

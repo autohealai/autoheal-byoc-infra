@@ -111,6 +111,17 @@ variable "listeners" {
   }
 }
 
+variable "existing_security_group_id" {
+  type        = string
+  default     = ""
+  description = "ID of a security group you already have for the NLB. When set, the module creates no security group and adds no rule to this one; allowed_cidr_blocks and allowed_security_group_ids are ignored. Its owner allows the listener ports from the clients and egress on the target and health check ports to the targets. target_security_group_ids still gets its rules. Empty means the module creates the group."
+
+  validation {
+    condition     = var.existing_security_group_id == "" || can(regex("^sg-[0-9a-f]+$", var.existing_security_group_id))
+    error_message = "existing_security_group_id must be empty or a security group ID (sg-...)."
+  }
+}
+
 variable "allowed_cidr_blocks" {
   type        = list(string)
   default     = []

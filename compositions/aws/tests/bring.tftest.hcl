@@ -81,6 +81,9 @@ mock_provider "aws" {
   mock_data "aws_s3_bucket" {
     defaults = { bucket_region = "us-west-2" }
   }
+  mock_data "aws_security_group" {
+    defaults = { vpc_id = "vpc-0123456789abcdef0" }
+  }
   mock_data "aws_kms_key" {
     defaults = { enabled = true, key_spec = "SYMMETRIC_DEFAULT", key_usage = "ENCRYPT_DECRYPT" }
   }
@@ -271,6 +274,148 @@ run "brought_cluster_public_endpoint" {
     )
     error_message = "Outside loadbalancer mode the controller role is not created, even when asked for."
   }
+}
+
+run "brought_iam_roles" {
+  command = plan
+
+  variables {
+    existing_secrets_role_arn        = "arn:aws:iam::123456789012:role/central-autoheal-secrets"
+    existing_api_server_role_arn     = "arn:aws:iam::123456789012:role/central-autoheal-api-server"
+    existing_agents_worker_role_arn  = "arn:aws:iam::123456789012:role/central-autoheal-agents"
+    create_pod_identity_associations = false
+  }
+
+  # role_arn comes straight from the brought ARN. A created role would carry the
+  # mock arn .../acme-prod-autoheal, so equality proves no role was created.
+  assert {
+    condition = (
+      module.secrets_identity.role_arn == "arn:aws:iam::123456789012:role/central-autoheal-secrets" &&
+      module.api_server_identity.role_arn == "arn:aws:iam::123456789012:role/central-autoheal-api-server" &&
+      module.agents_worker_identity.role_arn == "arn:aws:iam::123456789012:role/central-autoheal-agents"
+    )
+    error_message = "The workload roles should be the brought ones, not created."
+  }
+
+  assert {
+    condition = (
+      length(output.required_role_assignments) == 4 &&
+      strcontains(output.required_role_assignments[0], "--role-arn arn:aws:iam::123456789012:role/central-autoheal-secrets") &&
+      strcontains(output.required_role_assignments[1], "--role-arn arn:aws:iam::123456789012:role/central-autoheal-api-server")
+    )
+    error_message = "required_role_assignments should bind the service accounts to the brought role ARNs."
+  }
+
+  assert {
+    condition = (
+      length(keys(output.required_role_policies)) == 3 &&
+      contains(keys(output.required_role_policies), "api_server") &&
+      tolist(output.required_role_policies.secrets.service_accounts) == tolist(["autoheal/autoheal-hooks"]) &&
+      strcontains(output.required_role_policies.api_server.trust_policy, "pods.eks.amazonaws.com")
+    )
+    error_message = "required_role_policies should describe the trust and inline policies for each brought role."
+  }
+}
+
+run "brought_edge_security_group" {
+  command = plan
+
+  variables {
+    existing_edge_security_group_id = "sg-0abcdef0123456789"
+  }
+
+  assert {
+    condition     = module.edge_nlb[0].security_group_id == "sg-0abcdef0123456789"
+    error_message = "The edge load balancer should use the brought security group."
+  }
+
+  assert {
+    condition = (
+      length(output.required_edge_owner_actions) == 3 &&
+      strcontains(output.required_edge_owner_actions[0], "TCP 443 and 80 from 10.20.0.0/16") &&
+      strcontains(output.required_edge_owner_actions[2], "TCP 8443 and 8090 from sg-0abcdef0123456789")
+    )
+    error_message = "required_edge_owner_actions should list the listener, target and node rules for the brought group."
+  }
+
+  assert {
+    condition     = !anytrue([for l in output.required_cluster_owner_actions : strcontains(l, "AuthorizeSecurityGroupIngress")])
+    error_message = "With a brought edge security group the deployer needs no security group rule permission."
+  }
+}
+
+# The main path for brought roles: we still create the Pod Identity
+# associations, bound to the brought roles. A role ARN with a path gives the
+# plain role name.
+run "brought_iam_roles_with_associations" {
+  command = plan
+
+  variables {
+    existing_secrets_role_arn       = "arn:aws:iam::123456789012:role/central/autoheal-secrets"
+    existing_api_server_role_arn    = "arn:aws:iam::123456789012:role/central-autoheal-api-server"
+    existing_agents_worker_role_arn = "arn:aws:iam::123456789012:role/central-autoheal-agents"
+  }
+
+  assert {
+    condition = (
+      tolist(keys(module.secrets_identity.association_arns)) == tolist(["autoheal/autoheal-hooks"]) &&
+      tolist(keys(module.api_server_identity.association_arns)) == tolist(["autoheal/api-server-go"]) &&
+      length(module.agents_worker_identity.association_arns) == 2
+    )
+    error_message = "The associations should be created for the brought roles."
+  }
+
+  assert {
+    condition     = module.secrets_identity.role_name == "autoheal-secrets"
+    error_message = "role_name should drop the IAM path of a brought role."
+  }
+
+  assert {
+    condition = anytrue([
+      for l in output.required_cluster_owner_actions :
+      strcontains(l, "iam:PassRole on ") &&
+      strcontains(l, "role/central/autoheal-secrets") &&
+      strcontains(l, "role/central-autoheal-api-server") &&
+      strcontains(l, "role/central-autoheal-agents")
+    ])
+    error_message = "The deployer needs iam:PassRole on the brought roles to create the associations."
+  }
+}
+
+run "brought_role_in_other_account" {
+  command = plan
+
+  variables {
+    existing_api_server_role_arn = "arn:aws:iam::999999999999:role/central-autoheal-api-server"
+  }
+
+  expect_failures = [terraform_data.validate_arns]
+}
+
+run "edge_security_group_in_other_vpc" {
+  command = plan
+
+  variables {
+    existing_edge_security_group_id = "sg-0abcdef0123456789"
+  }
+
+  override_data {
+    target = data.aws_security_group.edge
+    values = { vpc_id = "vpc-0ffffffffffffffff" }
+  }
+
+  expect_failures = [terraform_data.edge_sg_guard]
+}
+
+run "edge_security_group_without_load_balancer" {
+  command = plan
+
+  variables {
+    edge_mode                       = "istio"
+    existing_edge_security_group_id = "sg-0abcdef0123456789"
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
 }
 
 run "rds_instance" {

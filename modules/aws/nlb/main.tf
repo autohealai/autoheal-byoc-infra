@@ -17,6 +17,10 @@
 # keyed by list position, not by ID, so IDs created in the same apply can be
 # passed in.
 #
+# With existing_security_group_id the NLB uses that group instead: we create no
+# security group and add no rule to it, so its owner adds the listener ingress
+# and the target egress. target_security_group_ids still gets its rules.
+#
 # Naming and tags come from the null-label base (module.this); see label.tf.
 # NLB and target group names are limited to 32 characters and are cut with a
 # short hash suffix.
@@ -65,9 +69,14 @@ locals {
     for p in setproduct(range(length(var.target_security_group_ids)), local.target_ports) :
     "${p[0]}/${p[1]}" => { index = p[0], port = p[1] }
   }
+
+  create_security_group = var.existing_security_group_id == ""
+  security_group_id     = local.create_security_group ? aws_security_group.this[0].id : var.existing_security_group_id
 }
 
 resource "aws_security_group" "this" {
+  count = local.create_security_group ? 1 : 0
+
   name        = "${module.this.id}-nlb"
   description = "Network load balancer ${module.this.id}"
   vpc_id      = var.vpc_id
@@ -76,9 +85,9 @@ resource "aws_security_group" "this" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "cidr" {
-  for_each = local.ingress_cidr_rules
+  for_each = local.create_security_group ? local.ingress_cidr_rules : {}
 
-  security_group_id = aws_security_group.this.id
+  security_group_id = local.security_group_id
   description       = "Listener ${each.value.listener}"
   ip_protocol       = "tcp"
   from_port         = local.listeners[each.value.listener].port
@@ -89,9 +98,9 @@ resource "aws_vpc_security_group_ingress_rule" "cidr" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "security_group" {
-  for_each = local.ingress_sg_rules
+  for_each = local.create_security_group ? local.ingress_sg_rules : {}
 
-  security_group_id            = aws_security_group.this.id
+  security_group_id            = local.security_group_id
   description                  = "Listener ${each.value.listener}"
   ip_protocol                  = "tcp"
   from_port                    = local.listeners[each.value.listener].port
@@ -102,9 +111,9 @@ resource "aws_vpc_security_group_ingress_rule" "security_group" {
 }
 
 resource "aws_vpc_security_group_egress_rule" "targets" {
-  for_each = { for p in local.target_ports : tostring(p) => p }
+  for_each = local.create_security_group ? { for p in local.target_ports : tostring(p) => p } : {}
 
-  security_group_id = aws_security_group.this.id
+  security_group_id = local.security_group_id
   description       = "Targets and health checks on port ${each.value}"
   ip_protocol       = "tcp"
   from_port         = each.value
@@ -122,7 +131,7 @@ resource "aws_vpc_security_group_ingress_rule" "targets" {
   ip_protocol                  = "tcp"
   from_port                    = each.value.port
   to_port                      = each.value.port
-  referenced_security_group_id = aws_security_group.this.id
+  referenced_security_group_id = local.security_group_id
 
   tags = module.this.tags
 }
@@ -133,7 +142,7 @@ resource "aws_lb" "this" {
   internal           = var.internal
   ip_address_type    = "ipv4"
   subnets            = var.subnet_ids
-  security_groups    = [aws_security_group.this.id]
+  security_groups    = [local.security_group_id]
 
   enable_cross_zone_load_balancing = var.cross_zone_enabled
   enable_deletion_protection       = var.deletion_protection

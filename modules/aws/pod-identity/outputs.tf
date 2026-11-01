@@ -1,11 +1,11 @@
 output "role_arn" {
-  description = "ARN of the IAM role."
-  value       = aws_iam_role.this.arn
+  description = "ARN of the IAM role: the one we created, or existing_role_arn when brought."
+  value       = local.role_arn
 }
 
 output "role_name" {
-  description = "Name of the IAM role, for attaching more policies outside the module."
-  value       = aws_iam_role.this.name
+  description = "Name of the IAM role, without its path, for attaching more policies outside the module."
+  value       = local.role_name
 }
 
 output "association_arns" {

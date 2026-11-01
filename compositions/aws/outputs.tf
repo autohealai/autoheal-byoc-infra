@@ -15,6 +15,11 @@
 #   required_datastore_owner_actions
 #                              what the owner of a brought database or Redis must
 #                              do, filled only for a brought data store
+#   required_edge_owner_actions
+#                              what the owner of a brought edge security group
+#                              must do, filled only when one is brought
+#   required_role_policies     the trust and inline policies for workload roles a
+#                              central team creates (existing_*_role_arn)
 #   network                   the VPC and subnets Autoheal runs in, created or
 #                              brought
 #
@@ -50,6 +55,11 @@ output "required_role_assignments" {
   ]
 }
 
+output "required_role_policies" {
+  description = "For accounts where a central team creates the workload IAM roles (existing_*_role_arn): the trust policy and inline policy JSON to attach to each role, and the service accounts it is for. Always filled; use it whether or not you bring the roles. The policies name the KMS key and the buckets, so they are known at plan time only when those are brought too; otherwise read this output after the first apply and attach the policies before the workloads start."
+  value       = local.required_role_policies
+}
+
 output "required_dns_records" {
   description = "DNS records a person must create (name, type, value). Filled when create_dns_records = false, when existing_dns_zone_id is empty, or when the address is not known yet (edge_address empty in a mode other than loadbalancer)."
   value       = local.required_dns_records
@@ -63,6 +73,11 @@ output "required_cluster_owner_actions" {
 output "required_datastore_owner_actions" {
   description = "What the owner of a brought database or ElastiCache replication group must do, as readable lines: a security group rule letting the cluster's pods in on its port. Filled only when existing_postgres_arn or existing_redis_arn is set."
   value       = local.datastore_owner_actions
+}
+
+output "required_edge_owner_actions" {
+  description = "What the owner of a brought edge security group must do, as readable lines: listener ingress from the clients, egress to the proxy pods, and ingress on the nodes' security group from it. Filled only when existing_edge_security_group_id is set in loadbalancer mode."
+  value       = local.edge_owner_actions
 }
 
 output "network" {

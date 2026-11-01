@@ -107,6 +107,17 @@ variable "edge_allowed_cidr_blocks" {
   }
 }
 
+variable "existing_edge_security_group_id" {
+  type        = string
+  default     = ""
+  description = "ID of a security group you already have for the edge load balancer, in loadbalancer mode, for accounts where a central team owns security groups. When set, we create no security group and add no security group rule anywhere, including on the nodes' group; the required_edge_owner_actions output lists the rules to add. Empty means we create the group and its rules."
+
+  validation {
+    condition     = var.existing_edge_security_group_id == "" || can(regex("^sg-[0-9a-f]+$", var.existing_edge_security_group_id))
+    error_message = "existing_edge_security_group_id must be empty or a security group ID (sg-...)."
+  }
+}
+
 variable "edge_address" {
   type        = string
   default     = ""
@@ -456,6 +467,39 @@ variable "create_pod_identity_associations" {
   type        = bool
   default     = true
   description = "Create the EKS Pod Identity associations that bind the chart's service accounts to their IAM roles. Set false when the deployer may create roles but not associations: the roles are still created and the required_role_assignments output lists the associations for an administrator."
+}
+
+variable "existing_secrets_role_arn" {
+  type        = string
+  default     = ""
+  description = "ARN of an IAM role you already have for the secrets workloads (autoheal-hooks), for accounts where only a central team may create roles. When set we create no role for it and bind the Pod Identity association to this one; attach the policy from the required_role_policies output to it yourself. Its trust must allow pods.eks.amazonaws.com for this cluster. Empty means we create the role."
+
+  validation {
+    condition     = var.existing_secrets_role_arn == "" || can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:role/.+$", var.existing_secrets_role_arn))
+    error_message = "existing_secrets_role_arn must be empty or an IAM role ARN."
+  }
+}
+
+variable "existing_api_server_role_arn" {
+  type        = string
+  default     = ""
+  description = "ARN of an IAM role you already have for api-server-go. When set we create no role for it and bind the Pod Identity association to this one; attach the policy from the required_role_policies output to it yourself. Empty means we create the role."
+
+  validation {
+    condition     = var.existing_api_server_role_arn == "" || can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:role/.+$", var.existing_api_server_role_arn))
+    error_message = "existing_api_server_role_arn must be empty or an IAM role ARN."
+  }
+}
+
+variable "existing_agents_worker_role_arn" {
+  type        = string
+  default     = ""
+  description = "ARN of an IAM role you already have for the agents services (agents-py-http, agents-py-worker). When set we create no role for it and bind the Pod Identity association to this one; attach the policy from the required_role_policies output to it yourself. Empty means we create the role."
+
+  validation {
+    condition     = var.existing_agents_worker_role_arn == "" || can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:role/.+$", var.existing_agents_worker_role_arn))
+    error_message = "existing_agents_worker_role_arn must be empty or an IAM role ARN."
+  }
 }
 
 variable "iam_permissions_boundary_arn" {

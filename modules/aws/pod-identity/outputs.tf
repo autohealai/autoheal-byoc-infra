@@ -4,7 +4,7 @@ output "role_arn" {
 }
 
 output "role_name" {
-  description = "Name of the IAM role, for attaching more policies outside the module."
+  description = "Name of the IAM role, without its path, for attaching more policies outside the module."
   value       = local.role_name
 }
 

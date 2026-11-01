@@ -56,7 +56,7 @@ output "required_role_assignments" {
 }
 
 output "required_role_policies" {
-  description = "For accounts where a central team creates the workload IAM roles (existing_*_role_arn): the trust policy and inline policy JSON to attach to each role, and the service accounts it is for. Always filled; use it whether or not you bring the roles."
+  description = "For accounts where a central team creates the workload IAM roles (existing_*_role_arn): the trust policy and inline policy JSON to attach to each role, and the service accounts it is for. Always filled; use it whether or not you bring the roles. The policies name the KMS key and the buckets, so they are known at plan time only when those are brought too; otherwise read this output after the first apply and attach the policies before the workloads start."
   value       = local.required_role_policies
 }
 

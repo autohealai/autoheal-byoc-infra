@@ -28,10 +28,11 @@ locals {
   cluster_arn = "arn:${data.aws_partition.current.partition}:eks:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:cluster/${var.cluster_name}"
 
   # Bring your own role: when existing_role_arn is set we create no IAM role and
-  # bind the associations to it instead.
+  # bind the associations to it instead. The name is the part after the last
+  # "/", since a role ARN may carry a path (role/<path>/<name>).
   create_role = var.existing_role_arn == ""
   role_arn    = local.create_role ? aws_iam_role.this[0].arn : var.existing_role_arn
-  role_name   = local.create_role ? local.role_label : regex("role/(.+)$", var.existing_role_arn)[0]
+  role_name   = local.create_role ? local.role_label : regex("[^/]+$", var.existing_role_arn)
 
   associations = var.association_enabled ? {
     for a in var.associations : "${a.namespace}/${a.service_account}" => a

@@ -53,7 +53,12 @@ at all; `required_edge_owner_actions` lists the rules.
 
 With the `existing_*_role_arn` inputs we create no workload IAM role and bind
 the service accounts to the brought roles. `required_role_policies` gives the
-trust policy and the inline policies to attach to each.
+trust policy and the inline policies to attach to each. Those policies name the
+KMS key and the buckets, so they are known at plan time only when the key and
+buckets are brought as well; otherwise attach them from the output after the
+first apply, before the workloads start. When we create the Pod Identity
+associations, the deployer needs `iam:PassRole` on the brought roles
+(`required_cluster_owner_actions` lists it for a brought cluster).
 
 The provider refuses to run with credentials for any account other than
 `account_id`.

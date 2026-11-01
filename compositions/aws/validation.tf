@@ -65,6 +65,10 @@ resource "terraform_data" "validate_inputs" {
       error_message = "Two cluster access inputs resolve to the same IAM role: a permission set in cluster_admin_sso_permission_sets or cluster_viewer_sso_permission_sets is also listed by ARN. EKS allows one access entry per principal, so list each in one place."
     }
     precondition {
+      condition     = var.existing_edge_security_group_id == "" || local.create_edge_lb
+      error_message = "existing_edge_security_group_id is set but edge_mode is ${var.edge_mode}, so there is no edge load balancer to use it. Clear it, or set edge_mode = \"loadbalancer\"."
+    }
+    precondition {
       condition     = length(local.registry_prefix) >= 2
       error_message = "The ECR repository prefix ${local.registry_prefix} is too short. Set registry_repository_prefix."
     }
@@ -88,6 +92,10 @@ resource "terraform_data" "validate_arns" {
         e == null ? true : e.account == var.account_id
       ])
       error_message = "Every brought EKS, RDS and ElastiCache ARN must be in account ${var.account_id}. Run the composition with credentials for the account that owns them."
+    }
+    precondition {
+      condition     = alltrue([for arn in values(local.brought_role_arns) : split(":", arn)[4] == var.account_id])
+      error_message = "Every brought workload role (existing_secrets_role_arn, existing_api_server_role_arn, existing_agents_worker_role_arn) must be in account ${var.account_id}. A Pod Identity association binds only a role in the cluster's account."
     }
   }
 }
@@ -190,6 +198,22 @@ resource "terraform_data" "bucket_guard" {
     precondition {
       condition     = each.value.bucket_region == var.region
       error_message = "S3 bucket ${each.value.bucket} is in ${each.value.bucket_region}, not ${var.region}."
+    }
+  }
+}
+
+data "aws_security_group" "edge" {
+  count = local.edge_sg_brought ? 1 : 0
+  id    = var.existing_edge_security_group_id
+}
+
+resource "terraform_data" "edge_sg_guard" {
+  count = local.edge_sg_brought ? 1 : 0
+
+  lifecycle {
+    precondition {
+      condition     = data.aws_security_group.edge[0].vpc_id == local.vpc_id
+      error_message = "Security group ${var.existing_edge_security_group_id} (existing_edge_security_group_id) is in VPC ${data.aws_security_group.edge[0].vpc_id}, not ${local.vpc_id}, the VPC Autoheal runs in. A load balancer can only use a security group from its own VPC."
     }
   }
 }

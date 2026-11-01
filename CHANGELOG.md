@@ -16,10 +16,15 @@ OpenTofu do on their own without replacing anything.
   and `existing_agents_worker_role_arn`. With them we create no workload IAM role
   and bind the Pod Identity associations (or the `required_role_assignments`
   commands) to the brought roles. The new `required_role_policies` output gives
-  the trust policy and inline policy JSON to attach to each.
+  the trust policy and inline policy JSON to attach to each. A brought role must
+  be in the cluster's account (checked at plan), and when we create the
+  associations `required_cluster_owner_actions` adds `iam:PassRole` on the
+  brought roles to the deployer's permissions.
 - `compositions/aws`: `existing_edge_security_group_id`. In `loadbalancer` mode
   the edge load balancer uses it, and we add no security group rule on it or on
   the nodes' group. The new `required_edge_owner_actions` output lists the rules.
+  The plan stops if the group is not in Autoheal's VPC or if `edge_mode` is not
+  `loadbalancer`.
 - `modules/aws/pod-identity`: `existing_role_arn`.
 - `modules/aws/nlb`: `existing_security_group_id`.
 

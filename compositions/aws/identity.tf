@@ -29,8 +29,36 @@ locals {
   ]
 
   # Inline policies per role. Keys are static so the module's for_each is known
-  # at plan time; the policy text may not be.
+  # at plan time; the policy text may not be. The modules and the
+  # required_role_policies output both read workload_inline_policies, so a role
+  # we create and one a central team creates get the same permissions.
   bedrock_policy = { for k, v in { bedrock = data.aws_iam_policy_document.bedrock.json } : k => v if var.bedrock_access_enabled }
+
+  workload_inline_policies = {
+    secrets = {
+      secrets = data.aws_iam_policy_document.secrets_read.json
+    }
+    api_server = merge(
+      {
+        storage         = data.aws_iam_policy_document.storage.json
+        tenant-bucket   = data.aws_iam_policy_document.tenant_bucket.json
+        runtime-secrets = data.aws_iam_policy_document.runtime_secrets.json
+      },
+      local.bedrock_policy,
+    )
+    agents_worker = merge(
+      { storage = data.aws_iam_policy_document.storage.json },
+      local.bedrock_policy,
+    )
+  }
+
+  # Workload roles a central team created (existing_*_role_arn), keyed like
+  # workload_inline_policies.
+  brought_role_arns = { for k, v in {
+    secrets       = var.existing_secrets_role_arn
+    api_server    = var.existing_api_server_role_arn
+    agents_worker = var.existing_agents_worker_role_arn
+  } : k => v if v != "" }
 }
 
 # --- Policy documents ---------------------------------------------------------
@@ -195,9 +223,7 @@ module "secrets_identity" {
   permissions_boundary_arn = var.iam_permissions_boundary_arn
   existing_role_arn        = var.existing_secrets_role_arn
 
-  inline_policies = {
-    secrets = data.aws_iam_policy_document.secrets_read.json
-  }
+  inline_policies = local.workload_inline_policies.secrets
 }
 
 module "api_server_identity" {
@@ -215,14 +241,7 @@ module "api_server_identity" {
   permissions_boundary_arn = var.iam_permissions_boundary_arn
   existing_role_arn        = var.existing_api_server_role_arn
 
-  inline_policies = merge(
-    {
-      storage         = data.aws_iam_policy_document.storage.json
-      tenant-bucket   = data.aws_iam_policy_document.tenant_bucket.json
-      runtime-secrets = data.aws_iam_policy_document.runtime_secrets.json
-    },
-    local.bedrock_policy,
-  )
+  inline_policies = local.workload_inline_policies.api_server
 }
 
 module "agents_worker_identity" {
@@ -240,10 +259,7 @@ module "agents_worker_identity" {
   permissions_boundary_arn = var.iam_permissions_boundary_arn
   existing_role_arn        = var.existing_agents_worker_role_arn
 
-  inline_policies = merge(
-    { storage = data.aws_iam_policy_document.storage.json },
-    local.bedrock_policy,
-  )
+  inline_policies = local.workload_inline_policies.agents_worker
 }
 
 module "lb_controller_identity" {
@@ -287,27 +303,10 @@ locals {
   # us (existing_*_role_arn set). The trust policy and the inline policies, as
   # ready-to-attach JSON, plus the service accounts the role is for.
   required_role_policies = {
-    secrets = {
-      service_accounts = [for sa in var.service_accounts.secrets : "${local.sa_namespace}/${sa}"]
+    for k, policies in local.workload_inline_policies : k => {
+      service_accounts = [for sa in var.service_accounts[k] : "${local.sa_namespace}/${sa}"]
       trust_policy     = local.pod_identity_trust_policy
-      inline_policies  = { secrets = data.aws_iam_policy_document.secrets_read.json }
-    }
-    api_server = {
-      service_accounts = [for sa in var.service_accounts.api_server : "${local.sa_namespace}/${sa}"]
-      trust_policy     = local.pod_identity_trust_policy
-      inline_policies = merge(
-        {
-          storage         = data.aws_iam_policy_document.storage.json
-          tenant-bucket   = data.aws_iam_policy_document.tenant_bucket.json
-          runtime-secrets = data.aws_iam_policy_document.runtime_secrets.json
-        },
-        local.bedrock_policy,
-      )
-    }
-    agents_worker = {
-      service_accounts = [for sa in var.service_accounts.agents_worker : "${local.sa_namespace}/${sa}"]
-      trust_policy     = local.pod_identity_trust_policy
-      inline_policies  = merge({ storage = data.aws_iam_policy_document.storage.json }, local.bedrock_policy)
+      inline_policies  = policies
     }
   }
 

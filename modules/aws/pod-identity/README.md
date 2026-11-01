@@ -90,5 +90,5 @@ See [examples/basic](examples/basic) for a runnable configuration.
 |------|-------------|
 | <a name="output_association_arns"></a> [association\_arns](#output\_association\_arns) | Pod Identity association ARNs keyed by "<namespace>/<service\_account>". Empty when association\_enabled is false. |
 | <a name="output_role_arn"></a> [role\_arn](#output\_role\_arn) | ARN of the IAM role: the one we created, or existing\_role\_arn when brought. |
-| <a name="output_role_name"></a> [role\_name](#output\_role\_name) | Name of the IAM role, for attaching more policies outside the module. |
+| <a name="output_role_name"></a> [role\_name](#output\_role\_name) | Name of the IAM role, without its path, for attaching more policies outside the module. |
 <!-- END_TF_DOCS -->

@@ -28,8 +28,8 @@ output "temporal_server_name" {
 }
 
 output "temporal_ca_certificate" {
-  description = "PEM of the private CA that signed the gate's certificate, also in the vault entry temporal-ca. Not a secret. Null with certificate_name, whose CA the clients already trust. Pass it to compositions/azure-runner as temporal_ca_certificate."
-  value       = local.private_ca ? tls_self_signed_cert.ca[0].cert_pem : null
+  description = "PEM of the private CAs in ca_generations, in name order, also in the vault entry temporal-ca. Clients trust all of them. Not a secret. Null with certificate_name, whose CA the clients already trust. Pass it to compositions/azure-runner as temporal_ca_certificate."
+  value       = local.private_ca ? local.ca_bundle : null
 }
 
 output "key_vault_secret_names" {

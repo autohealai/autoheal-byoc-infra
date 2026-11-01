@@ -52,3 +52,8 @@ output "health_alert_id" {
   description = "Resource ID of the metric alert on the load balancer's health probe."
   value       = azurerm_monitor_metric_alert.health.id
 }
+
+output "certificate_alert_id" {
+  description = "Resource ID of the log alert on the gate's certificate expiry. Null without log_analytics_workspace_id."
+  value       = local.logs_enabled ? azurerm_monitor_scheduled_query_rules_alert_v2.certificate[0].id : null
+}

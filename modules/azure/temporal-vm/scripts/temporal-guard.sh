@@ -27,9 +27,12 @@ PGPORT=$(setting SQL_PORT)
 PGUSER=$(setting SQL_USER)
 PGPASSWORD=$(setting SQL_PASSWORD)
 PGDATABASE=temporal
-PGSSLMODE=require
+# The server's name and chain are checked against the system CAs. (psql 14 has
+# no sslrootcert=system, so the bundle is named.)
+PGSSLMODE=verify-full
+PGSSLROOTCERT=/etc/ssl/certs/ca-certificates.crt
 PGCONNECT_TIMEOUT=10
-export PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE PGSSLMODE PGCONNECT_TIMEOUT
+export PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE PGSSLMODE PGSSLROOTCERT PGCONNECT_TIMEOUT
 
 query() { psql -X -q -t -A -v ON_ERROR_STOP=1 -c "$1"; }
 

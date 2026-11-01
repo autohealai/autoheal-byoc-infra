@@ -125,6 +125,18 @@ variable "certificate_name" {
 # Key Vault and Postgres
 # ---------------------------------------------------------------------------
 
+variable "ca_generations" {
+  type        = list(string)
+  default     = ["1"]
+  nullable    = false
+  description = "Names of the private CAs, one or two. The first signs the gate's certificate; clients trust all of them. Change it only to move to a new CA, in the steps of the README. Not used with certificate_name."
+
+  validation {
+    condition     = length(var.ca_generations) >= 1 && length(var.ca_generations) <= 2 && length(distinct(var.ca_generations)) == length(var.ca_generations) && alltrue([for g in var.ca_generations : can(regex("^[a-z0-9-]{1,16}$", g))])
+    error_message = "ca_generations must list one or two different names of lowercase letters, digits and dashes, such as [\"2\", \"1\"]."
+  }
+}
+
 variable "key_vault_id" {
   type        = string
   description = "Resource ID of the install vault of compositions/azure, the one with runner-token. We write the two app keys there (and temporal-tls and temporal-ca with the private CA), and the VM reads its entries from it. The vault must use Azure RBAC and let in the temporal_ip output: see the README."
@@ -222,7 +234,7 @@ variable "log_analytics_workspace_id" {
 variable "action_group_ids" {
   type        = list(string)
   default     = []
-  description = "Resource IDs of action groups the health alert notifies. The alert is on once start_temporal is true."
+  description = "Resource IDs of action groups the alerts notify: the health alert, on once start_temporal is true, and with log_analytics_workspace_id the certificate alert, 30 days before the gate's certificate expires."
 }
 
 # ---------------------------------------------------------------------------

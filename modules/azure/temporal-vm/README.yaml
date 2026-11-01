@@ -40,7 +40,9 @@ description: |-
   and health_port, and denies the rest, SSH included. Password login is off;
   az vmss run-command reaches the host. Temporal keeps its data in Postgres
   (the temporal and temporal_visibility databases), so the VM holds no
-  state.
+  state. It connects with sslmode verify-full: the server's name and chain
+  are checked against the CAs in the images, which hold the roots Azure
+  Postgres chains to.
 
   The load balancer probes the gate's health listener (health_port,
   /healthz). It answers 200 only while the gate's own gRPC health check on
@@ -97,7 +99,10 @@ description: |-
   journal as temporal-edge, temporal-secrets and temporal-server, and
   journald passes the lines on to syslog. The health alert fires when the load
   balancer's probe (DipAvailability) has stayed below 100 for 5 minutes and
-  notifies action_group_ids; it exists with or without a workspace. Naming
+  notifies action_group_ids; it exists with or without a workspace. With a
+  workspace, a log alert also notifies them while the key refresh warns that
+  the gate's certificate expires within 30 days or has expired; it checks
+  hourly and resolves itself once a new certificate is in place. Naming
   and tags follow the repo's null-label convention (see label.tf and
   docs/MODULE_STANDARD.md).
 

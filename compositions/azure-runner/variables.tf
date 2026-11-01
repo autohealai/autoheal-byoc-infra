@@ -109,7 +109,7 @@ variable "temporal_server_name" {
 variable "temporal_ca_certificate" {
   type        = string
   default     = ""
-  description = "PEM of the CA that signed the edge certificate, when it is a private CA: the edge_ca_certificate of compositions/azure, or the temporal_ca_certificate output of compositions/azure-temporal. Through the edge, runner-go trusts it in addition to the public CAs. With temporal_ip, only runner-go's Temporal client trusts it (TEMPORAL_TLS_CA_FILE), which needs a runner-go that reads that variable. Empty when a public CA signed it."
+  description = "PEM of the CA that signed the edge certificate, when it is a private CA: the edge_ca_certificate of compositions/azure, or the temporal_ca_certificate output of compositions/azure-temporal, which holds two CAs while that composition moves to a new CA. Through the edge, runner-go trusts it in addition to the public CAs. With temporal_ip, only runner-go's Temporal client trusts it (TEMPORAL_TLS_CA_FILE), which needs a runner-go that reads that variable. Empty when a public CA signed it."
 
   validation {
     condition     = var.temporal_ca_certificate == "" || can(regex("-----BEGIN CERTIFICATE-----", var.temporal_ca_certificate))
@@ -125,6 +125,17 @@ variable "temporal_ip" {
   validation {
     condition     = var.temporal_ip == "" || (can(regex("^[0-9]{1,3}(\\.[0-9]{1,3}){3}$", var.temporal_ip)) && can(cidrhost("${var.temporal_ip}/32", 0)))
     error_message = "temporal_ip must be empty or an IPv4 address: the temporal_ip output of compositions/azure-temporal."
+  }
+}
+
+variable "runner_network_cidr" {
+  type        = string
+  default     = "172.31.255.240/28"
+  description = "Address range of runner-go's own Docker network on each runner VM, used only with temporal_ip. It must not overlap address_space (or the brought subnet's VNet), the routes the runner uses, or Docker's default bridge (172.17.0.0/16)."
+
+  validation {
+    condition     = can(cidrhost(var.runner_network_cidr, 0)) && can(regex("^[0-9.]+/[0-9]{1,2}$", var.runner_network_cidr)) && try(cidrsubnet(var.runner_network_cidr, 0, 0) == var.runner_network_cidr, false)
+    error_message = "runner_network_cidr must be an IPv4 network with no host bits set, such as 172.31.255.240/28."
   }
 }
 

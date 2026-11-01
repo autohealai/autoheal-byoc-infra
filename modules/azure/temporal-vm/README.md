@@ -39,7 +39,9 @@ own and a VNet that is connected to nothing. The NSG lets in TCP 7233 from
 and `health_port`, and denies the rest, SSH included. Password login is off;
 `az vmss run-command` reaches the host. Temporal keeps its data in Postgres
 (the `temporal` and `temporal_visibility` databases), so the VM holds no
-state.
+state. It connects with `sslmode` `verify-full`: the server's name and chain
+are checked against the CAs in the images, which hold the roots Azure
+Postgres chains to.
 
 The load balancer probes the gate's health listener (`health_port`,
 `/healthz`). It answers 200 only while the gate's own gRPC health check on
@@ -96,7 +98,10 @@ sends the daemon syslog facility to the workspace. The units log to the
 journal as `temporal-edge`, `temporal-secrets` and `temporal-server`, and
 journald passes the lines on to syslog. The health alert fires when the load
 balancer's probe (DipAvailability) has stayed below 100 for 5 minutes and
-notifies `action_group_ids`; it exists with or without a workspace. Naming
+notifies `action_group_ids`; it exists with or without a workspace. With a
+workspace, a log alert also notifies them while the key refresh warns that
+the gate's certificate expires within 30 days or has expired; it checks
+hourly and resolves itself once a new certificate is in place. Naming
 and tags follow the repo's null-label convention (see `label.tf` and
 [docs/MODULE_STANDARD.md](../../../docs/MODULE_STANDARD.md)).
 
@@ -137,6 +142,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | [azurerm_monitor_data_collection_rule.temporal](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_data_collection_rule) | resource |
 | [azurerm_monitor_data_collection_rule_association.temporal](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_data_collection_rule_association) | resource |
 | [azurerm_monitor_metric_alert.health](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_metric_alert) | resource |
+| [azurerm_monitor_scheduled_query_rules_alert_v2.certificate](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_scheduled_query_rules_alert_v2) | resource |
 | [azurerm_network_security_group.temporal](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/network_security_group) | resource |
 | [azurerm_public_ip.temporal](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/public_ip) | resource |
 | [azurerm_subnet.temporal](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/subnet) | resource |
@@ -148,7 +154,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
-| <a name="input_action_group_ids"></a> [action\_group\_ids](#input\_action\_group\_ids) | Resource IDs of action groups the health alert notifies. Empty means the alert shows only in the portal. | `list(string)` | `[]` | no |
+| <a name="input_action_group_ids"></a> [action\_group\_ids](#input\_action\_group\_ids) | Resource IDs of action groups the health alert and the certificate alert notify. Empty means the alerts show only in the portal. | `list(string)` | `[]` | no |
 | <a name="input_address_space"></a> [address\_space](#input\_address\_space) | Address range of the VNet, all of it for the subnet snet-temporal. The VNet is connected to nothing, so any private range works. | `string` | n/a | yes |
 | <a name="input_admin_ssh_public_key"></a> [admin\_ssh\_public\_key](#input\_admin\_ssh\_public\_key) | SSH public key for the admin user. No password login. The NSG lets no SSH in; use az vmss run-command to reach the host. | `string` | n/a | yes |
 | <a name="input_admin_username"></a> [admin\_username](#input\_admin\_username) | Admin username on the VM. | `string` | `"azureuser"` | no |
@@ -185,6 +191,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 
 | Name | Description |
 |------|-------------|
+| <a name="output_certificate_alert_id"></a> [certificate\_alert\_id](#output\_certificate\_alert\_id) | Resource ID of the log alert on the gate's certificate expiry. Null without log\_analytics\_workspace\_id. |
 | <a name="output_data_collection_rule_id"></a> [data\_collection\_rule\_id](#output\_data\_collection\_rule\_id) | Resource ID of the data collection rule that sends the VM's logs to the workspace. Null without log\_analytics\_workspace\_id. |
 | <a name="output_health_alert_id"></a> [health\_alert\_id](#output\_health\_alert\_id) | Resource ID of the metric alert on the load balancer's health probe. |
 | <a name="output_identity_client_id"></a> [identity\_client\_id](#output\_identity\_client\_id) | Client ID of the VM's user-assigned identity. |

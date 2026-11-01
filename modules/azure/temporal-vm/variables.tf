@@ -234,13 +234,8 @@ variable "runner_allowed_methods" {
     error_message = "runner_allowed_methods must list method names such as PollActivityTaskQueue: letters only, starting with a capital."
   }
 
-  validation {
-    condition = length(setintersection(toset(var.runner_allowed_methods), toset([
-      "RegisterNamespace", "UpdateNamespace", "DeprecateNamespace", "StartBatchOperation",
-      "DeleteWorkflowExecution", "DeleteWorkerDeployment", "DeleteWorkerDeploymentVersion",
-    ]))) == 0
-    error_message = "runner_allowed_methods must not list RegisterNamespace, UpdateNamespace, DeprecateNamespace, StartBatchOperation, DeleteWorkflowExecution, DeleteWorkerDeployment or DeleteWorkerDeploymentVersion: the gate refuses them for every key."
-  }
+  # A call the gate refuses for every key (local.denied_methods) is refused by
+  # a precondition on the scale set, which reads the one list in main.tf.
 }
 
 # ---------------------------------------------------------------------------
@@ -261,7 +256,7 @@ variable "log_analytics_workspace_id" {
 variable "action_group_ids" {
   type        = list(string)
   default     = []
-  description = "Resource IDs of action groups the health alert notifies. Empty means the alert shows only in the portal."
+  description = "Resource IDs of action groups the health alert and the certificate alert notify. Empty means the alerts show only in the portal."
 
   validation {
     condition     = alltrue([for a in var.action_group_ids : can(regex("(?i)^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.Insights/actionGroups/[^/]+$", a))])

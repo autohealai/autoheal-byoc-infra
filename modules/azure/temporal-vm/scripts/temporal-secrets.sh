@@ -72,9 +72,13 @@ fi
 work=$(mktemp -d "$state_dir/.work.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 
-# The token goes to a header file, not to the command line.
+# The token is for the vault's cloud: https://<name>.vault.azure.net takes a
+# token for https://vault.azure.net. It goes to a header file, not to the
+# command line.
+vault_host=${KEY_VAULT_URI#https://}
+vault_host=${vault_host%%/*}
 curl -sS --fail --max-time 30 --retry 5 --retry-delay 2 -H Metadata:true \
-  "$imds/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fvault.azure.net&client_id=$IDENTITY_CLIENT_ID" |
+  "$imds/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2F${vault_host#*.}&client_id=$IDENTITY_CLIENT_ID" |
   jq -er '"Authorization: Bearer " + .access_token' >"$work/auth"
 
 kv() {

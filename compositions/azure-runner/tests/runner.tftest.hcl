@@ -419,6 +419,19 @@ run "temporal_ip_must_be_ipv4" {
   expect_failures = [var.temporal_ip]
 }
 
+run "runner_network_without_host_bits" {
+  command = plan
+
+  variables {
+    temporal_address     = "198.51.100.7:7233"
+    temporal_ip          = "198.51.100.7"
+    temporal_server_name = "temporal.autoheal.internal"
+    runner_network_cidr  = "172.31.255.241/28"
+  }
+
+  expect_failures = [var.runner_network_cidr]
+}
+
 # Tool results over plain http go only to a private address.
 run "http_tool_results_must_be_private" {
   command = plan

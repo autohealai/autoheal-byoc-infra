@@ -156,6 +156,7 @@ module "runner" {
   temporal_ca_certificate    = var.temporal_ca_certificate
   tool_response_callback_url = var.tool_response_url
   temporal_ip                = var.temporal_ip
+  runner_network_cidr        = var.runner_network_cidr
   runner_image               = local.runner_image
   sandbox_image              = var.sandbox_image
   runner_name                = "${local.id}-runner"

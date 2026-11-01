@@ -2,7 +2,8 @@
 # and their vault entries, the private CA and the vault certificate, the VM's
 # role assignments on each entry, the Postgres firewall rule, the outputs
 # compositions/azure-runner takes, and the input checks. Nothing here reaches
-# Azure. vm.tftest.hcl tests the VM module itself (scale set, NSG, cloud-init).
+# Azure. vm.tftest.hcl tests the VM module itself (scale set, NSG, cloud-init);
+# ca.tftest.hcl tests the move to a new CA.
 #
 # Terraform 1.9 leaves generated values (random, tls, the IP) unknown in a
 # plan, so the runs that read them apply against the mocks. (OpenTofu fills
@@ -70,7 +71,10 @@ mock_provider "tls" {
     }
   }
   mock_resource "tls_self_signed_cert" {
-    defaults = { cert_pem = "-----BEGIN CERTIFICATE-----\nplaceholder-ca\n-----END CERTIFICATE-----\n" }
+    defaults = {
+      cert_pem          = "-----BEGIN CERTIFICATE-----\nplaceholder-ca\n-----END CERTIFICATE-----\n"
+      validity_end_time = "2036-01-01T00:00:00Z"
+    }
   }
   mock_resource "tls_locally_signed_cert" {
     defaults = { cert_pem = "-----BEGIN CERTIFICATE-----\nplaceholder-server\n-----END CERTIFICATE-----\n" }
@@ -97,8 +101,11 @@ variables {
 
 # --- Defaults: private CA ----------------------------------------------------
 
+# An apply, so the runs after it plan against a CA that exists: Terraform 1.9
+# cannot read the end date of a CA a plan is about to make, and fails the CA
+# expiry check in a plan run.
 run "defaults_render" {
-  command = plan
+  command = apply
 
   assert {
     condition     = azurerm_resource_group.this[0].name == "rg-acme-prod-autoheal-temporal"
@@ -128,15 +135,15 @@ run "defaults_render" {
     error_message = "The app keys must go to key_vault_id as temporal-api-server-key and temporal-agents-key."
   }
   assert {
-    condition     = tls_self_signed_cert.ca[0].is_ca_certificate && contains(tls_self_signed_cert.ca[0].allowed_uses, "cert_signing") && tls_self_signed_cert.ca[0].early_renewal_hours > 0
-    error_message = "The CA must be a CA certificate that can sign, renewed early."
+    condition     = keys(tls_self_signed_cert.ca) == ["1"] && tls_self_signed_cert.ca["1"].is_ca_certificate && contains(tls_self_signed_cert.ca["1"].allowed_uses, "cert_signing") && tls_self_signed_cert.ca["1"].early_renewal_hours == 0
+    error_message = "By default there must be one CA, named 1: a CA certificate that can sign, which no apply renews."
   }
   assert {
     condition     = tls_cert_request.server[0].dns_names == tolist(["temporal.autoheal.internal"])
     error_message = "Without dns_name the server certificate must name temporal.autoheal.internal only."
   }
   assert {
-    condition     = contains(tls_locally_signed_cert.server[0].allowed_uses, "server_auth") && tls_locally_signed_cert.server[0].early_renewal_hours > 0 && tls_locally_signed_cert.server[0].validity_period_hours < tls_self_signed_cert.ca[0].validity_period_hours
+    condition     = contains(tls_locally_signed_cert.server[0].allowed_uses, "server_auth") && tls_locally_signed_cert.server[0].early_renewal_hours > 0 && tls_locally_signed_cert.server[0].validity_period_hours < tls_self_signed_cert.ca["1"].validity_period_hours
     error_message = "The server certificate must allow server_auth, renew early and expire before the CA."
   }
   assert {
@@ -278,7 +285,7 @@ run "outputs_and_values" {
     error_message = "temporal_server_name must pass compositions/azure-runner's check."
   }
   assert {
-    condition     = output.temporal_ca_certificate == tls_self_signed_cert.ca[0].cert_pem && nonsensitive(azurerm_key_vault_secret.ca[0].value) == tls_self_signed_cert.ca[0].cert_pem
+    condition     = output.temporal_ca_certificate == tls_self_signed_cert.ca["1"].cert_pem && nonsensitive(azurerm_key_vault_secret.ca[0].value) == tls_self_signed_cert.ca["1"].cert_pem
     error_message = "temporal_ca_certificate and the entry temporal-ca must be the private CA."
   }
   assert {
@@ -296,6 +303,29 @@ run "outputs_and_values" {
   assert {
     condition     = nonsensitive(azurerm_key_vault_secret.api_server_key.value) == nonsensitive(random_password.api_server_key.result)
     error_message = "The first apply must write the generated key."
+  }
+}
+
+# The VM calls the vault at the URI the vault reports, in whatever cloud it is.
+# The entry is made again, since Terraform 1.9 gives override values only to
+# what the run makes.
+run "vault_uri_from_the_vault" {
+  command = apply
+
+  plan_options {
+    replace = [azurerm_key_vault_secret.api_server_key]
+  }
+
+  override_resource {
+    target = azurerm_key_vault_secret.api_server_key
+    values = {
+      versionless_id = "https://kv-acme-prod-autoheal.vault.usgovcloudapi.net/secrets/temporal-api-server-key"
+    }
+  }
+
+  assert {
+    condition     = local.key_vault_uri == "https://kv-acme-prod-autoheal.vault.usgovcloudapi.net/"
+    error_message = "key_vault_uri must come from the vault's own URI, not a fixed cloud suffix."
   }
 }
 
@@ -331,6 +361,46 @@ run "keys_ignore_new_values" {
 }
 
 # --- Input checks ------------------------------------------------------------
+
+run "three_ca_generations_fail" {
+  command = plan
+
+  variables {
+    ca_generations = ["1", "2", "3"]
+  }
+
+  expect_failures = [var.ca_generations]
+}
+
+run "repeated_ca_generation_fails" {
+  command = plan
+
+  variables {
+    ca_generations = ["1", "1"]
+  }
+
+  expect_failures = [var.ca_generations]
+}
+
+run "bad_ca_generation_name_fails" {
+  command = plan
+
+  variables {
+    ca_generations = ["CA 2"]
+  }
+
+  expect_failures = [var.ca_generations]
+}
+
+run "empty_ca_generations_fail" {
+  command = plan
+
+  variables {
+    ca_generations = []
+  }
+
+  expect_failures = [var.ca_generations]
+}
 
 run "certificate_name_without_dns_name_fails" {
   command = plan
@@ -410,4 +480,24 @@ run "bad_key_vault_id_fails" {
   }
 
   expect_failures = [var.key_vault_id]
+}
+
+# --- CA expiry ---------------------------------------------------------------
+
+# A CA with less than a year left warns. Last, since it leaves an expiring CA
+# in the state. CA 2 is new here: Terraform 1.9 gives override values only to
+# what the run makes.
+run "ca_in_its_last_year_warns" {
+  command = apply
+
+  variables {
+    ca_generations = ["1", "2"]
+  }
+
+  override_resource {
+    target = tls_self_signed_cert.ca
+    values = { validity_end_time = "2027-01-01T00:00:00Z" }
+  }
+
+  expect_failures = [check.ca_expiry]
 }

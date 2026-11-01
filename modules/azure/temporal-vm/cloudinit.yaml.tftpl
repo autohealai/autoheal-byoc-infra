@@ -66,9 +66,12 @@ write_files:
               maxConns: 20
               maxIdleConns: 20
               secretName: ""
+              # sslmode verify-full: the server's name and chain are checked
+              # against the image's CAs, which hold the roots Azure Postgres
+              # chains to.
               tls:
                 enabled: true
-                enableHostVerification: false
+                enableHostVerification: true
           visibility:
             sql:
               pluginName: "postgres12"
@@ -84,7 +87,7 @@ write_files:
               secretName: ""
               tls:
                 enabled: true
-                enableHostVerification: false
+                enableHostVerification: true
 
       # No pprof block: pprof stays off.
       global:
@@ -169,7 +172,6 @@ write_files:
       SQL_USER=temporal_user
       SQL_PASSWORD=${temporal_db_password}
       SQL_TLS=true
-      SQL_TLS_DISABLE_HOST_VERIFICATION=true
   # Where temporal-secrets.sh reads the keys and the certificate: the vault,
   # the VM identity's client ID and the entry names. No secret.
   - path: /etc/temporal-edge/edge.conf

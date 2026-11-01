@@ -38,7 +38,7 @@ This composition never reads the cluster. It creates, in `subscription_id`:
    user-assigned identity;
 5. in `key_vault_id`, the entries `temporal-api-server-key` and
    `temporal-agents-key`, and without `certificate_name`, `temporal-tls` (the
-   gate's certificate and key) and `temporal-ca` (the private CA);
+   gate's certificate and key) and `temporal-ca` (the private CAs);
 6. Key Vault Secrets User for the VM's identity on each entry it reads: the two
    app keys, `runner-token`, the certificate and, with the private CA,
    `temporal-ca`;
@@ -55,6 +55,7 @@ Two ways:
   `temporal.autoheal.internal`, plus `dns_name` when set. Clients dial the IP
   or `dns_name`, check `temporal.autoheal.internal` (or `dns_name`), and trust
   the CA from the `temporal_ca_certificate` output or the entry `temporal-ca`.
+  While you move to a new CA, both hold two CAs; see "Moving to a new CA".
   No DNS record is needed without `dns_name`.
 - **Vault certificate**. Set `certificate_name` to a Key Vault certificate in
   `key_vault_id`, issued for `dns_name` by a CA the clients already trust, and
@@ -192,6 +193,7 @@ az vmss run-command invoke -g "$RG" -n "$VMSS" --instance-id "$ID" \
 | `allowed_source_cidrs` | required | Public ranges that may reach TCP 7233: the cluster's outbound addresses and the runner's NAT IP. At least one; not `0.0.0.0/0`. |
 | `dns_name` | `""` | DNS name clients dial. You make the record, pointing at `temporal_ip`. Required with `certificate_name`. |
 | `certificate_name` | `""` | A Key Vault certificate in `key_vault_id` for `dns_name`. Empty means the private CA. |
+| `ca_generations` | `["1"]` | Names of the private CAs, one or two. The first signs the gate's certificate; clients trust all of them. Change it only to move to a new CA. |
 | `key_vault_id` | required | Resource ID of the install vault, the one with `runner-token`. It must use Azure RBAC. |
 | `api_server_key_secret_name` | `temporal-api-server-key` | Entry we write with the api-server-go key. |
 | `agents_key_secret_name` | `temporal-agents-key` | Entry we write with the agents-py key. |
@@ -201,7 +203,7 @@ az vmss run-command invoke -g "$RG" -n "$VMSS" --instance-id "$ID" \
 | `temporal_db_password` | required | Sensitive. Password of `temporal_user`, the vault entry `temporal-db-password`. |
 | `runner_allowed_methods` | `null` | WorkflowService calls the runner key may make. Null means the module's list. |
 | `log_analytics_workspace_id` | `""` | A Log Analytics workspace for the VM's logs. Empty sends nothing. |
-| `action_group_ids` | `[]` | Action groups the health alert notifies. |
+| `action_group_ids` | `[]` | Action groups the health alert and the certificate alert notify. |
 | `start_temporal` | `false` | Start Temporal when the VM boots. See step 4. |
 | `vm_size` | `Standard_D2s_v6` | Must support accelerated networking and Premium SSD. |
 | `temporal_server_image` | `public.ecr.aws/e4h3h0d9/external/temporal-server:1.29.0` | The version the chart runs. The VM pulls without a login. |
@@ -228,7 +230,7 @@ of `compositions/azure`. The vault lets in only the deployer IPs given there.
 | `temporal_address` | `dns_name` or the IP, with `:7233`: what clients dial. |
 | `temporal_ip` | The load balancer's static IP, for the DNS record, the vault firewall, the runner and allow lists. |
 | `temporal_server_name` | `dns_name`, or `temporal.autoheal.internal`: the name clients check. |
-| `temporal_ca_certificate` | PEM of the private CA. Not a secret. Null with `certificate_name`. |
+| `temporal_ca_certificate` | PEM of the private CAs, one or two. Not a secret. Null with `certificate_name`. |
 | `key_vault_secret_names` | The vault entries the VM and the app read. |
 | `vmss_name`, `resource_group_name` | For `az vmss run-command` and `az vmss reimage`. |
 | `identity_principal_id` | The VM's identity. |
@@ -310,10 +312,36 @@ minutes:
 The private CA's certificate lasts two years. The first apply in its last 90
 days makes a new one and writes it as a new version of `temporal-tls`; the
 gate serves it within 5 minutes. Clients need nothing, since the CA stays.
-The CA lasts ten years. The first apply in its last year makes a new CA and a
-new certificate. Then pass the new `temporal_ca_certificate` to the runner and
-the app, or they refuse the gate. A vault certificate renews in the vault, and
-the gate serves the new version.
+A vault certificate renews in the vault, and the gate serves the new version.
+
+### Moving to a new CA
+
+The private CA lasts ten years, and no apply renews it. From its last year on,
+each plan warns: `A private CA in ca_generations expires within a year`. Move
+to a new CA before it expires, or when the CA's key may have leaked. Clients
+trust both CAs while the move runs, so no client refuses the gate at any step.
+The CAs are named in `ca_generations`, default `["1"]`; pick a new name, such
+as `"2"`.
+
+1. Set `ca_generations = ["1", "2"]` and apply. This makes CA 2. CA 1 still
+   signs the gate's certificate. The `temporal_ca_certificate` output and the
+   entry `temporal-ca` now hold both CAs.
+2. Give the clients both CAs:
+   - the runner: pass the new `temporal_ca_certificate` to
+     `compositions/azure-runner`, apply it and reimage its VMs;
+   - the app: the chart copies `temporal-ca` into the cluster every 15
+     minutes. After that, restart api-server-go and agents-py, which read the
+     CA when they start.
+3. Set `ca_generations = ["2", "1"]` and apply. CA 2 signs a new certificate
+   for the gate, written as a new version of `temporal-tls`. The gate serves
+   it within 5 minutes. `temporal_ca_certificate` does not change.
+4. When the gate serves the new certificate, set `ca_generations = ["2"]` and
+   apply. This deletes CA 1. Later, pass the new `temporal_ca_certificate` (CA 2
+   alone) to the runner and restart the app as in step 2, so they stop trusting
+   CA 1. Step 4 can wait; nothing breaks until CA 1 expires.
+
+Do not skip step 2: after step 3 a client that trusts only CA 1 refuses the
+gate.
 
 Moving to a new Temporal version means a new `temporal_server_image` and
 `temporal_admin_tools_image`, then a reimage. The schema step upgrades the
@@ -331,6 +359,9 @@ the names, the app keys and their entries, the private CA with and without
 `dns_name`, the vault certificate, the VM's role assignment on each entry,
 the Postgres firewall rule, the outputs the runner takes, that a new value
 from Terraform does not overwrite a key in the vault, and the input checks.
+`tests/ca.tftest.hcl` runs the steps of "Moving to a new CA" with the real tls
+provider (it works offline). The warning in a CA's last year is the last run of
+`tests/temporal.tftest.hcl`.
 `tests/vm.tftest.hcl` runs `modules/azure/temporal-vm` on its own: one VM with
 no public IP in the load balancer's pool, the NSG, the load balancer rules,
 the units with `start_temporal` off and on, the guard's place, the gate's

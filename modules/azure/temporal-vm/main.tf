@@ -311,6 +311,13 @@ resource "azurerm_linux_virtual_machine_scale_set" "temporal" {
 
   tags = module.this.tags
 
+  lifecycle {
+    precondition {
+      condition     = length(setintersection(toset(var.runner_allowed_methods), toset(local.denied_methods))) == 0
+      error_message = "runner_allowed_methods must not list ${join(", ", local.denied_methods)}: the gate refuses them for every key."
+    }
+  }
+
   # The VM boots with its NSG and its outbound path in place: cloud-init
   # installs packages and pulls images through the outbound rule.
   depends_on = [

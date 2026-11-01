@@ -401,6 +401,10 @@ run "logs_off_by_default" {
     condition     = length(azurerm_monitor_metric_alert.health.action) == 0
     error_message = "Without action groups the alert notifies no one."
   }
+  assert {
+    condition     = length(azurerm_monitor_scheduled_query_rules_alert_v2.certificate) == 0
+    error_message = "Without a workspace there is no certificate alert."
+  }
 }
 
 run "logs_and_alert_actions" {
@@ -443,6 +447,22 @@ run "logs_and_alert_actions" {
     condition     = toset([for a in azurerm_monitor_metric_alert.health.action : a.action_group_id]) == toset(var.action_group_ids)
     error_message = "The alert must notify the given action groups."
   }
+  assert {
+    condition     = length(azurerm_monitor_scheduled_query_rules_alert_v2.certificate) == 1 && azurerm_monitor_scheduled_query_rules_alert_v2.certificate[0].scopes == tolist([var.log_analytics_workspace_id])
+    error_message = "With a workspace the certificate alert must query it."
+  }
+  assert {
+    condition     = strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.certificate[0].criteria[0].query, "ProcessName == \"temporal-secrets\"") && strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.certificate[0].criteria[0].query, "SyslogMessage contains \"warning: the certificate in\"")
+    error_message = "The certificate alert must match the key refresh's certificate warnings."
+  }
+  assert {
+    condition     = strcontains(nonsensitive(local.cloud_init), "echo \"warning: the certificate in $CERTIFICATE_ENTRY expires within 30 days\"") && strcontains(nonsensitive(local.cloud_init), "echo \"warning: the certificate in $CERTIFICATE_ENTRY has expired\"")
+    error_message = "The key refresh must still log the lines the certificate alert matches."
+  }
+  assert {
+    condition     = azurerm_monitor_scheduled_query_rules_alert_v2.certificate[0].auto_mitigation_enabled && azurerm_monitor_scheduled_query_rules_alert_v2.certificate[0].action[0].action_groups == tolist(var.action_group_ids)
+    error_message = "The certificate alert must notify the given action groups once and resolve itself."
+  }
 }
 
 # --- Input checks ------------------------------------------------------------
@@ -458,7 +478,7 @@ run "runner_list_with_a_denied_call_fails" {
     runner_allowed_methods = ["PollActivityTaskQueue", "DeleteWorkflowExecution"]
   }
 
-  expect_failures = [var.runner_allowed_methods]
+  expect_failures = [azurerm_linux_virtual_machine_scale_set.temporal]
 }
 
 run "empty_runner_list_fails" {

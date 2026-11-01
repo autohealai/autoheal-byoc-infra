@@ -33,13 +33,14 @@ locals {
 
   private_ca = var.certificate_name == ""
 
+  # One private CA per name in ca_generations. The first signs the gate's
+  # certificate; clients trust all of them.
+  ca_names   = local.private_ca ? toset(var.ca_generations) : toset([])
+  signing_ca = var.ca_generations[0]
+
   # The vault entries this composition writes with the private CA.
   certificate_secret_name = local.private_ca ? "temporal-tls" : var.certificate_name
   ca_secret_name          = "temporal-ca"
-
-  # The vault name is the last element of its resource ID. The URI assumes the
-  # Azure public cloud, as the rest of the repo does.
-  key_vault_uri = "https://${split("/", var.key_vault_id)[8]}.vault.azure.net/"
 
   # Each entry the VM reads, keyed by a fixed label so the keys are known in
   # the plan.
@@ -127,6 +128,12 @@ resource "azurerm_key_vault_secret" "api_server_key" {
   }
 }
 
+locals {
+  # The vault's URI as the vault reports it, so the VM calls the vault in its
+  # own cloud, e.g. https://acme-prod-autoheal.vault.azure.net/.
+  key_vault_uri = "${join("/", slice(split("/", azurerm_key_vault_secret.api_server_key.versionless_id), 0, 3))}/"
+}
+
 resource "azurerm_key_vault_secret" "agents_key" {
   name         = var.agents_key_secret_name
   value        = random_password.agents_key.result
@@ -141,19 +148,20 @@ resource "azurerm_key_vault_secret" "agents_key" {
 
 # --- Private CA and certificate (without certificate_name) -------------------
 
-# A private CA for the gate's certificate. Clients trust it through the
-# temporal_ca_certificate output or the vault entry temporal-ca. Renewing it
-# (in its last year) means the app and the runner must take the new CA, so it
-# lasts 10 years.
+# The private CAs for the gate's certificate. Clients trust them through the
+# temporal_ca_certificate output or the vault entry temporal-ca. A CA lasts 10
+# years and is never renewed by an apply: a new CA must be trusted by the app
+# and the runner before it signs, so the move is by hand, through
+# ca_generations (see the README). A check warns in the CA's last year.
 resource "tls_private_key" "ca" {
-  count       = local.private_ca ? 1 : 0
+  for_each    = local.ca_names
   algorithm   = "ECDSA"
   ecdsa_curve = "P256"
 }
 
 resource "tls_self_signed_cert" "ca" {
-  count           = local.private_ca ? 1 : 0
-  private_key_pem = tls_private_key.ca[0].private_key_pem
+  for_each        = local.ca_names
+  private_key_pem = tls_private_key.ca[each.key].private_key_pem
 
   subject {
     common_name  = "Autoheal Temporal CA"
@@ -163,8 +171,34 @@ resource "tls_self_signed_cert" "ca" {
   is_ca_certificate     = true
   set_subject_key_id    = true
   validity_period_hours = 87600
-  early_renewal_hours   = 8760
   allowed_uses          = ["cert_signing", "crl_signing", "digital_signature"]
+}
+
+# Earlier builds of this composition had one CA, by count. It is the CA named
+# "1", so an upgrade keeps it.
+moved {
+  from = tls_private_key.ca[0]
+  to   = tls_private_key.ca["1"]
+}
+
+moved {
+  from = tls_self_signed_cert.ca[0]
+  to   = tls_self_signed_cert.ca["1"]
+}
+
+# A warning on each plan once a CA has less than a year left. On the plan that
+# makes a CA, its end date is not known yet, and Terraform says the check is
+# known after apply.
+check "ca_expiry" {
+  assert {
+    condition     = alltrue([for name, ca in tls_self_signed_cert.ca : timecmp(ca.validity_end_time, timeadd(plantimestamp(), "8760h")) > 0])
+    error_message = "A private CA in ca_generations expires within a year (${join(", ", [for name, ca in tls_self_signed_cert.ca : "${name}: ${ca.validity_end_time}"])}). Move to a new CA: see \"Moving to a new CA\" in the README of compositions/azure-temporal."
+  }
+}
+
+locals {
+  # Every CA, in name order, so moving the signer does not change it.
+  ca_bundle = join("", [for name in sort(keys(tls_self_signed_cert.ca)) : tls_self_signed_cert.ca[name].cert_pem])
 }
 
 resource "tls_private_key" "server" {
@@ -184,14 +218,15 @@ resource "tls_cert_request" "server" {
   }
 }
 
-# Two years. The first apply in its last 90 days makes a new one and writes it
-# as a new version of the vault entry. The gate picks it up within 5 minutes,
-# with no reimage. Clients need nothing: the CA stays.
+# Two years, signed by the first CA in ca_generations. The first apply in its
+# last 90 days, or after the signer moves, makes a new one and writes it as a
+# new version of the vault entry. The gate picks it up within 5 minutes, with
+# no reimage. Clients need nothing: they trust every CA in ca_generations.
 resource "tls_locally_signed_cert" "server" {
   count              = local.private_ca ? 1 : 0
   cert_request_pem   = tls_cert_request.server[0].cert_request_pem
-  ca_private_key_pem = tls_private_key.ca[0].private_key_pem
-  ca_cert_pem        = tls_self_signed_cert.ca[0].cert_pem
+  ca_private_key_pem = tls_private_key.ca[local.signing_ca].private_key_pem
+  ca_cert_pem        = tls_self_signed_cert.ca[local.signing_ca].cert_pem
 
   set_subject_key_id    = true
   validity_period_hours = 17520
@@ -210,11 +245,11 @@ resource "azurerm_key_vault_secret" "certificate" {
   tags         = var.tags
 }
 
-# The CA, for the app's chart values to read. Not a secret.
+# The CAs, for the app's chart values to read. Not a secret.
 resource "azurerm_key_vault_secret" "ca" {
   count        = local.private_ca ? 1 : 0
   name         = local.ca_secret_name
-  value        = tls_self_signed_cert.ca[0].cert_pem
+  value        = local.ca_bundle
   key_vault_id = var.key_vault_id
   content_type = "application/x-pem-file"
   tags         = var.tags

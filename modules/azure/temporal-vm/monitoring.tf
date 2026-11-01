@@ -6,9 +6,11 @@
 # to syslog under the unit's name (SyslogIdentifier). Query it with:
 #   Syslog | where ProcessName in ("temporal-edge", "temporal-secrets", "temporal-server", "temporal-namespaces")
 #
-# The alert watches the load balancer's health probe (DipAvailability). It is
-# on only with start_temporal: before the cutover Temporal is off and the probe
-# fails on purpose.
+# The health alert watches the load balancer's health probe (DipAvailability).
+# It is on only with start_temporal: before the cutover Temporal is off and the
+# probe fails on purpose. With the workspace, a log alert also fires while the
+# key refresh warns that the gate's certificate expires within 30 days or has
+# expired.
 
 resource "azurerm_monitor_data_collection_rule" "temporal" {
   count               = local.logs_enabled ? 1 : 0
@@ -73,6 +75,44 @@ resource "azurerm_monitor_metric_alert" "health" {
     for_each = var.action_group_ids
     content {
       action_group_id = action.value
+    }
+  }
+}
+
+# The key refresh logs "warning: the certificate in <entry> expires within 30
+# days" (or "has expired") on each run, every 5 minutes, while it is true. The
+# alert is stateful: it notifies once and resolves itself after the next
+# certificate is in place. The query is not checked at create time, so a new
+# workspace with no Syslog table yet works.
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "certificate" {
+  count                   = local.logs_enabled ? 1 : 0
+  name                    = "${module.this.id}-certificate"
+  resource_group_name     = var.resource_group_name
+  location                = var.location
+  scopes                  = [var.log_analytics_workspace_id]
+  description             = "The gate's certificate on ${module.this.id} expires within 30 days or has expired. Put a new version in ${var.certificate_secret_name}; the VM picks it up within 5 minutes."
+  severity                = 2
+  evaluation_frequency    = "PT1H"
+  window_duration         = "PT1H"
+  auto_mitigation_enabled = true
+  skip_query_validation   = true
+  tags                    = module.this.tags
+
+  criteria {
+    query                   = <<-KQL
+      Syslog
+      | where ProcessName == "temporal-secrets"
+      | where SyslogMessage contains "warning: the certificate in"
+    KQL
+    time_aggregation_method = "Count"
+    operator                = "GreaterThan"
+    threshold               = 0
+  }
+
+  dynamic "action" {
+    for_each = length(var.action_group_ids) > 0 ? [1] : []
+    content {
+      action_groups = var.action_group_ids
     }
   }
 }

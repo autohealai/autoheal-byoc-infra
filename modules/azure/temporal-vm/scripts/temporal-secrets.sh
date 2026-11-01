@@ -130,15 +130,16 @@ if ! jq -se '([.[] | select(.role == "runner") | .key]) as $r
   exit 1
 fi
 
-methods() { paste -s -d '|' "$conf_dir/$1"; }
-runner_re="^/temporal\\.api\\.workflowservice\\.v1\\.WorkflowService/($(methods runner-methods))\$"
-denied_re="^/temporal\\.api\\.workflowservice\\.v1\\.WorkflowService/($(methods denied-methods))\$"
+# The method names, one per line, as a JSON list.
+methods() { jq -Rn '[inputs | select(length > 0)]' "$conf_dir/$1"; }
 
 # Routes in order: health with any key, the runner's calls with a runner key,
 # the denied calls for everyone, the rest of WorkflowService with an app key,
 # and 401 for all else. The route name is the key's role, entry and version,
-# which the access log records in place of the key.
-jq -s --arg runner_re "$runner_re" --arg denied_re "$denied_re" '
+# which the access log records in place of the key. A method is matched by its
+# exact path, one route each, not by one regex for the list: Envoy 1.35 refuses
+# a regex over its program size limit (100), and the whole file with it.
+jq -s --argjson runner "$(methods runner-methods)" --argjson denied "$(methods denied-methods)" '
   def fwd($name; $match): {
     name: $name,
     match: $match,
@@ -147,6 +148,7 @@ jq -s --arg runner_re "$runner_re" --arg denied_re "$denied_re" '
   };
   def bearer($k): [{name: "authorization", string_match: {exact: ("Bearer " + $k.key)}}];
   def ident($k): $k.role + "/" + $k.entry + "/" + $k.version;
+  def call($m): "/temporal.api.workflowservice.v1.WorkflowService/" + $m;
   def refuse($name; $match; $body): {
     name: $name,
     match: $match,
@@ -160,8 +162,8 @@ jq -s --arg runner_re "$runner_re" --arg denied_re "$denied_re" '
         domains: ["*"],
         routes: (
           [$keys[] | fwd("health/" + ident(.); {prefix: "/grpc.health.v1.Health/", headers: bearer(.)})]
-          + [$keys[] | select(.role == "runner") | fwd(ident(.); {safe_regex: {regex: $runner_re}, headers: bearer(.)})]
-          + [refuse("denied"; {safe_regex: {regex: $denied_re}}; "call not allowed\n")]
+          + [$keys[] | select(.role == "runner") as $k | $runner[] | fwd(ident($k); {path: call(.), headers: bearer($k)})]
+          + [$denied[] | refuse("denied"; {path: call(.)}; "call not allowed\n")]
           + [$keys[] | select(.role == "app") | fwd(ident(.); {prefix: "/temporal.api.workflowservice.v1.WorkflowService/", headers: bearer(.)})]
           + [refuse("unauthorized"; {prefix: "/"}; "key missing or wrong, or call not allowed for this key\n")]
         )

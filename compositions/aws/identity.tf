@@ -193,6 +193,7 @@ module "secrets_identity" {
   associations             = [for sa in var.service_accounts.secrets : { namespace = local.sa_namespace, service_account = sa }]
   association_enabled      = var.create_pod_identity_associations
   permissions_boundary_arn = var.iam_permissions_boundary_arn
+  existing_role_arn        = var.existing_secrets_role_arn
 
   inline_policies = {
     secrets = data.aws_iam_policy_document.secrets_read.json
@@ -212,6 +213,7 @@ module "api_server_identity" {
   associations             = [for sa in var.service_accounts.api_server : { namespace = local.sa_namespace, service_account = sa }]
   association_enabled      = var.create_pod_identity_associations
   permissions_boundary_arn = var.iam_permissions_boundary_arn
+  existing_role_arn        = var.existing_api_server_role_arn
 
   inline_policies = merge(
     {
@@ -236,6 +238,7 @@ module "agents_worker_identity" {
   associations             = [for sa in var.service_accounts.agents_worker : { namespace = local.sa_namespace, service_account = sa }]
   association_enabled      = var.create_pod_identity_associations
   permissions_boundary_arn = var.iam_permissions_boundary_arn
+  existing_role_arn        = var.existing_agents_worker_role_arn
 
   inline_policies = merge(
     { storage = data.aws_iam_policy_document.storage.json },
@@ -264,6 +267,50 @@ module "lb_controller_identity" {
 }
 
 locals {
+  # Pod Identity trust policy for a role an external team creates for us: only
+  # the EKS Pod Identity service, for this cluster in this account, may assume it.
+  pod_identity_trust_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "EksPodIdentityAssume"
+      Effect    = "Allow"
+      Principal = { Service = "pods.eks.amazonaws.com" }
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
+      Condition = {
+        StringEquals = { "aws:SourceAccount" = var.account_id }
+        ArnEquals    = { "aws:SourceArn" = "arn:${local.partition}:eks:${var.region}:${var.account_id}:cluster/${local.cluster_name}" }
+      }
+    }]
+  })
+
+  # What an external team must put on each role when they create it instead of
+  # us (existing_*_role_arn set). The trust policy and the inline policies, as
+  # ready-to-attach JSON, plus the service accounts the role is for.
+  required_role_policies = {
+    secrets = {
+      service_accounts = [for sa in var.service_accounts.secrets : "${local.sa_namespace}/${sa}"]
+      trust_policy     = local.pod_identity_trust_policy
+      inline_policies  = { secrets = data.aws_iam_policy_document.secrets_read.json }
+    }
+    api_server = {
+      service_accounts = [for sa in var.service_accounts.api_server : "${local.sa_namespace}/${sa}"]
+      trust_policy     = local.pod_identity_trust_policy
+      inline_policies = merge(
+        {
+          storage         = data.aws_iam_policy_document.storage.json
+          tenant-bucket   = data.aws_iam_policy_document.tenant_bucket.json
+          runtime-secrets = data.aws_iam_policy_document.runtime_secrets.json
+        },
+        local.bedrock_policy,
+      )
+    }
+    agents_worker = {
+      service_accounts = [for sa in var.service_accounts.agents_worker : "${local.sa_namespace}/${sa}"]
+      trust_policy     = local.pod_identity_trust_policy
+      inline_policies  = merge({ storage = data.aws_iam_policy_document.storage.json }, local.bedrock_policy)
+    }
+  }
+
   # Associations an administrator must create when we may not.
   role_bindings = concat(
     [for sa in var.service_accounts.secrets : { ns = local.sa_namespace, sa = sa, role = module.secrets_identity.role_arn }],

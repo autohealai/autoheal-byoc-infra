@@ -19,7 +19,7 @@ data "aws_region" "current" {}
 locals {
   # IAM role names are limited to 64 characters. Replace the tail of a long
   # label id with a short hash so names stay unique.
-  role_name = (
+  role_label = (
     length(module.this.id) <= 64
     ? module.this.id
     : "${substr(module.this.id, 0, 55)}-${substr(sha1(module.this.id), 0, 8)}"
@@ -27,13 +27,21 @@ locals {
 
   cluster_arn = "arn:${data.aws_partition.current.partition}:eks:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:cluster/${var.cluster_name}"
 
+  # Bring your own role: when existing_role_arn is set we create no IAM role and
+  # bind the associations to it instead.
+  create_role = var.existing_role_arn == ""
+  role_arn    = local.create_role ? aws_iam_role.this[0].arn : var.existing_role_arn
+  role_name   = local.create_role ? local.role_label : regex("role/(.+)$", var.existing_role_arn)[0]
+
   associations = var.association_enabled ? {
     for a in var.associations : "${a.namespace}/${a.service_account}" => a
   } : {}
 }
 
 resource "aws_iam_role" "this" {
-  name                  = local.role_name
+  count = local.create_role ? 1 : 0
+
+  name                  = local.role_label
   path                  = var.role_path
   max_session_duration  = var.max_session_duration
   permissions_boundary  = var.permissions_boundary_arn != "" ? var.permissions_boundary_arn : null
@@ -57,17 +65,17 @@ resource "aws_iam_role" "this" {
 }
 
 resource "aws_iam_role_policy" "this" {
-  for_each = var.inline_policies
+  for_each = local.create_role ? var.inline_policies : {}
 
   name   = each.key
-  role   = aws_iam_role.this.id
+  role   = aws_iam_role.this[0].id
   policy = each.value
 }
 
 resource "aws_iam_role_policy_attachment" "this" {
-  for_each = var.managed_policy_arns
+  for_each = local.create_role ? var.managed_policy_arns : {}
 
-  role       = aws_iam_role.this.name
+  role       = aws_iam_role.this[0].name
   policy_arn = each.value
 }
 
@@ -77,7 +85,7 @@ resource "aws_eks_pod_identity_association" "this" {
   cluster_name    = var.cluster_name
   namespace       = each.value.namespace
   service_account = each.value.service_account
-  role_arn        = aws_iam_role.this.arn
+  role_arn        = local.role_arn
 
   tags = module.this.tags
 }

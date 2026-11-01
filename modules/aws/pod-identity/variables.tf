@@ -12,6 +12,17 @@ variable "cluster_name" {
   }
 }
 
+variable "existing_role_arn" {
+  type        = string
+  default     = ""
+  description = "ARN of an IAM role you already have for these service accounts. When set, the module creates no role, policy or attachment and binds the associations to this role instead; inline_policies and managed_policy_arns are ignored (attach them to the role yourself). Its trust policy must allow pods.eks.amazonaws.com to assume it for this cluster. Empty means the module creates the role."
+
+  validation {
+    condition     = var.existing_role_arn == "" || can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:role/.+$", var.existing_role_arn))
+    error_message = "existing_role_arn must be empty or an IAM role ARN (arn:aws:iam::<account>:role/<name>)."
+  }
+}
+
 variable "associations" {
   type = list(object({
     namespace       = string

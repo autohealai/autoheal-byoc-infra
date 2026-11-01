@@ -505,6 +505,7 @@ write_files:
       RemainAfterExit=yes
       TimeoutStartSec=infinity
       ExecStart=/usr/local/bin/temporal-namespaces.sh ${temporal_admin_tools_image}
+      SyslogIdentifier=temporal-namespaces
       [Install]
       WantedBy=temporal-server.service
   # The gate, on whether Temporal runs or not. Without Temporal it answers a

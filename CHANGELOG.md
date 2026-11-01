@@ -23,8 +23,10 @@ All notable changes to this repo are documented here. Format follows
   version, never the key.
 - On that VM a timer reads the keys and the certificate from Key Vault with
   the VM's identity, at boot and every 5 minutes. The gate takes the two
-  newest enabled versions of each key, so keys and certificates rotate with no
-  reimage. Before each start, Temporal refuses to run while another Temporal
+  newest enabled versions of each key and the newest enabled certificate, so
+  keys and certificates rotate with no reimage. A bad certificate does not
+  hold back a key change, and the log warns 30 days before the certificate
+  expires. Before each start, Temporal refuses to run while another Temporal
   server wrote a membership heartbeat in the database in the last 60 seconds.
   `start_temporal` is false by default; the cutover starts Temporal with
   `az vmss run-command`, then sets it to true.

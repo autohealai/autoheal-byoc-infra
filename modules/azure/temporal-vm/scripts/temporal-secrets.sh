@@ -12,8 +12,10 @@
 # The gate watches the cert and routes directories and reloads a file when a
 # new one is moved in (file-based xDS): the certificate as an SDS secret, the
 # keys as the route table. The rename is atomic, and a reload keeps open
-# connections. A file is replaced only when its content changed. On any error
-# the old files stay and the script exits non-zero; the next run tries again.
+# connections. A file is replaced only when its content changed. On an error
+# the file it concerns stays as it was and the script exits non-zero; the next
+# run tries again. The routes are written before the certificate is read, so a
+# bad certificate does not hold back a key change.
 #
 # With --wait (the gate's start step) it retries until a run succeeds, or goes
 # on at once when an earlier run left both files.
@@ -96,6 +98,23 @@ newest_versions() {
     | sort_by(.attributes.created) | reverse | .[0:2][] | .id' "$work/versions"
 }
 
+# Wrap a resource in a discovery response, versioned by its content, and move
+# it into place if it changed.
+publish() {
+  local label="$1" src="$2" dest="$3" type="$4" version
+  version=$(openssl dgst -sha256 <"$src" | awk '{ print substr($NF, 1, 16) }')
+  jq --arg version "$version" --arg type "$type" \
+    '{version_info: $version, resources: [{"@type": $type} + .]}' "$src" >"$src.xds"
+  if [ -s "$dest" ] && cmp -s "$src.xds" "$dest"; then
+    echo "$label unchanged"
+    return 0
+  fi
+  chmod 0600 "$src.xds"
+  if $as_root; then chown "$edge_uid:$edge_uid" "$src.xds"; fi
+  mv -f "$src.xds" "$dest"
+  echo "$label updated"
+}
+
 # --- Keys -------------------------------------------------------------------
 
 : >"$work/keys"
@@ -104,8 +123,9 @@ add_keys() {
   newest_versions "$entry" >"$work/ids"
   while read -r id; do
     kv "$id?api-version=7.4" >"$work/secret"
-    # A key goes into a header match: one token of bearer characters.
-    if jq -e '.value | test("^[A-Za-z0-9._~+/=-]{32,}$")' "$work/secret" >/dev/null; then
+    # A key goes into a header match: one token of bearer characters. \A and
+    # \z, since $ also matches before a final newline.
+    if jq -e '.value | test("\\A[A-Za-z0-9._~+/=-]{32,}\\z")' "$work/secret" >/dev/null; then
       jq -c --arg role "$role" --arg entry "$entry" --arg version "${id##*/}" \
         '{role: $role, entry: $entry, version: $version, key: .value}' "$work/secret" >>"$work/keys"
       n=$((n + 1))
@@ -170,9 +190,20 @@ jq -s --argjson runner "$(methods runner-methods)" --argjson denied "$(methods d
       }]
     }' "$work/keys" >"$work/routes"
 
+publish "routes (keys $(jq -rs 'map(.role + "/" + .entry + "/" + .version) | join(", ")' "$work/keys"))" \
+  "$work/routes" "$routes_file" type.googleapis.com/envoy.config.route.v3.RouteConfiguration
+
 # --- Certificate ------------------------------------------------------------
 
-kv "$KEY_VAULT_URI/secrets/$CERTIFICATE_ENTRY?api-version=7.4" >"$work/cert-secret"
+# The newest enabled version, so a disabled newest version (a certificate
+# taken back) leaves the one before it in use.
+newest_versions "$CERTIFICATE_ENTRY" >"$work/ids"
+cert_id=$(sed -n 1p "$work/ids")
+if [ -z "$cert_id" ]; then
+  echo "$CERTIFICATE_ENTRY has no enabled version" >&2
+  exit 1
+fi
+kv "$cert_id?api-version=7.4" >"$work/cert-secret"
 if [ "$(jq -r '.contentType // ""' "$work/cert-secret")" = "application/x-pkcs12" ]; then
   jq -r .value "$work/cert-secret" | base64 -d >"$work/cert.pfx"
   # Key Vault exports PKCS#12 without a password. Older files use ciphers
@@ -209,6 +240,8 @@ for c in "$work"/cert-*.pem; do
 done
 if ! openssl x509 -in "$leaf" -noout -checkend 0 >/dev/null; then
   echo "warning: the certificate in $CERTIFICATE_ENTRY has expired" >&2
+elif ! openssl x509 -in "$leaf" -noout -checkend 2592000 >/dev/null; then
+  echo "warning: the certificate in $CERTIFICATE_ENTRY expires within 30 days" >&2
 fi
 
 jq -n --rawfile chain "$work/chain.pem" --rawfile key "$work/key.pem" '{
@@ -216,26 +249,5 @@ jq -n --rawfile chain "$work/chain.pem" --rawfile key "$work/key.pem" '{
   tls_certificate: {certificate_chain: {inline_string: $chain}, private_key: {inline_string: $key}}
 }' >"$work/cert"
 
-# --- Write ------------------------------------------------------------------
-
-# Wrap a resource in a discovery response, versioned by its content, and move
-# it into place if it changed.
-publish() {
-  local label="$1" src="$2" dest="$3" type="$4" version
-  version=$(openssl dgst -sha256 <"$src" | awk '{ print substr($NF, 1, 16) }')
-  jq --arg version "$version" --arg type "$type" \
-    '{version_info: $version, resources: [{"@type": $type} + .]}' "$src" >"$src.xds"
-  if [ -s "$dest" ] && cmp -s "$src.xds" "$dest"; then
-    echo "$label unchanged"
-    return 0
-  fi
-  chmod 0600 "$src.xds"
-  if $as_root; then chown "$edge_uid:$edge_uid" "$src.xds"; fi
-  mv -f "$src.xds" "$dest"
-  echo "$label updated"
-}
-
 publish "certificate ($(openssl x509 -in "$leaf" -noout -subject -enddate | paste -s -d ' ' -))" \
   "$work/cert" "$cert_file" type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret
-publish "routes (keys $(jq -rs 'map(.role + "/" + .entry + "/" + .version) | join(", ")' "$work/keys"))" \
-  "$work/routes" "$routes_file" type.googleapis.com/envoy.config.route.v3.RouteConfiguration

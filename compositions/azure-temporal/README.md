@@ -173,7 +173,7 @@ To check the VM, from a host with access to the resource group:
 ```bash
 az vmss run-command invoke -g "$RG" -n "$VMSS" --instance-id "$ID" \
   --command-id RunShellScript \
-  --scripts "systemctl is-active temporal-edge temporal-secrets.timer temporal-server; journalctl -u temporal-secrets -u temporal-edge -u temporal-server -n 50 --no-pager"
+  --scripts "systemctl is-active temporal-edge temporal-secrets.timer temporal-server; journalctl -u temporal-secrets -u temporal-edge -u temporal-server -u temporal-namespaces -n 50 --no-pager"
 ```
 
 `temporal-server` is `inactive` until step 4.
@@ -296,8 +296,15 @@ minutes:
 
 1. Add a new version: `az keyvault secret set --vault-name <vault> --name
    temporal-agents-key --file <file with the new key>`. Terraform ignores it.
-2. Move the client to the new key.
-3. Disable the old version: `az keyvault secret set-attributes --vault-name
+   The file holds the key alone, with no newline at the end (write it with
+   `printf %s`).
+2. Wait until the gate has it. Within 5 minutes the `temporal-secrets` log
+   lists the new version: `routes (keys ..., app/temporal-agents-key/<new
+   version>, ...) updated`. Read it with the check command above. A line
+   `skipped version <new version>` means the gate refused the key; fix it
+   before going on.
+3. Move the client to the new key.
+4. Disable the old version: `az keyvault secret set-attributes --vault-name
    <vault> --name temporal-agents-key --version <old version> --enabled false`.
 
 The private CA's certificate lasts two years. The first apply in its last 90

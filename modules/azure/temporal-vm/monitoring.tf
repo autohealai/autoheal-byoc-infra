@@ -4,7 +4,7 @@
 # syslog facility to the workspace. The gate, the key refresh and Temporal run
 # as systemd units, so their output is in the journal, which journald forwards
 # to syslog under the unit's name (SyslogIdentifier). Query it with:
-#   Syslog | where ProcessName in ("temporal-edge", "temporal-secrets", "temporal-server")
+#   Syslog | where ProcessName in ("temporal-edge", "temporal-secrets", "temporal-server", "temporal-namespaces")
 #
 # The alert watches the load balancer's health probe (DipAvailability). It is
 # on only with start_temporal: before the cutover Temporal is off and the probe

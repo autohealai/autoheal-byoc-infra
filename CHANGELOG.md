@@ -46,9 +46,11 @@ All notable changes to this repo are documented here. Format follows
   empty by default. When set, runner-go runs on a Docker network of its own
   (`runner_network_cidr` in the module, `172.31.255.240/28` by default), and a
   rule next to the metadata rule resets TCP 7233 to that IP from any other
-  container, sandboxes included. Left empty, the runner VMs' cloud-init is the
-  same byte for byte, so the runner plans no change. A test compares it with
-  the cloud-init of 4.1.2.
+  container, sandboxes included. A private CA (`temporal_ca_certificate`) then
+  goes to runner-go's Temporal client only, as `TEMPORAL_TLS_CA_FILE`, in place
+  of `SSL_CERT_DIR`; that needs a runner-go that reads the variable. Left
+  empty, the runner VMs' cloud-init is the same byte for byte, so the runner
+  plans no change. A test compares it with the cloud-init of 4.1.2.
 - `examples/azure/split-istio/temporal`: the Terragrunt unit, between infra
   and app.
 

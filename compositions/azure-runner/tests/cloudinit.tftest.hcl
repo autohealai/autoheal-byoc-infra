@@ -7,7 +7,7 @@
 # tool results, sandbox pre-pull). Without temporal_ip the cloud-init, and so
 # the custom data, must match them byte for byte, or every runner VM would be
 # reimaged on upgrade. With temporal_ip it must add the runner network and the
-# 7233 rule and nothing else.
+# 7233 rule, give the CA to the Temporal client only, and nothing else.
 #
 # The cloud-init takes the identity's client ID, which Terraform 1.9 leaves
 # unknown in a plan, so these runs apply against the mocks. It holds the
@@ -89,9 +89,10 @@ run "all_options_match_previous_release" {
   }
 }
 
-# A Temporal VM: runner-go gets its own network, and other containers get a
-# reset on 7233 to the VM's IP. Taking the added lines out gives the previous
-# release again.
+# A Temporal VM: runner-go gets its own network, other containers get a reset
+# on 7233 to the VM's IP, and the CA is for the Temporal client only. Taking
+# the added lines out and putting the CA lines back gives the previous release
+# again.
 run "temporal_ip_adds_runner_network_and_rule" {
   command = apply
 
@@ -135,8 +136,28 @@ run "temporal_ip_adds_runner_network_and_rule" {
   }
 
   assert {
+    condition     = strcontains([for f in yamldecode(nonsensitive(local.cloud_init)).write_files : f.content if f.path == "/opt/runner-go/config.env"][0], "\nTEMPORAL_TLS_CA_FILE=/opt/runner-go/ca/temporal-ca.pem\n")
+    error_message = "With the Temporal VM, runner-go gets the CA as TEMPORAL_TLS_CA_FILE, for its Temporal client only."
+  }
+
+  assert {
+    condition     = !strcontains(nonsensitive(local.cloud_init), "SSL_CERT_DIR")
+    error_message = "With the Temporal VM, SSL_CERT_DIR is not set: the rest of runner-go keeps the system roots."
+  }
+
+  assert {
+    condition     = strcontains([for f in yamldecode(nonsensitive(local.cloud_init)).write_files : f.content if f.path == "/etc/systemd/system/runner-go.service"][0], "  -v /opt/runner-go/ca:/opt/runner-go/ca:ro \\\n")
+    error_message = "The CA folder is mounted read-only into runner-go."
+  }
+
+  # The CA lines go back to the previous release's, so the rest must match.
+  assert {
     condition = join("\n", [
-      for l in split("\n", nonsensitive(local.cloud_init)) : l
+      for l in split("\n", nonsensitive(local.cloud_init)) : lookup({
+        "  # The CA of the Temporal VM's certificate. Only runner-go's Temporal client" = "  # The CA of the Temporal certificate. runner-go reads SSL_CERT_DIR on top of",
+        "  # trusts it (TEMPORAL_TLS_CA_FILE); git and HTTPS keep the system roots."    = "  # the system trust store, so public CAs keep working.",
+        "      TEMPORAL_TLS_CA_FILE=/opt/runner-go/ca/temporal-ca.pem"                  = "      SSL_CERT_DIR=/opt/runner-go/ca",
+      }, l, l)
       if !(strcontains(l, "172.31.255.240/28") || strcontains(l, "--network runner-go") || contains([
         "      # the Temporal VM on TCP 7233. Any other container, a sandbox included,",
         "      # gets a reset. The gate on the VM checks the key too.",
@@ -145,7 +166,7 @@ run "temporal_ip_adds_runner_network_and_rule" {
         "      # through the Docker socket, not over the network.",
       ], l))
     ]) == file("tests/fixtures/cloud-init-all-options.yaml")
-    error_message = "temporal_ip adds the runner network and the 7233 rule and changes nothing else."
+    error_message = "temporal_ip adds the runner network and the 7233 rule, moves the CA to TEMPORAL_TLS_CA_FILE, and changes nothing else."
   }
 }
 

@@ -26,8 +26,13 @@ write_files:
         "live-restore": true
       }
 %{ if temporal_ca_certificate != "" ~}
+%{ if temporal_ip != "" ~}
+  # The CA of the Temporal VM's certificate. Only runner-go's Temporal client
+  # trusts it (TEMPORAL_TLS_CA_FILE); git and HTTPS keep the system roots.
+%{ else ~}
   # The CA of the Temporal certificate. runner-go reads SSL_CERT_DIR on top of
   # the system trust store, so public CAs keep working.
+%{ endif ~}
   - path: /opt/runner-go/ca/temporal-ca.pem
     permissions: '0644'
     content: |
@@ -49,7 +54,11 @@ write_files:
       TEMPORAL_SERVER_NAME=${temporal_server_name}
 %{ endif ~}
 %{ if temporal_ca_certificate != "" ~}
+%{ if temporal_ip != "" ~}
+      TEMPORAL_TLS_CA_FILE=/opt/runner-go/ca/temporal-ca.pem
+%{ else ~}
       SSL_CERT_DIR=/opt/runner-go/ca
+%{ endif ~}
 %{ endif ~}
       NAME=${runner_name}
       API_WORKER_MAX_CONCURRENT_ACTIVITIES=${max_concurrent_activities}

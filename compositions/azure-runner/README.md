@@ -95,7 +95,10 @@ runner key (the vault entry `runner-token`). Take its outputs:
   `dns_name` on 7233);
 - `temporal_server_name` = its `temporal_server_name`;
 - `temporal_ca_certificate` = its `temporal_ca_certificate`, with its private
-  CA;
+  CA. Only runner-go's Temporal client trusts it (`TEMPORAL_TLS_CA_FILE`); git
+  and the other HTTPS calls keep the public CAs. The runner-go image must read
+  that variable, as the one for the chart release with
+  `global.temporal.external` does; an older one fails the certificate check;
 - `temporal_ip` = its `temporal_ip`.
 
 `temporal_tls` stays `true` and `temporal_token` is the `runner_token` output,
@@ -158,7 +161,7 @@ one on the subnet if your policy needs it; the runner needs no inbound rule.
 | `temporal_tls` | `true` | Dial over TLS. `false` only with the runner load balancers, on a private IPv4 address. |
 | `temporal_token` | `""` | Sensitive. The runner key: the `runner_token` output of `compositions/azure`. Required with `temporal_tls`, empty without. Letters and digits, at least 32. |
 | `temporal_server_name` | `""` | Host name to check in the edge certificate. Empty means the host of `temporal_address`. On a Temporal VM, its `temporal_server_name` output. |
-| `temporal_ca_certificate` | `""` | PEM of a private CA that signed the edge certificate, such as the `edge_ca_certificate` of `compositions/azure`, or the `temporal_ca_certificate` of `compositions/azure-temporal`. The runner trusts it on top of the public CAs. |
+| `temporal_ca_certificate` | `""` | PEM of a private CA that signed the edge certificate, such as the `edge_ca_certificate` of `compositions/azure`, or the `temporal_ca_certificate` of `compositions/azure-temporal`. Through the edge, runner-go trusts it on top of the public CAs. With `temporal_ip`, only its Temporal client trusts it. |
 | `temporal_ip` | `""` | The `temporal_ip` output of `compositions/azure-temporal`. Puts runner-go on its own Docker network and keeps other containers off TCP 7233 to that IP. Needs `temporal_tls`. An IP in `temporal_address` must be this one. Empty changes nothing on the VMs. |
 | `tool_response_url` | `""` | Empty sends tool results through Temporal. With the runner load balancers it may be `http://<address>:8083/api/v1/internal/sandbox-tool-responses`. An `http://` URL must be a private IPv4 address; `https://` may be any host. |
 | `chart_version` | required | The chart version of the app step. The image tag is `chart-<chart_version>`. |

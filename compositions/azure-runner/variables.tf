@@ -109,7 +109,7 @@ variable "temporal_server_name" {
 variable "temporal_ca_certificate" {
   type        = string
   default     = ""
-  description = "PEM of the CA that signed the edge certificate, when it is a private CA: the edge_ca_certificate of compositions/azure, or the temporal_ca_certificate output of compositions/azure-temporal. The runner trusts it in addition to the public CAs. Empty when a public CA signed it."
+  description = "PEM of the CA that signed the edge certificate, when it is a private CA: the edge_ca_certificate of compositions/azure, or the temporal_ca_certificate output of compositions/azure-temporal. Through the edge, runner-go trusts it in addition to the public CAs. With temporal_ip, only runner-go's Temporal client trusts it (TEMPORAL_TLS_CA_FILE), which needs a runner-go that reads that variable. Empty when a public CA signed it."
 
   validation {
     condition     = var.temporal_ca_certificate == "" || can(regex("-----BEGIN CERTIFICATE-----", var.temporal_ca_certificate))

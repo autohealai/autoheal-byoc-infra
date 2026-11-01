@@ -16,7 +16,8 @@ description: |-
   over TLS (temporal_tls) with the runner key (temporal_token), or the
   private address of the chart's runner load balancers with TLS off. The runner
   retries until Temporal answers. temporal_ca_certificate adds a private CA to
-  the trust store runner-go reads. The key sits in /opt/runner-go/config.env,
+  the trust store runner-go reads; with temporal_ip it goes to runner-go's
+  Temporal client only (TEMPORAL_TLS_CA_FILE). The key sits in /opt/runner-go/config.env,
   readable by root only, and runner-go's lambda drivers are off
   (DISABLED_DRIVERS), since a lambda would run with that environment. Before
   each start the systemd unit blocks containers, sandboxes included, from the

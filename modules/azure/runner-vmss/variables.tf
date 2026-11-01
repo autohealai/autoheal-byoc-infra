@@ -62,7 +62,7 @@ variable "temporal_token" {
 variable "temporal_ca_certificate" {
   type        = string
   default     = ""
-  description = "PEM of the CA that signed the Temporal certificate, when the system trust store does not have it, such as a private CA on the edge. The runner trusts it in addition to the system CAs. Empty adds none."
+  description = "PEM of the CA that signed the Temporal certificate, when the system trust store does not have it, such as a private CA on the edge or on a Temporal VM. Through the edge, runner-go trusts it in addition to the system CAs (SSL_CERT_DIR). With temporal_ip, only runner-go's Temporal client trusts it (TEMPORAL_TLS_CA_FILE), which needs a runner-go that reads that variable. Empty adds none."
 
   validation {
     condition     = var.temporal_ca_certificate == "" || can(regex("-----BEGIN CERTIFICATE-----", var.temporal_ca_certificate))

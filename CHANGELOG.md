@@ -6,6 +6,19 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-11-02
+
+An optional Temporal step for an install whose cluster cannot run Temporal:
+Temporal on a VM of its own, behind a gate that checks a key per call. Nothing
+changes until the new `temporal` unit is applied: on the same chart version, an
+install moving from 4.2.0 plans no change in the infra, cluster, app and runner
+units. The AWS modules and compositions are the same as 4.2.0.
+
+The examples move to chart 1.0.0-rc.14 (newer service images). That updates
+the app release and reimages the runner VMs. The Temporal step needs chart
+1.0.0-rc.14 or later: it has `global.temporal.external`, and its runner-go
+reads `TEMPORAL_TLS_CA_FILE`.
+
 ### Added
 - `modules/azure/temporal-vm`: the Temporal server on a VM of its own, against
   the install's Postgres, for a cluster that cannot run it. The VM is the only
@@ -67,6 +80,9 @@ All notable changes to this repo are documented here. Format follows
   byte, so the runner plans no change. A test compares it with the cloud-init of 4.1.2.
 - `examples/azure/split-istio/temporal`: the Terragrunt unit, between infra
   and app.
+
+### Changed
+- Examples and docs pin v4.3.0 and chart 1.0.0-rc.14.
 
 ## [4.2.0] - 2026-11-01
 

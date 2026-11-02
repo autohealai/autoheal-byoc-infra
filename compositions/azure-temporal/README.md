@@ -84,7 +84,9 @@ nothing is needed.
 
 `allowed_source_cidrs` may be a copy of `workload_egress_ip_ranges`, as in
 the example: the NSG leaves the VM's own IP out, so step 2b changes nothing
-here.
+here. The IP is new on the first apply, so that plan shows the NSG's
+addresses as known after apply, and the check that the list is not only the
+VM's own IP runs during the apply.
 
 Until the IP is in, the gate does not start: the timer retries every few
 minutes and the gate waits for its first good read. Nothing else on the VM
@@ -233,7 +235,9 @@ and leave out `key_vault_id`, `postgres_server_id`, `postgres_fqdn` and
   apply needs on the vault can read it, from a deployer IP the vault lets in.
 
 Vault and server names are unique in Azure, so each lookup finds one resource;
-if it finds none, the plan stops and says so. An input that is set wins and
+if it finds none, the plan stops and says so. If the vault entry is missing or
+the deployer cannot read it, the plan stops with Azure's own 404 or 403 for
+`temporal-db-password`. An input that is set wins and
 skips its lookup. Without `infra_values`, set the four inputs, or set
 `postgres_fqdn` and leave `postgres_server_id` to the lookup.
 
@@ -305,6 +309,9 @@ inputs = {
   start_temporal       = false
 }
 ```
+
+`allowed_source_cidrs` takes CIDRs only. If the `infra` list has a plain
+address such as `198.51.100.20`, add `/32` to it, as the example does.
 
 ## Upgrading
 

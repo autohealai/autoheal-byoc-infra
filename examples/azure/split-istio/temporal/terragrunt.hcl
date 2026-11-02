@@ -37,6 +37,10 @@ locals {
 
   # The inputs of ../infra, so nothing is typed twice.
   infra = read_terragrunt_config("${get_terragrunt_dir()}/../infra/terragrunt.hcl").inputs
+
+  # The cluster's outbound addresses from ../infra, each as a CIDR: the vaults
+  # take a plain address, the NSG needs 198.51.100.20/32.
+  cluster_cidrs = [for c in try(local.infra.workload_egress_ip_ranges, []) : can(cidrhost(c, 0)) ? c : "${c}/32"]
 }
 
 include "root" { path = find_in_parent_folders("root.hcl") }
@@ -79,7 +83,7 @@ inputs = {
   # Who may reach 7233: the cluster's public outbound addresses, from ../infra,
   # and the runner's NAT IP (the egress_ip output of ../runner) once ../runner
   # is applied. A change here touches only the NSG, not the VM.
-  allowed_source_cidrs = concat(local.infra.workload_egress_ip_ranges, [
+  allowed_source_cidrs = concat(local.cluster_cidrs, [
     # "198.51.100.30/32", # egress_ip of ../runner, after step 6
   ])
 

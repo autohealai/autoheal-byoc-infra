@@ -62,6 +62,13 @@ resource "azurerm_subnet" "temporal" {
 # TCP 7233 from the allowed ranges, and the load balancer's probe on 7233 and
 # the health port. The explicit deny also covers Azure's default rules that let
 # in the VNet and the load balancer on any port.
+#
+# The VM's own IP is left out of the ranges: a list copied from the install's
+# workload_egress_ip_ranges has it once the vault lets the VM in.
+locals {
+  allowed_source_cidrs = distinct([for c in var.allowed_source_cidrs : c if c != "${azurerm_public_ip.temporal.ip_address}/32"])
+}
+
 resource "azurerm_network_security_group" "temporal" {
   name                = "${module.this.id}-nsg"
   resource_group_name = var.resource_group_name
@@ -76,7 +83,7 @@ resource "azurerm_network_security_group" "temporal" {
     protocol                   = "Tcp"
     source_port_range          = "*"
     destination_port_range     = "7233"
-    source_address_prefixes    = var.allowed_source_cidrs
+    source_address_prefixes    = local.allowed_source_cidrs
     destination_address_prefix = "*"
   }
 
@@ -102,6 +109,13 @@ resource "azurerm_network_security_group" "temporal" {
     destination_port_range     = "*"
     source_address_prefix      = "*"
     destination_address_prefix = "*"
+  }
+
+  lifecycle {
+    precondition {
+      condition     = length(local.allowed_source_cidrs) > 0
+      error_message = "allowed_source_cidrs lists only the VM's own IP (${azurerm_public_ip.temporal.ip_address}/32): add the addresses of the cluster and the runner."
+    }
   }
 }
 

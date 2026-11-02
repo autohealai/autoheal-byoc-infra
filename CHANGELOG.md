@@ -6,6 +6,35 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [4.3.1] - 2026-11-02
+
+The Temporal unit takes its values from the infra unit, so a customer types
+only the runner's address. An install on 4.3.0 that keeps its inputs plans no
+change. The chart stays 1.0.0-rc.14.
+
+### Added
+- `compositions/azure-temporal`: `infra_values`, the `autoheal_values` output
+  of `compositions/azure`. With it, `key_vault_id`, `postgres_server_id`,
+  `postgres_fqdn` and `temporal_db_password` can stay empty: the vault and the
+  Postgres server are found in `subscription_id` by the names in it, and the
+  password is read from the vault entry `temporal-db-password`, so it no longer
+  goes through `TF_VAR_temporal_db_password`. An input that is set wins. A
+  lookup that finds nothing stops the plan with a plain message.
+
+### Changed
+- `compositions/azure-temporal`: `key_vault_id`, `postgres_server_id`,
+  `postgres_fqdn` and `temporal_db_password` are optional (default `""`).
+  `postgres_server_id` alone may be left out: the server of `postgres_fqdn`
+  is found by name.
+- `modules/azure/temporal-vm`: the NSG leaves the VM's own IP out of
+  `allowed_source_cidrs`, so the list can be a copy of
+  `workload_egress_ip_ranges`, which has that IP after step 2b.
+- `examples/azure/split-istio/temporal`: reads namespace, environment,
+  location, subscription and the cluster's addresses from `../infra`'s inputs,
+  and passes `../infra`'s `autoheal_values` as `infra_values`. No IDs, no host
+  name and no password export.
+- Examples and docs pin v4.3.1.
+
 ## [4.3.0] - 2026-11-02
 
 An optional Temporal step for an install whose cluster cannot run Temporal:

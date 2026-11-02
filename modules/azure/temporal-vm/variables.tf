@@ -33,7 +33,7 @@ variable "address_space" {
 
 variable "allowed_source_cidrs" {
   type        = list(string)
-  description = "Public ranges allowed to reach the gate on TCP 7233, such as the cluster's outbound addresses and the runner's NAT IP. Nothing else gets in: no SSH, no other port. The load balancer keeps the client's address, so the NSG sees it."
+  description = "Public ranges allowed to reach the gate on TCP 7233, such as the cluster's outbound addresses and the runner's NAT IP. Nothing else gets in: no SSH, no other port. The load balancer keeps the client's address, so the NSG sees it. The VM's own IP is left out, so a list copied from the install's workload_egress_ip_ranges works."
 
   validation {
     condition     = length(var.allowed_source_cidrs) > 0

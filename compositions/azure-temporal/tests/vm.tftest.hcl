@@ -164,6 +164,30 @@ run "nsg_allows_7233_and_the_probe_only" {
   }
 }
 
+# A list copied from the install's workload_egress_ip_ranges has the VM's own
+# IP once the vault lets the VM in. The NSG leaves it out. A plan after an
+# apply, so the IP is known.
+run "nsg_leaves_out_the_vms_own_ip" {
+  command = plan
+
+  module {
+    source = "../../modules/azure/temporal-vm"
+  }
+
+  variables {
+    allowed_source_cidrs = ["198.51.100.20/32", "198.51.100.7/32", "203.0.113.0/28"]
+  }
+
+  assert {
+    condition = anytrue([
+      for r in azurerm_network_security_group.temporal.security_rule : (
+        r.destination_port_range == "7233" && toset(r.source_address_prefixes) == toset(["198.51.100.20/32", "203.0.113.0/28"])
+      )
+    ])
+    error_message = "The 7233 rule must leave out the VM's own IP."
+  }
+}
+
 # --- Load balancer -----------------------------------------------------------
 
 run "load_balancer" {
@@ -507,6 +531,20 @@ run "bad_key_vault_uri_fails" {
   }
 
   expect_failures = [var.key_vault_uri]
+}
+
+run "only_own_ip_fails" {
+  command = plan
+
+  module {
+    source = "../../modules/azure/temporal-vm"
+  }
+
+  variables {
+    allowed_source_cidrs = ["198.51.100.7/32"]
+  }
+
+  expect_failures = [azurerm_network_security_group.temporal]
 }
 
 run "health_port_on_temporal_port_fails" {

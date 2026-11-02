@@ -9,7 +9,8 @@
 # temporal.autoheal.internal. The runner key is the vault entry runner-token
 # that compositions/azure writes. The VM reads all of them with its own
 # identity, which gets Key Vault Secrets User on each entry and nothing else.
-# It also lets the load balancer's IP through the Postgres firewall.
+# It also lets the load balancer's IP through the Postgres firewall. With
+# infra_values it finds the vault and the Postgres server itself.
 #
 # With the private CA, clients dial the IP (or dns_name) and check the
 # certificate against temporal.autoheal.internal, so no DNS record is needed.
@@ -82,8 +83,16 @@ resource "terraform_data" "validate_inputs" {
       error_message = "existing_resource_group_id is in subscription ${try(split("/", var.existing_resource_group_id)[2], "")}, but the VM goes in subscription_id (${var.subscription_id}). The azurerm provider of this composition works in subscription_id only."
     }
     precondition {
-      condition     = lower(try(split("/", var.postgres_server_id)[2], "")) == lower(var.subscription_id)
-      error_message = "postgres_server_id is in subscription ${try(split("/", var.postgres_server_id)[2], "")}, but this composition works in subscription_id (${var.subscription_id}). The azurerm provider adds the Postgres firewall rule in its own subscription. Use the subscription of the Postgres server, usually the data subscription of compositions/azure."
+      condition     = local.key_vault_id != ""
+      error_message = "No install vault: set key_vault_id, or infra_values (the autoheal_values output of compositions/azure) to find it by name."
+    }
+    precondition {
+      condition     = local.postgres_fqdn != ""
+      error_message = "No Postgres server: set postgres_fqdn, or infra_values (the autoheal_values output of compositions/azure) to take it from there."
+    }
+    precondition {
+      condition     = local.postgres_fqdn == "" || lower(try(split("/", local.postgres_server_id)[2], "")) == lower(var.subscription_id)
+      error_message = "postgres_server_id is in subscription ${try(split("/", local.postgres_server_id)[2], "")}, but this composition works in subscription_id (${var.subscription_id}). The azurerm provider adds the Postgres firewall rule in its own subscription. Use the subscription of the Postgres server, usually the data subscription of compositions/azure."
     }
     precondition {
       condition     = local.private_ca || var.dns_name != ""
@@ -92,6 +101,64 @@ resource "terraform_data" "validate_inputs" {
     precondition {
       condition     = length(distinct(values(local.vm_secrets))) == length(local.vm_secrets)
       error_message = "The vault entries for the two app keys, the runner key and the certificate must all differ (temporal-tls and temporal-ca are taken with the private CA)."
+    }
+  }
+}
+
+# --- Install vault and Postgres ---------------------------------------------
+
+# With infra_values, the vault, the Postgres server and the database password
+# need no typing: we find the vault and the server in subscription_id by the
+# names compositions/azure reports, and read the password from the vault entry
+# it wrote. Vault and server names are unique in Azure, so a lookup finds one
+# resource or none. An input that is set wins, and skips its lookup.
+locals {
+  infra          = try(var.infra_values.global.infra, {})
+  key_vault_name = try(local.infra.keyVault.name, "")
+  postgres_fqdn  = var.postgres_fqdn != "" ? var.postgres_fqdn : try(local.infra.database.host, "")
+
+  key_vault_id       = var.key_vault_id != "" ? var.key_vault_id : try(data.azurerm_resources.key_vault[0].resources[0].id, "")
+  postgres_server_id = var.postgres_server_id != "" ? var.postgres_server_id : try(data.azurerm_resources.postgres[0].resources[0].id, "")
+
+  temporal_db_password = nonsensitive(var.temporal_db_password == "") ? data.azurerm_key_vault_secret.temporal_db_password[0].value : var.temporal_db_password
+}
+
+data "azurerm_resources" "key_vault" {
+  count = var.key_vault_id == "" && local.key_vault_name != "" ? 1 : 0
+  type  = "Microsoft.KeyVault/vaults"
+  name  = local.key_vault_name
+
+  lifecycle {
+    postcondition {
+      condition     = length(self.resources) == 1
+      error_message = "Found ${length(self.resources)} Key Vaults named ${local.key_vault_name} in subscription ${var.subscription_id}, not one. subscription_id must be the data subscription of compositions/azure, and the deployer must be able to read the vault; or set key_vault_id."
+    }
+  }
+}
+
+# The server's name is the first label of its host name.
+data "azurerm_resources" "postgres" {
+  count = var.postgres_server_id == "" && local.postgres_fqdn != "" ? 1 : 0
+  type  = "Microsoft.DBforPostgreSQL/flexibleServers"
+  name  = split(".", local.postgres_fqdn)[0]
+
+  lifecycle {
+    postcondition {
+      condition     = length(self.resources) == 1
+      error_message = "Found ${length(self.resources)} Postgres flexible servers named ${split(".", local.postgres_fqdn)[0]} in subscription ${var.subscription_id}, not one. subscription_id must be the subscription of the Postgres server, and the deployer must be able to read it; or set postgres_server_id."
+    }
+  }
+}
+
+data "azurerm_key_vault_secret" "temporal_db_password" {
+  count        = nonsensitive(var.temporal_db_password == "") ? 1 : 0
+  name         = "temporal-db-password"
+  key_vault_id = local.key_vault_id
+
+  lifecycle {
+    precondition {
+      condition     = local.key_vault_id != ""
+      error_message = "temporal_db_password is empty, so we read it from the install vault, but there is none: set key_vault_id, or infra_values (the autoheal_values output of compositions/azure)."
     }
   }
 }
@@ -119,13 +186,16 @@ resource "random_password" "agents_key" {
 resource "azurerm_key_vault_secret" "api_server_key" {
   name         = var.api_server_key_secret_name
   value        = random_password.api_server_key.result
-  key_vault_id = var.key_vault_id
+  key_vault_id = local.key_vault_id
   content_type = "text/plain"
   tags         = var.tags
 
   lifecycle {
     ignore_changes = [value]
   }
+
+  # After the input checks, so a missing vault fails with their message.
+  depends_on = [terraform_data.validate_inputs]
 }
 
 locals {
@@ -137,13 +207,16 @@ locals {
 resource "azurerm_key_vault_secret" "agents_key" {
   name         = var.agents_key_secret_name
   value        = random_password.agents_key.result
-  key_vault_id = var.key_vault_id
+  key_vault_id = local.key_vault_id
   content_type = "text/plain"
   tags         = var.tags
 
   lifecycle {
     ignore_changes = [value]
   }
+
+  # After the input checks, so a missing vault fails with their message.
+  depends_on = [terraform_data.validate_inputs]
 }
 
 # --- Private CA and certificate (without certificate_name) -------------------
@@ -240,9 +313,11 @@ resource "azurerm_key_vault_secret" "certificate" {
   count        = local.private_ca ? 1 : 0
   name         = local.certificate_secret_name
   value        = "${tls_locally_signed_cert.server[0].cert_pem}${tls_private_key.server[0].private_key_pem}"
-  key_vault_id = var.key_vault_id
+  key_vault_id = local.key_vault_id
   content_type = "application/x-pem-file"
   tags         = var.tags
+
+  depends_on = [terraform_data.validate_inputs]
 }
 
 # The CAs, for the app's chart values to read. Not a secret.
@@ -250,9 +325,11 @@ resource "azurerm_key_vault_secret" "ca" {
   count        = local.private_ca ? 1 : 0
   name         = local.ca_secret_name
   value        = local.ca_bundle
-  key_vault_id = var.key_vault_id
+  key_vault_id = local.key_vault_id
   content_type = "application/x-pem-file"
   tags         = var.tags
+
+  depends_on = [terraform_data.validate_inputs]
 }
 
 # SSH key for the VM's admin user. Password login is off and the NSG lets no
@@ -284,8 +361,8 @@ module "temporal_vm" {
   temporal_admin_tools_image = var.temporal_admin_tools_image
   proxy_image                = var.proxy_image
 
-  postgres_fqdn        = var.postgres_fqdn
-  temporal_db_password = var.temporal_db_password
+  postgres_fqdn        = local.postgres_fqdn
+  temporal_db_password = local.temporal_db_password
 
   key_vault_uri              = local.key_vault_uri
   api_server_key_secret_name = var.api_server_key_secret_name
@@ -311,7 +388,7 @@ module "temporal_vm" {
 resource "azurerm_role_assignment" "vm_secrets" {
   for_each = local.vm_secrets
 
-  scope                = "${var.key_vault_id}/secrets/${each.value}"
+  scope                = "${local.key_vault_id}/secrets/${each.value}"
   role_definition_name = "Key Vault Secrets User"
   principal_id         = module.temporal_vm.identity_principal_id
   principal_type       = "ServicePrincipal"
@@ -332,7 +409,7 @@ resource "azurerm_role_assignment" "vm_secrets" {
 # rules.
 resource "azurerm_postgresql_flexible_server_firewall_rule" "temporal" {
   name             = "${local.id}-temporal"
-  server_id        = var.postgres_server_id
+  server_id        = local.postgres_server_id
   start_ip_address = module.temporal_vm.public_ip
   end_ip_address   = module.temporal_vm.public_ip
 }

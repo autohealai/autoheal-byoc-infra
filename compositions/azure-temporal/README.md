@@ -30,8 +30,9 @@ This composition never reads the cluster. It creates, in `subscription_id`:
 
 1. a resource group, unless `existing_resource_group_id` is set;
 2. a VNet from `address_space` with the subnet `snet-temporal`, connected to
-   nothing, and an NSG that lets in TCP 7233 from `allowed_source_cidrs` and
-   the load balancer's probe, and denies the rest, SSH included;
+   nothing, and an NSG that lets in TCP 7233 from `allowed_source_cidrs`
+   (except the VM's own IP) and the load balancer's probe, and denies the
+   rest, SSH included;
 3. a Standard load balancer with one static public IP, which forwards TCP 7233
    and gives the VM its way out on the same IP;
 4. a scale set with exactly one VM, no public IP of its own, and a
@@ -80,6 +81,10 @@ Postgres firewall with `cluster_network_path = public`, where it is the same
 IP as our own rule. For a vault you brought (`existing_key_vault_id`), the
 vault owner adds the IP. With `key_vault_network_default_action = "Allow"`
 nothing is needed.
+
+`allowed_source_cidrs` may be a copy of `workload_egress_ip_ranges`, as in
+the example: the NSG leaves the VM's own IP out, so step 2b changes nothing
+here.
 
 Until the IP is in, the gate does not start: the timer retries every few
 minutes and the gate waits for its first good read. Nothing else on the VM
@@ -197,13 +202,14 @@ az vmss run-command invoke -g "$RG" -n "$VMSS" --instance-id "$ID" \
 | `dns_name` | `""` | DNS name clients dial. You make the record, pointing at `temporal_ip`. Required with `certificate_name`. |
 | `certificate_name` | `""` | A Key Vault certificate in `key_vault_id` for `dns_name`. Empty means the private CA. |
 | `ca_generations` | `["1"]` | Names of the private CAs, one or two. The first signs the gate's certificate; clients trust all of them. Change it only to move to a new CA. |
-| `key_vault_id` | required | Resource ID of the install vault, the one with `runner-token`. It must use Azure RBAC. |
+| `infra_values` | `null` | The `autoheal_values` output of `compositions/azure`. With it the next four inputs can stay empty: see "Values from compositions/azure". |
+| `key_vault_id` | `""` | Resource ID of the install vault, the one with `runner-token`. It must use Azure RBAC. Empty means the vault named in `infra_values`. |
 | `api_server_key_secret_name` | `temporal-api-server-key` | Entry we write with the api-server-go key. |
 | `agents_key_secret_name` | `temporal-agents-key` | Entry we write with the agents-py key. |
 | `runner_key_secret_name` | `runner-token` | Entry with the runner key, written by `compositions/azure`. |
-| `postgres_server_id` | required | Resource ID of the install's Postgres flexible server, in `subscription_id`. |
-| `postgres_fqdn` | required | Its host name, `global.infra.database.host` in the `autoheal_values` output of `compositions/azure`. |
-| `temporal_db_password` | required | Sensitive. Password of `temporal_user`, the vault entry `temporal-db-password`. |
+| `postgres_server_id` | `""` | Resource ID of the install's Postgres flexible server, in `subscription_id`. Empty means the server of `postgres_fqdn`, found by name. |
+| `postgres_fqdn` | `""` | Its host name. Empty means `global.infra.database.host` in `infra_values`. |
+| `temporal_db_password` | `""` | Sensitive. Password of `temporal_user`. Empty means we read the vault entry `temporal-db-password`. |
 | `runner_allowed_methods` | `null` | WorkflowService calls the runner key may make. Null means the module's list. |
 | `log_analytics_workspace_id` | `""` | A Log Analytics workspace for the VM's logs. Empty sends nothing. |
 | `action_group_ids` | `[]` | Action groups the health alert and the certificate alert notify. |
@@ -213,18 +219,28 @@ az vmss run-command invoke -g "$RG" -n "$VMSS" --instance-id "$ID" \
 | `temporal_admin_tools_image` | `public.ecr.aws/e4h3h0d9/external/temporal-admin-tools:1.29.1-tctl-1.18.4-cli-1.5.0` | For the schema and namespace steps. |
 | `proxy_image` | `public.ecr.aws/e4h3h0d9/external/envoy:distroless-v1.35.6` | The Envoy image of the gate. |
 
-### The database password
+### Values from compositions/azure
 
-The database password is not an output of `compositions/azure`. Read it from
-the install vault and pass it in the environment, so it stays out of files:
+Pass the `autoheal_values` output of `compositions/azure` as `infra_values`
+and leave out `key_vault_id`, `postgres_server_id`, `postgres_fqdn` and
+`temporal_db_password`. We then:
 
-```bash
-export TF_VAR_temporal_db_password="$(az keyvault secret show \
-  --vault-name <vault> --name temporal-db-password --query value -o tsv)"
-```
+- find the vault named `global.infra.keyVault.name` in `subscription_id`;
+- take `postgres_fqdn` from `global.infra.database.host`, and find that server
+  in `subscription_id` by its name;
+- read `temporal_db_password` from the vault entry `temporal-db-password`,
+  which `compositions/azure` wrote. The Key Vault Secrets Officer role the
+  apply needs on the vault can read it, from a deployer IP the vault lets in.
 
-The vault name is `global.infra.keyVault.name` in the `autoheal_values` output
-of `compositions/azure`. The vault lets in only the deployer IPs given there.
+Vault and server names are unique in Azure, so each lookup finds one resource;
+if it finds none, the plan stops and says so. An input that is set wins and
+skips its lookup. Without `infra_values`, set the four inputs, or set
+`postgres_fqdn` and leave `postgres_server_id` to the lookup.
+
+An install that typed the IDs moves to `infra_values` with no change, as long
+as each typed ID has the letter case Azure reports. If one differs, the plan
+shows vault entries, role assignments or the firewall rule replaced: do not
+apply it, and keep that ID typed.
 
 ## Outputs
 
@@ -252,8 +268,11 @@ The deployer needs, in `subscription_id`:
 - The right to add firewall rules on the Postgres server
   (`Microsoft.DBforPostgreSQL/flexibleServers/firewallRules/write`, in
   Contributor on the server or its resource group).
-- On the vault: Key Vault Secrets Officer, to write the entries, and the right
-  to create role assignments on its entries (Key Vault Data Access
+- With `infra_values`, read on the vault and on the Postgres server, to find
+  them by name (Reader, or Contributor on the server above).
+- On the vault: Key Vault Secrets Officer, to write the entries (and read
+  `temporal-db-password`), and the right to create role assignments on its
+  entries (Key Vault Data Access
   Administrator, or Owner or User Access Administrator), and a public IP the
   vault's network rules let in.
 
@@ -263,18 +282,26 @@ needed on the cluster.
 
 ## With Terragrunt
 
-A `temporal` folder after `infra`, as in `examples/azure/split-istio/temporal`:
+A `temporal` folder after `infra`, as in `examples/azure/split-istio/temporal`.
+It reads the inputs of `infra` and its `autoheal_values` output, so only the
+runner's address is typed:
 
 ```hcl
+locals {
+  infra = read_terragrunt_config("${get_terragrunt_dir()}/../infra/terragrunt.hcl").inputs
+}
+
+dependency "infra" {
+  config_path = "../infra"
+}
+
 inputs = {
-  subscription_id      = "11111111-2222-3333-4444-555555555555"
-  location             = "eastus2"
-  namespace            = "acme"
-  environment          = "prod"
-  allowed_source_cidrs = ["198.51.100.20/32"]
-  postgres_server_id   = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.DBforPostgreSQL/flexibleServers/acme-prod-autoheal-db"
-  postgres_fqdn        = "acme-prod-autoheal-db.postgres.database.azure.com"
-  key_vault_id         = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.KeyVault/vaults/acme-prod-autoheal"
+  namespace            = local.infra.namespace
+  environment          = local.infra.environment
+  location             = local.infra.location
+  subscription_id      = local.infra.subscription_id
+  infra_values         = dependency.infra.outputs.autoheal_values
+  allowed_source_cidrs = concat(local.infra.workload_egress_ip_ranges, ["198.51.100.30/32"]) # the runner's egress_ip
   start_temporal       = false
 }
 ```

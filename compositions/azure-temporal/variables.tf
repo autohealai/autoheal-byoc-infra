@@ -80,7 +80,7 @@ variable "address_space" {
 
 variable "allowed_source_cidrs" {
   type        = list(string)
-  description = "Public ranges allowed to reach the VM on TCP 7233: the cluster's outbound addresses (for the app) and the runner's NAT IP (the egress_ip output of compositions/azure-runner). Nothing else gets in."
+  description = "Public ranges allowed to reach the VM on TCP 7233: the cluster's outbound addresses (for the app) and the runner's NAT IP (the egress_ip output of compositions/azure-runner). Nothing else gets in. The VM's own IP is left out, so workload_egress_ip_ranges of compositions/azure can be copied in whole."
 
   validation {
     condition     = length(var.allowed_source_cidrs) > 0
@@ -137,12 +137,20 @@ variable "ca_generations" {
   }
 }
 
+variable "infra_values" {
+  type        = any
+  default     = null
+  description = "The autoheal_values output of compositions/azure, as compositions/app takes it. With it, key_vault_id, postgres_server_id, postgres_fqdn and temporal_db_password can stay empty: we find the vault and the Postgres server in subscription_id by the names in it, and read the password from the vault. An input that is set wins."
+}
+
 variable "key_vault_id" {
   type        = string
-  description = "Resource ID of the install vault of compositions/azure, the one with runner-token. We write the two app keys there (and temporal-tls and temporal-ca with the private CA), and the VM reads its entries from it. The vault must use Azure RBAC and let in the temporal_ip output: see the README."
+  default     = ""
+  nullable    = false
+  description = "Resource ID of the install vault of compositions/azure, the one with runner-token. We write the two app keys there (and temporal-tls and temporal-ca with the private CA), and the VM reads its entries from it. The vault must use Azure RBAC and let in the temporal_ip output: see the README. Empty means the vault named global.infra.keyVault.name in infra_values, found in subscription_id."
 
   validation {
-    condition     = can(regex("(?i)^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.KeyVault/vaults/[^/]+$", var.key_vault_id))
+    condition     = var.key_vault_id == "" || can(regex("(?i)^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.KeyVault/vaults/[^/]+$", var.key_vault_id))
     error_message = "key_vault_id must be the resource ID of a Microsoft.KeyVault/vaults resource."
   }
 }
@@ -182,32 +190,38 @@ variable "runner_key_secret_name" {
 
 variable "postgres_server_id" {
   type        = string
-  description = "Resource ID of the install's Postgres flexible server, in subscription_id. We add a firewall rule on it for the load balancer's IP."
+  default     = ""
+  nullable    = false
+  description = "Resource ID of the install's Postgres flexible server, in subscription_id. We add a firewall rule on it for the load balancer's IP. Empty means the server of postgres_fqdn, found in subscription_id by its name."
 
   validation {
-    condition     = can(regex("(?i)^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.DBforPostgreSQL/flexibleServers/[^/]+$", var.postgres_server_id))
+    condition     = var.postgres_server_id == "" || can(regex("(?i)^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.DBforPostgreSQL/flexibleServers/[^/]+$", var.postgres_server_id))
     error_message = "postgres_server_id must be the resource ID of a Microsoft.DBforPostgreSQL/flexibleServers resource."
   }
 }
 
 variable "postgres_fqdn" {
   type        = string
-  description = "Host name of the same server, e.g. acme-prod-autoheal-db.postgres.database.azure.com: autoheal_values.global.infra.database.host of compositions/azure."
+  default     = ""
+  nullable    = false
+  description = "Host name of the same server, e.g. acme-prod-autoheal-db.postgres.database.azure.com: autoheal_values.global.infra.database.host of compositions/azure. Empty means that value in infra_values."
 
   validation {
-    condition     = can(regex("^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$", var.postgres_fqdn))
-    error_message = "postgres_fqdn must be a host name."
+    condition     = var.postgres_fqdn == "" || can(regex("^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$", var.postgres_fqdn))
+    error_message = "postgres_fqdn must be empty or a host name."
   }
 }
 
 variable "temporal_db_password" {
   type        = string
+  default     = ""
+  nullable    = false
   sensitive   = true
-  description = "Password of temporal_user, the owner of the temporal and temporal_visibility databases: the vault entry temporal-db-password that compositions/azure writes. Read it with: az keyvault secret show --vault-name <vault> --name temporal-db-password --query value -o tsv"
+  description = "Password of temporal_user, the owner of the temporal and temporal_visibility databases. Empty means we read it from the vault entry temporal-db-password that compositions/azure writes in key_vault_id: the Key Vault Secrets Officer role the apply needs there can read it."
 
   validation {
-    condition     = length(var.temporal_db_password) > 0 && !can(regex("[\\r\\n]", var.temporal_db_password))
-    error_message = "temporal_db_password must be set and fit on one line: the vault entry temporal-db-password."
+    condition     = !can(regex("[\\r\\n]", var.temporal_db_password))
+    error_message = "temporal_db_password must fit on one line: the vault entry temporal-db-password."
   }
 }
 

@@ -103,6 +103,9 @@ heartbeat in the last 60 seconds.
 | 5 app again | `compositions/app`, with `global.temporal.external: true`, `global.temporal.address` = `temporal_address`, `temporal.enabled: false`, `global.edge.runner.host: ""`, and the server name, CA and key entries below | step 4 |
 | 6 runner | `compositions/azure-runner`, with the outputs below | step 5 |
 
+Steps 5 and 6 need chart 1.0.0-rc.14 or later: it has
+`global.temporal.external`, and its runner-go reads `TEMPORAL_TLS_CA_FILE`.
+
 In step 2 the VM runs only the gate; nothing touches the database. The load
 balancer's probe fails while Temporal is off, so it sends no new connections
 to the VM yet. Work stops from step 3 until the runner polls again after

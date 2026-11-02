@@ -97,8 +97,8 @@ runner key (the vault entry `runner-token`). Take its outputs:
 - `temporal_ca_certificate` = its `temporal_ca_certificate`, with its private
   CA. Only runner-go's Temporal client trusts it (`TEMPORAL_TLS_CA_FILE`); git
   and the other HTTPS calls keep the public CAs. The runner-go image must read
-  that variable, as the one for the chart release with
-  `global.temporal.external` does; an older one fails the certificate check;
+  that variable, as the one for chart 1.0.0-rc.14 or later does; an older one
+  fails the certificate check;
 - `temporal_ip` = its `temporal_ip`.
 
 `temporal_tls` stays `true` and `temporal_token` is the `runner_token` output,

@@ -146,8 +146,9 @@ on a VM of its own, with TLS and a key on port 7233. It goes between infra and
 app, with Temporal installed but off; you start it once the in-cluster Temporal
 is gone, since two servers on one database break it. The comments at the top of
 `temporal/terragrunt.hcl` and the README of `compositions/azure-temporal` list
-the steps. The database password comes from the vault entry
-`temporal-db-password` as `TF_VAR_temporal_db_password`.
+the steps. The folder reads the rest from `infra`: its inputs, and through its
+`autoheal_values` output the vault, the Postgres server and the database
+password. Only the runner's address is typed.
 
 ## Upgrading
 

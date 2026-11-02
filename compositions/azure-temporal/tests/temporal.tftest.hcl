@@ -1,8 +1,8 @@
 # Runs of compositions/azure-temporal against mocked providers: names, the keys
 # and their vault entries, the private CA and the vault certificate, the VM's
 # role assignments on each entry, the Postgres firewall rule, the outputs
-# compositions/azure-runner takes, and the input checks. Nothing here reaches
-# Azure. vm.tftest.hcl tests the VM module itself (scale set, NSG, cloud-init);
+# compositions/azure-runner takes, the values found from infra_values, and the
+# input checks. Nothing here reaches Azure. vm.tftest.hcl tests the VM module itself (scale set, NSG, cloud-init);
 # ca.tftest.hcl tests the move to a new CA.
 #
 # Terraform 1.9 leaves generated values (random, tls, the IP) unknown in a
@@ -265,6 +265,146 @@ run "existing_resource_group" {
   }
 }
 
+# --- Values from compositions/azure ------------------------------------------
+
+# With infra_values and none of the four inputs, the vault and the Postgres
+# server are found by name and the password is read from the vault. The lookups
+# find the IDs the other runs type, so nothing changes.
+run "values_from_infra" {
+  command = plan
+
+  variables {
+    key_vault_id         = ""
+    postgres_server_id   = ""
+    postgres_fqdn        = ""
+    temporal_db_password = ""
+    infra_values = {
+      global = {
+        infra = {
+          keyVault = { name = "kv-acme-prod-autoheal" }
+          database = { host = "acme-prod-autoheal-db.postgres.database.azure.com" }
+        }
+      }
+    }
+  }
+
+  override_data {
+    target = data.azurerm_resources.key_vault
+    values = {
+      resources = [{
+        id                  = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.KeyVault/vaults/kv-acme-prod-autoheal"
+        name                = "kv-acme-prod-autoheal"
+        type                = "Microsoft.KeyVault/vaults"
+        location            = "eastus2"
+        resource_group_name = "rg-acme-prod-autoheal"
+        tags                = {}
+      }]
+    }
+  }
+  override_data {
+    target = data.azurerm_resources.postgres
+    values = {
+      resources = [{
+        id                  = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.DBforPostgreSQL/flexibleServers/acme-prod-autoheal-db"
+        name                = "acme-prod-autoheal-db"
+        type                = "Microsoft.DBforPostgreSQL/flexibleServers"
+        location            = "eastus2"
+        resource_group_name = "rg-acme-prod-autoheal"
+        tags                = {}
+      }]
+    }
+  }
+  override_data {
+    target = data.azurerm_key_vault_secret.temporal_db_password
+    values = { value = "placeholder-from-the-vault" }
+  }
+
+  assert {
+    condition     = data.azurerm_resources.key_vault[0].name == "kv-acme-prod-autoheal" && data.azurerm_resources.key_vault[0].type == "Microsoft.KeyVault/vaults"
+    error_message = "The vault must be looked up by global.infra.keyVault.name."
+  }
+  assert {
+    condition     = data.azurerm_resources.postgres[0].name == "acme-prod-autoheal-db" && data.azurerm_resources.postgres[0].type == "Microsoft.DBforPostgreSQL/flexibleServers"
+    error_message = "The Postgres server must be looked up by the first label of global.infra.database.host."
+  }
+  assert {
+    condition     = data.azurerm_key_vault_secret.temporal_db_password[0].name == "temporal-db-password" && data.azurerm_key_vault_secret.temporal_db_password[0].key_vault_id == "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.KeyVault/vaults/kv-acme-prod-autoheal"
+    error_message = "The password must be read from the entry temporal-db-password in the vault found."
+  }
+  assert {
+    condition     = nonsensitive(local.temporal_db_password) == "placeholder-from-the-vault" && local.postgres_fqdn == "acme-prod-autoheal-db.postgres.database.azure.com"
+    error_message = "The VM must get the password from the vault and the host from global.infra.database.host."
+  }
+  assert {
+    condition = (
+      azurerm_key_vault_secret.api_server_key.key_vault_id == "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.KeyVault/vaults/kv-acme-prod-autoheal" &&
+      azurerm_key_vault_secret.agents_key.key_vault_id == "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.KeyVault/vaults/kv-acme-prod-autoheal" &&
+      alltrue([for r in azurerm_role_assignment.vm_secrets : startswith(r.scope, "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.KeyVault/vaults/kv-acme-prod-autoheal/secrets/")])
+    )
+    error_message = "The keys and the role assignments must use the vault found."
+  }
+  assert {
+    condition     = azurerm_postgresql_flexible_server_firewall_rule.temporal.server_id == "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.DBforPostgreSQL/flexibleServers/acme-prod-autoheal-db"
+    error_message = "The firewall rule must go on the server found."
+  }
+}
+
+# An input that is set wins and skips its lookup.
+run "inputs_win_over_infra_values" {
+  command = plan
+
+  variables {
+    infra_values = {
+      global = {
+        infra = {
+          keyVault = { name = "kv-other" }
+          database = { host = "other-db.postgres.database.azure.com" }
+        }
+      }
+    }
+  }
+
+  assert {
+    condition = (
+      length(data.azurerm_resources.key_vault) == 0 && length(data.azurerm_resources.postgres) == 0 &&
+      length(data.azurerm_key_vault_secret.temporal_db_password) == 0
+    )
+    error_message = "With the four inputs set nothing is looked up or read."
+  }
+  assert {
+    condition     = local.key_vault_id == var.key_vault_id && local.postgres_server_id == var.postgres_server_id && local.postgres_fqdn == var.postgres_fqdn
+    error_message = "The inputs must win over infra_values."
+  }
+}
+
+# Without infra_values, postgres_fqdn alone finds the server.
+run "postgres_server_from_fqdn" {
+  command = plan
+
+  variables {
+    postgres_server_id = ""
+  }
+
+  override_data {
+    target = data.azurerm_resources.postgres
+    values = {
+      resources = [{
+        id                  = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.DBforPostgreSQL/flexibleServers/acme-prod-autoheal-db"
+        name                = "acme-prod-autoheal-db"
+        type                = "Microsoft.DBforPostgreSQL/flexibleServers"
+        location            = "eastus2"
+        resource_group_name = "rg-acme-prod-autoheal"
+        tags                = {}
+      }]
+    }
+  }
+
+  assert {
+    condition     = data.azurerm_resources.postgres[0].name == "acme-prod-autoheal-db" && azurerm_postgresql_flexible_server_firewall_rule.temporal.server_id == "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/rg-acme-prod-autoheal/providers/Microsoft.DBforPostgreSQL/flexibleServers/acme-prod-autoheal-db"
+    error_message = "postgres_fqdn alone must find the server for the firewall rule."
+  }
+}
+
 # --- Applied values ----------------------------------------------------------
 
 run "outputs_and_values" {
@@ -480,6 +620,44 @@ run "bad_key_vault_id_fails" {
   }
 
   expect_failures = [var.key_vault_id]
+}
+
+# A vault name in infra_values that is not in subscription_id.
+run "vault_not_found_fails" {
+  command = plan
+
+  variables {
+    key_vault_id = ""
+    infra_values = { global = { infra = { keyVault = { name = "kv-acme-prod-autoheal" } } } }
+  }
+
+  override_data {
+    target = data.azurerm_resources.key_vault
+    values = { resources = [] }
+  }
+
+  expect_failures = [data.azurerm_resources.key_vault]
+}
+
+run "no_vault_fails" {
+  command = plan
+
+  variables {
+    key_vault_id         = ""
+    temporal_db_password = ""
+  }
+
+  expect_failures = [terraform_data.validate_inputs, data.azurerm_key_vault_secret.temporal_db_password]
+}
+
+run "two_line_password_fails" {
+  command = plan
+
+  variables {
+    temporal_db_password = "line1\nline2"
+  }
+
+  expect_failures = [var.temporal_db_password]
 }
 
 # --- CA expiry ---------------------------------------------------------------

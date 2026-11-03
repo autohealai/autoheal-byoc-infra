@@ -1,7 +1,8 @@
 # The Temporal step, for an install whose cluster cannot host Temporal. One VM
 # (modules/azure/temporal-vm) runs the Temporal server against the install's
 # Postgres, behind a load balancer with one static IP. A gate on the VM takes
-# calls on <IP>:7233 over TLS and checks a key per call.
+# calls on <IP>:<client_port> (7233 by default) over TLS and checks a key per
+# call.
 #
 # This composition makes what the VM and its clients share, in the install
 # vault (key_vault_id): the api-server key and the agents key, and, without
@@ -354,6 +355,7 @@ module "temporal_vm" {
 
   address_space        = var.address_space
   allowed_source_cidrs = var.allowed_source_cidrs
+  client_port          = var.client_port
   vm_size              = var.vm_size
   start_temporal       = var.start_temporal
 

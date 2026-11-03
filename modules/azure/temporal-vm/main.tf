@@ -1,15 +1,15 @@
 # One VM that runs the Temporal server for an install whose cluster cannot host
-# it. The app and the runner reach it over the internet on TCP 7233, through a
-# gate on the VM (Envoy) that ends TLS and checks a key per call. Temporal
-# itself listens on 127.0.0.1 only.
+# it. The app and the runner reach it over the internet on TCP client_port
+# (7233 by default), through a gate on the VM (Envoy) on 7233 that ends TLS and
+# checks a key per call. Temporal itself listens on 127.0.0.1 only.
 #
 # The VM is the only instance of a scale set behind a Standard public load
-# balancer with one static IP. The load balancer forwards TCP 7233 and gives
-# the VM its outbound path on the same IP (an outbound rule), so clients and
-# firewalls (Postgres, Key Vault, the cluster's egress) see one address. The VM
-# has no public IP of its own and a VNet that is connected to nothing. The NSG
-# lets in TCP 7233 from allowed_source_cidrs, and the load balancer's probe,
-# and denies the rest, SSH included.
+# balancer with one static IP. The load balancer forwards TCP client_port to
+# the gate on 7233 and gives the VM its outbound path on the same IP (an
+# outbound rule), so clients and firewalls (Postgres, Key Vault, the cluster's
+# egress) see one address. The VM has no public IP of its own and a VNet that
+# is connected to nothing. The NSG lets in TCP 7233 from allowed_source_cidrs,
+# and the load balancer's probe, and denies the rest, SSH included.
 #
 # The scale set has exactly one instance, upgrade mode Manual and no
 # overprovisioning, so Azure never runs two of these VMs at once: two Temporal
@@ -62,6 +62,10 @@ resource "azurerm_subnet" "temporal" {
 # TCP 7233 from the allowed ranges, and the load balancer's probe on 7233 and
 # the health port. The explicit deny also covers Azure's default rules that let
 # in the VNet and the load balancer on any port.
+#
+# The NSG sees the port on the VM, 7233, whatever client_port is: floating IP
+# is off, so the load balancer changes the destination to the VM's address
+# and 7233 before the NSG checks the packet.
 #
 # The VM's own IP is left out of the ranges: a list copied from the install's
 # workload_egress_ip_ranges has it once the vault lets the VM in.
@@ -169,13 +173,18 @@ resource "azurerm_lb_probe" "health" {
   number_of_probes    = 2
 }
 
-# Outbound SNAT is off on this rule: the outbound rule below gives the VM its
-# path out on the same IP.
+# client_port on the IP to the gate on 7233. The name is for the gate's port,
+# 7233, and stays the same whatever client_port is: the name forces a new rule,
+# the frontend port does not, so a change of client_port updates this rule in
+# one write to the load balancer, with no moment without a rule. Without
+# floating IP, Azure allows one rule per backend port, so the load balancer
+# cannot serve 7233 and another port at once. Outbound SNAT is off on this
+# rule: the outbound rule below gives the VM its path out on the same IP.
 resource "azurerm_lb_rule" "temporal" {
   name                           = "temporal-7233"
   loadbalancer_id                = azurerm_lb.temporal.id
   protocol                       = "Tcp"
-  frontend_port                  = 7233
+  frontend_port                  = var.client_port
   backend_port                   = 7233
   frontend_ip_configuration_name = "public"
   backend_address_pool_ids       = [azurerm_lb_backend_address_pool.temporal.id]

@@ -33,7 +33,7 @@ variable "address_space" {
 
 variable "allowed_source_cidrs" {
   type        = list(string)
-  description = "Public ranges allowed to reach the gate on TCP 7233, such as the cluster's outbound addresses and the runner's NAT IP. Nothing else gets in: no SSH, no other port. The load balancer keeps the client's address, so the NSG sees it. The VM's own IP is left out, so a list copied from the install's workload_egress_ip_ranges works."
+  description = "Public ranges allowed to reach the gate (client_port on the load balancer, 7233 on the VM), such as the cluster's outbound addresses and the runner's NAT IP. Nothing else gets in: no SSH, no other port. The load balancer keeps the client's address, so the NSG sees it. The VM's own IP is left out, so a list copied from the install's workload_egress_ip_ranges works."
 
   validation {
     condition     = length(var.allowed_source_cidrs) > 0
@@ -45,6 +45,18 @@ variable "allowed_source_cidrs" {
       for c in var.allowed_source_cidrs : can(cidrhost(c, 0)) && try(cidrsubnet(c, 0, 0) == c, false) && !startswith(c, "0.0.0.0/")
     ])
     error_message = "Each entry of allowed_source_cidrs must be an IPv4 network address in CIDR form, such as 198.51.100.20/32, and not 0.0.0.0/0."
+  }
+}
+
+variable "client_port" {
+  type        = number
+  default     = 7233
+  nullable    = false
+  description = "TCP port clients dial on the load balancer's IP. The load balancer forwards it to the gate on 7233, so the NSG and the gate stay as they are. 443 suits a network that lets only HTTPS out, if its firewall passes the TLS through as it is: clients check the gate's certificate, so a firewall that decrypts and signs again breaks the call. Changing it updates the load balancer rule in place, and clients on the old port lose Temporal until they move. Azure takes 1 to 65534."
+
+  validation {
+    condition     = var.client_port >= 1 && var.client_port <= 65534 && floor(var.client_port) == var.client_port
+    error_message = "client_port must be a whole number from 1 to 65534, the frontend ports Azure takes."
   }
 }
 

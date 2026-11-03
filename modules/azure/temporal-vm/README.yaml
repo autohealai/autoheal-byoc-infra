@@ -2,10 +2,11 @@ name: azure/temporal-vm
 title: Autoheal BYOC - Azure Temporal VM
 description: |-
   One VM that runs the Temporal server for an install whose cluster cannot host
-  it. The app and the runner reach it over the internet on TCP 7233. Temporal
-  listens on 127.0.0.1 only. In front of it a gate (Envoy) ends TLS 1.3 and
-  checks a key on each call. Clients send authorization: Bearer <key>, and the
-  gate removes the header before the call goes on. Its routes, in order:
+  it. The app and the runner reach it over the internet on TCP client_port,
+  7233 by default. Temporal listens on 127.0.0.1 only. In front of it a gate
+  (Envoy) on 7233 ends TLS 1.3 and checks a key on each call. Clients send
+  authorization: Bearer <key>, and the gate removes the header before the call
+  goes on. Its routes, in order:
 
   1. /grpc.health.v1.Health/ with any valid key.
   2. The runner key: the WorkflowService calls in runner_allowed_methods.
@@ -32,12 +33,15 @@ description: |-
   refresh fails, the gate keeps the last good keys and certificate.
 
   The VM is the only instance of a scale set behind a Standard public load
-  balancer with one static IP. The load balancer forwards TCP 7233 and gives
-  the VM its way out on the same IP (an outbound rule), so Postgres, Key Vault
-  and the clients' firewalls see one address. The VM has no public IP of its
-  own and a VNet that is connected to nothing. The NSG lets in TCP 7233 from
-  allowed_source_cidrs and the load balancer (AzureLoadBalancer) on 7233
-  and health_port, and denies the rest, SSH included. Password login is off;
+  balancer with one static IP. The load balancer forwards TCP client_port to
+  the gate on 7233 and gives the VM its way out on the same IP (an outbound
+  rule), so Postgres, Key Vault and the clients' firewalls see one address. The
+  VM has no public IP of its own and a VNet that is connected to nothing. The
+  NSG lets in TCP 7233 from allowed_source_cidrs and the load balancer
+  (AzureLoadBalancer) on 7233 and health_port, and denies the rest, SSH
+  included. It sees 7233 whatever client_port is: floating IP is off, so the
+  load balancer changes the destination to the VM's address and 7233 before
+  the NSG checks it. Password login is off;
   az vmss run-command reaches the host. Temporal keeps its data in Postgres
   (the temporal and temporal_visibility databases), so the VM holds no
   state. It connects with sslmode verify-full: the server's name and chain

@@ -142,9 +142,10 @@ autoheal-byoc-infra's `docs/azure-two-subscriptions-public-runbook.md` has the
 commands and the checks.
 
 When the cluster cannot run the Temporal server, `split-istio/temporal` runs it
-on a VM of its own, with TLS and a key on port 7233. It goes between infra and
-app, with Temporal installed but off; you start it once the in-cluster Temporal
-is gone, since two servers on one database break it. The comments at the top of
+on a VM of its own, with TLS and a key on port 7233, or on `client_port`, such
+as 443. It goes between infra and app, with Temporal installed but off; you
+start it once the in-cluster Temporal is gone, since two servers on one
+database break it. The comments at the top of
 `temporal/terragrunt.hcl` and the README of `compositions/azure-temporal` list
 the steps. The folder reads the rest from `infra`: its inputs, and through its
 `autoheal_values` output the vault, the Postgres server and the database

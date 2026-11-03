@@ -11,8 +11,9 @@
 #
 # When the cluster cannot host Temporal, compositions/azure-temporal runs it on
 # a VM with a public IP, behind a gate that takes TLS and the same runner key.
-# The runner dials that IP (or its DNS name) on 7233, and temporal_ip tells the
-# runner VMs to keep every container but runner-go away from it.
+# The runner dials that IP (or its DNS name) on the VM's client_port, 7233 by
+# default, and temporal_ip tells the runner VMs to keep every container but
+# runner-go away from that IP and port.
 #
 # The runner only dials out. This composition never reads the cluster or its
 # subscription: the address is an input, and the network owner opens the path
@@ -116,7 +117,7 @@ resource "terraform_data" "validate_inputs" {
     }
     precondition {
       condition     = var.temporal_ip == "" || !can(cidrhost("${local.temporal_host}/32", 0)) || local.temporal_host == var.temporal_ip
-      error_message = "temporal_address is on ${local.temporal_host}, but temporal_ip is ${var.temporal_ip}. With temporal_ip, use the temporal_address output of compositions/azure-temporal: <temporal_ip>:7233, or its dns_name on 7233."
+      error_message = "temporal_address is on ${local.temporal_host}, but temporal_ip is ${var.temporal_ip}. With temporal_ip, use the temporal_address output of compositions/azure-temporal: <temporal_ip>:<client_port>, or its dns_name on client_port (7233 by default)."
     }
     precondition {
       condition     = var.temporal_ip == "" || !can(cidrhost("${local.temporal_host}/32", 0)) || var.temporal_server_name != ""

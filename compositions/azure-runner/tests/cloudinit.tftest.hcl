@@ -195,6 +195,51 @@ run "custom_runner_network" {
   }
 }
 
+# A Temporal VM on client_port 443: the rule takes the port of temporal_host.
+run "temporal_ip_on_443" {
+  command = apply
+
+  module {
+    source = "../../modules/azure/runner-vmss"
+  }
+
+  variables {
+    temporal_host = "198.51.100.7:443"
+    temporal_ip   = "198.51.100.7"
+  }
+
+  assert {
+    condition = [for f in yamldecode(nonsensitive(local.cloud_init)).write_files : [for l in split("\n", f.content) : trimspace(l) if strcontains(l, "iptables")] if f.path == "/usr/local/bin/block-imds.sh"][0] == [
+      "iptables -w -C DOCKER-USER -d 169.254.169.254/32 -p tcp -j REJECT --reject-with tcp-reset 2>/dev/null ||",
+      "iptables -w -I DOCKER-USER -d 169.254.169.254/32 -p tcp -j REJECT --reject-with tcp-reset",
+      "iptables -w -C DOCKER-USER ! -s 172.31.255.240/28 -d 198.51.100.7/32 -p tcp --dport 443 -j REJECT --reject-with tcp-reset 2>/dev/null ||",
+      "iptables -w -I DOCKER-USER ! -s 172.31.255.240/28 -d 198.51.100.7/32 -p tcp --dport 443 -j REJECT --reject-with tcp-reset",
+    ]
+    error_message = "With temporal_host on 443 the rule resets 443 to the Temporal VM for every source outside the runner network."
+  }
+
+  assert {
+    condition     = strcontains(nonsensitive(local.cloud_init), "      # the Temporal VM on TCP 443. Any other container, a sandbox included,\n")
+    error_message = "The comment over the rule names the port."
+  }
+}
+
+# Without a port in temporal_host the rule has no port to reset.
+run "temporal_ip_needs_a_port" {
+  command = plan
+
+  module {
+    source = "../../modules/azure/runner-vmss"
+  }
+
+  variables {
+    temporal_host = "temporal.acme.example"
+    temporal_ip   = "198.51.100.7"
+  }
+
+  expect_failures = [azurerm_linux_virtual_machine_scale_set.runner]
+}
+
 run "temporal_ip_must_be_ipv4" {
   command = plan
 

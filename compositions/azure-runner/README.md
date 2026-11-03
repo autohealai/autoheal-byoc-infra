@@ -91,8 +91,8 @@ When the cluster cannot host Temporal, `compositions/azure-temporal` runs it on
 a VM with a static public IP, behind a gate that takes TLS 1.3 and the same
 runner key (the vault entry `runner-token`). Take its outputs:
 
-- `temporal_address` = its `temporal_address` (`<temporal_ip>:7233`, or its
-  `dns_name` on 7233);
+- `temporal_address` = its `temporal_address` (`<temporal_ip>:<client_port>`,
+  or its `dns_name` on that port; `client_port` is 7233 unless you set it);
 - `temporal_server_name` = its `temporal_server_name`;
 - `temporal_ca_certificate` = its `temporal_ca_certificate`, with its private
   CA. Only runner-go's Temporal client trusts it (`TEMPORAL_TLS_CA_FILE`); git
@@ -107,9 +107,9 @@ as through the edge. The VM's certificate holds names only, no IP, so with
 `temporal_server_name`; it also refuses `temporal_tls = false`. With
 `temporal_ip` set, runner-go runs on a Docker network of its own on each VM
 (`runner_network_cidr`), and a firewall rule next to the metadata rule resets
-TCP 7233 to that IP from any other container, sandboxes included. Sandboxes
-stay on Docker's default bridge; runner-go drives them through the Docker
-socket, not over the network. With `temporal_ip` empty the VMs' cloud-init is
+TCP on the port of `temporal_address` to that IP from any other container,
+sandboxes included. Sandboxes stay on Docker's default bridge; runner-go
+drives them through the Docker socket, not over the network. With `temporal_ip` empty the VMs' cloud-init is
 the same, byte for byte, as before it existed.
 
 The runner reaches the VM over the internet, from the NAT gateway's IP
@@ -165,7 +165,7 @@ one on the subnet if your policy needs it; the runner needs no inbound rule.
 | `temporal_token` | `""` | Sensitive. The runner key: the `runner_token` output of `compositions/azure`. Required with `temporal_tls`, empty without. Letters and digits, at least 32. |
 | `temporal_server_name` | `""` | Host name to check in the edge certificate. Empty means the host of `temporal_address`. On a Temporal VM, its `temporal_server_name` output. |
 | `temporal_ca_certificate` | `""` | PEM of a private CA that signed the edge certificate, such as the `edge_ca_certificate` of `compositions/azure`, or the `temporal_ca_certificate` of `compositions/azure-temporal` (two CAs while it moves to a new CA). Through the edge, runner-go trusts it on top of the public CAs. With `temporal_ip`, only its Temporal client trusts it. |
-| `temporal_ip` | `""` | The `temporal_ip` output of `compositions/azure-temporal`. Puts runner-go on its own Docker network and keeps other containers off TCP 7233 to that IP. Needs `temporal_tls`. An IP in `temporal_address` must be this one. Empty changes nothing on the VMs. |
+| `temporal_ip` | `""` | The `temporal_ip` output of `compositions/azure-temporal`. Puts runner-go on its own Docker network and keeps other containers off that IP on the port of `temporal_address`. Needs `temporal_tls`. An IP in `temporal_address` must be this one. Empty changes nothing on the VMs. |
 | `runner_network_cidr` | `172.31.255.240/28` | With `temporal_ip`, the range of runner-go's own Docker network. Change it when it overlaps the VNet, a route the runner uses, or Docker's default bridge. |
 | `tool_response_url` | `""` | Empty sends tool results through Temporal. With the runner load balancers it may be `http://<address>:8083/api/v1/internal/sandbox-tool-responses`. An `http://` URL must be a private IPv4 address; `https://` may be any host. |
 | `chart_version` | required | The chart version of the app step. The image tag is `chart-<chart_version>`. |
@@ -269,5 +269,5 @@ mocked provider and compares its cloud-init with `tests/fixtures/`: the
 cloud-init of the release before `temporal_ip`, rendered from that release's
 template, once with the defaults and once with every option. Without
 `temporal_ip` it must match byte for byte, and the custom data must be its
-base64. With `temporal_ip` it must add the runner network and the 7233 rule and
-nothing else.
+base64. With `temporal_ip` it must add the runner network and the rule for
+the port of `temporal_address` (7233 renders as in 4.5.0), and nothing else.

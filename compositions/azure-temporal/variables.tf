@@ -80,7 +80,7 @@ variable "address_space" {
 
 variable "allowed_source_cidrs" {
   type        = list(string)
-  description = "Public ranges allowed to reach the VM on TCP 7233: the cluster's outbound addresses (for the app) and the runner's NAT IP (the egress_ip output of compositions/azure-runner). Nothing else gets in. The VM's own IP is left out, so workload_egress_ip_ranges of compositions/azure can be copied in whole."
+  description = "Public ranges allowed to reach Temporal on client_port: the cluster's outbound addresses (for the app) and the runner's NAT IP (the egress_ip output of compositions/azure-runner). Nothing else gets in. The VM's own IP is left out, so workload_egress_ip_ranges of compositions/azure can be copied in whole."
 
   validation {
     condition     = length(var.allowed_source_cidrs) > 0
@@ -92,6 +92,18 @@ variable "allowed_source_cidrs" {
       for c in var.allowed_source_cidrs : can(cidrhost(c, 0)) && try(cidrsubnet(c, 0, 0) == c, false) && !startswith(c, "0.0.0.0/")
     ])
     error_message = "Each entry of allowed_source_cidrs must be an IPv4 network address in CIDR form, such as 198.51.100.20/32, and not 0.0.0.0/0."
+  }
+}
+
+variable "client_port" {
+  type        = number
+  default     = 7233
+  nullable    = false
+  description = "TCP port clients dial on temporal_ip, and the port in the temporal_address output. The load balancer forwards it to the gate on 7233. Use 443 when your network lets only HTTPS out: its firewall must then pass the TLS through as it is (no TLS inspection), and, if it allows names rather than addresses, it checks the name clients send, temporal_server_name, so set dns_name. Changing it updates the load balancer rule in place: clients on the old port lose Temporal until the app and the runner move to the new temporal_address. Azure takes 1 to 65534."
+
+  validation {
+    condition     = var.client_port >= 1 && var.client_port <= 65534 && floor(var.client_port) == var.client_port
+    error_message = "client_port must be a whole number from 1 to 65534, the frontend ports Azure takes."
   }
 }
 

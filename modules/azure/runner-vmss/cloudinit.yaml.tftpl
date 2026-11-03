@@ -145,10 +145,10 @@ write_files:
         iptables -w -I DOCKER-USER -d 169.254.169.254/32 -p tcp -j REJECT --reject-with tcp-reset
 %{ if temporal_ip != "" ~}
       # Only runner-go, on its own network (${runner_network_cidr}), may reach
-      # the Temporal VM on TCP 7233. Any other container, a sandbox included,
+      # the Temporal VM on TCP ${temporal_port}. Any other container, a sandbox included,
       # gets a reset. The gate on the VM checks the key too.
-      iptables -w -C DOCKER-USER ! -s ${runner_network_cidr} -d ${temporal_ip}/32 -p tcp --dport 7233 -j REJECT --reject-with tcp-reset 2>/dev/null ||
-        iptables -w -I DOCKER-USER ! -s ${runner_network_cidr} -d ${temporal_ip}/32 -p tcp --dport 7233 -j REJECT --reject-with tcp-reset
+      iptables -w -C DOCKER-USER ! -s ${runner_network_cidr} -d ${temporal_ip}/32 -p tcp --dport ${temporal_port} -j REJECT --reject-with tcp-reset 2>/dev/null ||
+        iptables -w -I DOCKER-USER ! -s ${runner_network_cidr} -d ${temporal_ip}/32 -p tcp --dport ${temporal_port} -j REJECT --reject-with tcp-reset
 %{ endif ~}
   - path: /usr/local/bin/runner-pull.sh
     permissions: '0755'

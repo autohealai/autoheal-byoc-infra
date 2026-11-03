@@ -20,7 +20,9 @@ chart stays 1.0.0-rc.14.
   `redis_security_group_ids`. When set, the cluster or the cache uses those
   groups and we create no security group or rule for it;
   `required_datastore_owner_actions` lists the rule the groups' owner adds.
-  The plan stops when one is set for a brought data store.
+  They need `existing_network`. The plan stops when one is set for a brought
+  data store or without `existing_network`, and when a group is in another
+  VPC.
 - `compositions/aws`: `postgres_monitoring_interval` (default 60). 0 turns
   Enhanced Monitoring off and creates no monitoring role.
 - `modules/aws/aurora-postgres`, `modules/aws/elasticache`:

@@ -300,12 +300,21 @@ run "bad_postgres_monitoring_interval" {
   expect_failures = [var.postgres_monitoring_interval]
 }
 
-run "redis_security_groups_with_redis_off" {
+run "bad_redis_security_group_id" {
   command = plan
 
   variables {
-    redis_enabled            = false
-    redis_security_group_ids = ["sg-0abcdef0123456789"]
+    redis_security_group_ids = ["sg-ACME"]
+  }
+
+  expect_failures = [var.redis_security_group_ids]
+}
+
+run "data_security_groups_with_created_network" {
+  command = plan
+
+  variables {
+    postgres_security_group_ids = ["sg-0abcdef0123456789"]
   }
 
   expect_failures = [terraform_data.validate_inputs]

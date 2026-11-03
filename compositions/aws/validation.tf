@@ -77,6 +77,10 @@ resource "terraform_data" "validate_inputs" {
       error_message = "redis_security_group_ids is set but we create no ElastiCache replication group (existing_redis_arn is set or redis_enabled is false). Clear redis_security_group_ids."
     }
     precondition {
+      condition     = length(concat(var.postgres_security_group_ids, var.redis_security_group_ids)) == 0 || !local.create_network
+      error_message = "postgres_security_group_ids or redis_security_group_ids is set but existing_network is not. A security group belongs to one VPC, and a VPC we create has none yet: set existing_network to the VPC the groups are in, or clear these inputs."
+    }
+    precondition {
       condition     = length(local.registry_prefix) >= 2
       error_message = "The ECR repository prefix ${local.registry_prefix} is too short. Set registry_repository_prefix."
     }
@@ -222,6 +226,28 @@ resource "terraform_data" "edge_sg_guard" {
     precondition {
       condition     = data.aws_security_group.edge[0].vpc_id == local.vpc_id
       error_message = "Security group ${var.existing_edge_security_group_id} (existing_edge_security_group_id) is in VPC ${data.aws_security_group.edge[0].vpc_id}, not ${local.vpc_id}, the VPC Autoheal runs in. A load balancer can only use a security group from its own VPC."
+    }
+  }
+}
+
+# The security groups given for the Aurora cluster and ElastiCache we create.
+# A group from another VPC would only fail at CreateDBCluster, after most of the
+# install exists.
+data "aws_security_group" "datastore" {
+  for_each = local.create_network ? toset([]) : toset(concat(
+    local.create_postgres ? var.postgres_security_group_ids : [],
+    local.create_redis ? var.redis_security_group_ids : [],
+  ))
+  id = each.value
+}
+
+resource "terraform_data" "datastore_sg_guard" {
+  for_each = data.aws_security_group.datastore
+
+  lifecycle {
+    precondition {
+      condition     = each.value.vpc_id == local.vpc_id
+      error_message = "Security group ${each.key} (postgres_security_group_ids or redis_security_group_ids) is in VPC ${each.value.vpc_id}, not ${local.vpc_id}, the VPC Autoheal runs in. The database and the cache can only use security groups from their own VPC."
     }
   }
 }

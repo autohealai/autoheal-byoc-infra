@@ -3,11 +3,11 @@
 # modules/azure/postgres-flexible.
 #
 # The cluster is reachable only through its own security group (security-group.tf)
-# from the allowed security groups and CIDRs, or through security_group_ids. Storage, snapshots and Performance
-# Insights use kms_key_arn. rds.force_ssl = 1 in the cluster parameter group
-# rejects plain TCP connections. Exported logs go to log groups this module
-# creates first, so it sets their retention and encryption rather than RDS
-# creating them with no expiry.
+# from the allowed security groups and CIDRs, or through security_group_ids.
+# Storage, snapshots and Performance Insights use kms_key_arn. rds.force_ssl = 1
+# in the cluster parameter group rejects plain TCP connections. Exported logs go
+# to log groups this module creates first, so it sets their retention and
+# encryption rather than RDS creating them with no expiry.
 #
 # Engine version: "16.11" pins the minor version. AWS still applies automatic
 # minor upgrades when auto_minor_version_upgrade is true; the provider (6.59 and

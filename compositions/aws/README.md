@@ -57,7 +57,13 @@ cluster and the ElastiCache group we create existing security groups. We then
 create no security group or rule for them, and
 `required_datastore_owner_actions` lists the rule the groups' owner adds.
 `postgres_monitoring_interval = 0` turns Enhanced Monitoring off, so we create
-no monitoring role.
+no monitoring role. The groups need `existing_network`, and the plan stops when
+one is in another VPC. With a cluster we create and no
+`existing_network.node_security_group_id`, the pods' security group is known
+only after the first apply, so the owner adds the rule then, before the chart
+installs. Setting these inputs on a running install moves the data stores to
+the given groups and deletes ours in the same apply, so have the owner add the
+rule first.
 
 With the `existing_*_role_arn` inputs we create no workload IAM role and bind
 the service accounts to the brought roles. `required_role_policies` gives the

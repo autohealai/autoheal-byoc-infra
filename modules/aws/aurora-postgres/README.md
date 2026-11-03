@@ -38,7 +38,9 @@ the repo's null-label convention (see `label.tf` and
 - **Existing security groups.** With `security_group_ids` the cluster uses
   those groups and the module creates no security group or rule, so the
   groups' owner allows the database port. For deployers that may not create
-  security groups. Clearing it later creates the module's own group.
+  security groups. Clearing it later creates the module's own group. Setting
+  it on a running cluster moves the cluster to those groups and deletes the
+  module's group in the same apply, so have the owner allow the port first.
 - **Log encryption.** When `log_kms_key_arn` is set, its key policy must allow
   the CloudWatch Logs service (modules/aws/kms `cloudwatch_logs_enabled`).
 - **Destroy.** Set `deletion_protection = false` and apply before a destroy. The

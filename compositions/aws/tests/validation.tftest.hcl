@@ -280,6 +280,46 @@ run "redis_arn_with_redis_off" {
   expect_failures = [terraform_data.validate_inputs]
 }
 
+run "bad_postgres_security_group_id" {
+  command = plan
+
+  variables {
+    postgres_security_group_ids = ["acme-db"]
+  }
+
+  expect_failures = [var.postgres_security_group_ids]
+}
+
+run "bad_postgres_monitoring_interval" {
+  command = plan
+
+  variables {
+    postgres_monitoring_interval = 20
+  }
+
+  expect_failures = [var.postgres_monitoring_interval]
+}
+
+run "bad_redis_security_group_id" {
+  command = plan
+
+  variables {
+    redis_security_group_ids = ["sg-ACME"]
+  }
+
+  expect_failures = [var.redis_security_group_ids]
+}
+
+run "data_security_groups_with_created_network" {
+  command = plan
+
+  variables {
+    postgres_security_group_ids = ["sg-0abcdef0123456789"]
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}
+
 run "brought_cluster_without_network" {
   command = plan
 

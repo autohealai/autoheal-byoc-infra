@@ -6,7 +6,7 @@
 # token. Data at rest, including snapshots, is encrypted with the caller's KMS
 # key. Slow log and engine log go to CloudWatch log groups this module creates,
 # so it sets their retention and encryption. The cache is reachable only through
-# its own security group (security-group.tf).
+# its own security group (security-group.tf), or through security_group_ids.
 #
 # Naming and tags come from the null-label base (module.this); see label.tf.
 
@@ -82,7 +82,7 @@ resource "aws_elasticache_replication_group" "this" {
   multi_az_enabled           = var.multi_az_enabled
 
   subnet_group_name  = aws_elasticache_subnet_group.this.name
-  security_group_ids = [aws_security_group.this.id]
+  security_group_ids = local.security_group_ids
 
   transit_encryption_enabled = true
   transit_encryption_mode    = "required"

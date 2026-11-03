@@ -6,6 +6,34 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [4.4.0] - 2026-11-02
+
+On AWS, the Aurora cluster and the ElastiCache group we create can use
+existing security groups, and Enhanced Monitoring can be turned off. A
+deployer that may not create security groups or IAM roles can then still
+create the data stores. An install on 4.3.1 that keeps its inputs plans no
+change: the security groups move to a new address with a `moved` block. The
+chart stays 1.0.0-rc.14.
+
+### Added
+- `compositions/aws`: `postgres_security_group_ids` and
+  `redis_security_group_ids`. When set, the cluster or the cache uses those
+  groups and we create no security group or rule for it;
+  `required_datastore_owner_actions` lists the rule the groups' owner adds.
+  They need `existing_network`. The plan stops when one is set for a brought
+  data store or without `existing_network`, and when a group is in another
+  VPC.
+- `compositions/aws`: `postgres_monitoring_interval` (default 60). 0 turns
+  Enhanced Monitoring off and creates no monitoring role.
+- `modules/aws/aurora-postgres`, `modules/aws/elasticache`:
+  `security_group_ids`, and the `security_group_ids` output, the groups in use.
+- `modules/aws/aurora-postgres`: the `monitoring_role_arn` output.
+
+### Changed
+- `modules/aws/aurora-postgres`, `modules/aws/elasticache`: the
+  `security_group_id` output is null when `security_group_ids` is set.
+- Examples and docs pin v4.4.0.
+
 ## [4.3.1] - 2026-11-02
 
 The Temporal unit takes its values from the infra unit, so a customer types

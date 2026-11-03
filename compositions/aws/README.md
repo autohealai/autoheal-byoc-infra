@@ -51,6 +51,20 @@ We change no security group of a brought database or Redis.
 connect. With `existing_edge_security_group_id` we add no security group rule
 at all; `required_edge_owner_actions` lists the rules.
 
+For a deployer that may not create security groups or IAM roles,
+`postgres_security_group_ids` and `redis_security_group_ids` give the Aurora
+cluster and the ElastiCache group we create existing security groups. We then
+create no security group or rule for them, and
+`required_datastore_owner_actions` lists the rule the groups' owner adds.
+`postgres_monitoring_interval = 0` turns Enhanced Monitoring off, so we create
+no monitoring role. The groups need `existing_network`, and the plan stops when
+one is in another VPC. With a cluster we create and no
+`existing_network.node_security_group_id`, the pods' security group is known
+only after the first apply, so the owner adds the rule then, before the chart
+installs. Setting these inputs on a running install moves the data stores to
+the given groups and deletes ours in the same apply, so have the owner add the
+rule first.
+
 With the `existing_*_role_arn` inputs we create no workload IAM role and bind
 the service accounts to the brought roles. `required_role_policies` gives the
 trust policy and the inline policies to attach to each. Those policies name the
@@ -262,7 +276,7 @@ the chart pulls from your mirror, which must hold the images under `app/` and
 | `required_role_assignments` | Pod Identity association commands for an administrator, filled when `create_pod_identity_associations = false`. |
 | `required_dns_records` | Records for a person to create (`name`, `type`, `value`), filled when we do not create them. |
 | `required_cluster_owner_actions` | What the owner of a brought cluster must do, as readable lines: an access entry and IAM permissions for the deployer, the Pod Identity agent and Secrets Store CSI add-ons, and, when they apply, the AWS Load Balancer Controller (`loadbalancer` mode), a path to a private API endpoint and image pull access for the nodes. Filled only with `existing_eks_cluster_arn`. |
-| `required_datastore_owner_actions` | What the owner of a brought database or Redis must do: a security group rule letting the pods in on its port. Filled only with `existing_postgres_arn` or `existing_redis_arn`. |
+| `required_datastore_owner_actions` | What the owner of a brought database or Redis, or of the security groups given for one we create, must do: a security group rule letting the pods in on its port. Filled only with `existing_postgres_arn`, `existing_redis_arn`, `postgres_security_group_ids` or `redis_security_group_ids`. |
 | `required_edge_owner_actions` | What the owner of a brought edge security group must do: listener ingress from the clients, egress to the proxy pods, and ingress on the nodes' security group from it. Filled only with `existing_edge_security_group_id` in `loadbalancer` mode. |
 | `required_role_policies` | Per workload role (`secrets`, `api_server`, `agents_worker`): the service accounts, the Pod Identity trust policy and the inline policy JSON. For a central team that creates the roles (`existing_*_role_arn`). Always filled. |
 | `network` | `vpc_id`, `vpc_cidr_block`, `private_subnet_ids`, `data_subnet_ids`, `public_subnet_ids`. |

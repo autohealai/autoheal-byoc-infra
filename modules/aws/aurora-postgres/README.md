@@ -6,8 +6,9 @@ encrypted with the caller's KMS key, and TLS required through `rds.force_ssl` in
 the cluster parameter group.
 
 The module creates its own security group (ingress on the database port only
-from the allowed security groups and CIDRs), the DB subnet group, the cluster
-parameter group (family from the major version), the Enhanced Monitoring role
+from the allowed security groups and CIDRs) unless `security_group_ids` is set,
+the DB subnet group, the cluster parameter group (family from the major
+version), the Enhanced Monitoring role (`monitoring_interval = 0` turns it off)
 and the CloudWatch log groups for exported logs. Deletion protection and a final
 snapshot are on by default.
 
@@ -34,6 +35,12 @@ the repo's null-label convention (see `label.tf` and
 - **Static parameters.** List static parameter names (for example
   `shared_preload_libraries`) in `cluster_parameters_pending_reboot`; they take
   effect after the next reboot.
+- **Existing security groups.** With `security_group_ids` the cluster uses
+  those groups and the module creates no security group or rule, so the
+  groups' owner allows the database port. For deployers that may not create
+  security groups. Clearing it later creates the module's own group. Setting
+  it on a running cluster moves the cluster to those groups and deletes the
+  module's group in the same apply, so have the owner allow the port first.
 - **Log encryption.** When `log_kms_key_arn` is set, its key policy must allow
   the CloudWatch Logs service (modules/aws/kms `cloudwatch_logs_enabled`).
 - **Destroy.** Set `deletion_protection = false` and apply before a destroy. The
@@ -122,6 +129,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_port"></a> [port](#input\_port) | Port the cluster listens on. | `number` | `5432` | no |
 | <a name="input_preferred_backup_window"></a> [preferred\_backup\_window](#input\_preferred\_backup\_window) | Daily backup window in UTC (hh24:mi-hh24:mi). Must not overlap the maintenance window. | `string` | `"07:00-09:00"` | no |
 | <a name="input_preferred_maintenance_window"></a> [preferred\_maintenance\_window](#input\_preferred\_maintenance\_window) | Weekly maintenance window in UTC (ddd:hh24:mi-ddd:hh24:mi), used by the cluster and its instances. | `string` | `"sun:09:30-sun:10:30"` | no |
+| <a name="input_security_group_ids"></a> [security\_group\_ids](#input\_security\_group\_ids) | Existing security groups for the cluster. When set, the module creates no security group and no rule, and allowed\_security\_group\_ids and allowed\_cidr\_blocks are not used: the groups' owner allows the database port. | `list(string)` | `[]` | no |
 | <a name="input_serverless_max_capacity"></a> [serverless\_max\_capacity](#input\_serverless\_max\_capacity) | Maximum Aurora capacity units per instance when instance\_class is db.serverless. | `number` | `16` | no |
 | <a name="input_serverless_min_capacity"></a> [serverless\_min\_capacity](#input\_serverless\_min\_capacity) | Minimum Aurora capacity units per instance when instance\_class is db.serverless. 0 lets idle instances pause. | `number` | `0.5` | no |
 | <a name="input_skip_final_snapshot"></a> [skip\_final\_snapshot](#input\_skip\_final\_snapshot) | Skip the final snapshot on delete. When false the snapshot is named <cluster>-final-<random hex>. | `bool` | `false` | no |
@@ -139,7 +147,9 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="output_cluster_resource_id"></a> [cluster\_resource\_id](#output\_cluster\_resource\_id) | Cluster resource ID (cluster-...), used in rds-db:connect IAM policies. |
 | <a name="output_endpoint"></a> [endpoint](#output\_endpoint) | Writer endpoint hostname. |
 | <a name="output_master_username"></a> [master\_username](#output\_master\_username) | Master user name. |
+| <a name="output_monitoring_role_arn"></a> [monitoring\_role\_arn](#output\_monitoring\_role\_arn) | ARN of the Enhanced Monitoring role the module created. Null with monitoring\_interval 0. |
 | <a name="output_port"></a> [port](#output\_port) | Port the cluster listens on. |
 | <a name="output_reader_endpoint"></a> [reader\_endpoint](#output\_reader\_endpoint) | Reader endpoint hostname. It resolves to the writer while the cluster has no readers. |
-| <a name="output_security_group_id"></a> [security\_group\_id](#output\_security\_group\_id) | ID of the cluster's security group. |
+| <a name="output_security_group_id"></a> [security\_group\_id](#output\_security\_group\_id) | ID of the security group the module created. Null with security\_group\_ids. |
+| <a name="output_security_group_ids"></a> [security\_group\_ids](#output\_security\_group\_ids) | Security groups the cluster uses: the one the module created, or security\_group\_ids. |
 <!-- END_TF_DOCS -->

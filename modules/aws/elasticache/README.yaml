@@ -8,8 +8,8 @@ description: |-
   Clients must use TLS and the AUTH token. Data at rest and snapshots are
   encrypted with the caller's KMS key. Slow log and engine log go to CloudWatch
   log groups the module creates. The module also creates its own security group
-  (ingress on the cache port only from the allowed security groups and CIDRs),
-  the subnet group and a parameter group whose family follows the engine and
+  (ingress on the cache port only from the allowed security groups and CIDRs)
+  unless security_group_ids is set, the subnet group and a parameter group whose family follows the engine and
   major version (valkey8, redis7).
 
   The Azure analogue is modules/azure/managed-redis. Naming and tags follow the repo's

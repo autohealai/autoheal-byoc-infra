@@ -7,8 +7,9 @@ description: |-
   rds.force_ssl in the cluster parameter group.
 
   The module creates its own security group (ingress on the database port only
-  from the allowed security groups and CIDRs), the DB subnet group, the cluster
-  parameter group (family from the major version), the Enhanced Monitoring role
+  from the allowed security groups and CIDRs) unless security_group_ids is set,
+  the DB subnet group, the cluster parameter group (family from the major
+  version), the Enhanced Monitoring role (monitoring_interval 0 turns it off)
   and the CloudWatch log groups for exported logs. Deletion protection and a
   final snapshot are on by default.
 

@@ -6,8 +6,14 @@
 # unknown at plan time. The rules are indexed by position (count over the list
 # length, which is known) rather than keyed by value. CIDR blocks come from
 # configuration and are keyed by value.
+#
+# With security_group_ids the cluster uses those groups instead: we create no
+# security group and no rule, so their owner allows the database port.
+# allowed_security_group_ids and allowed_cidr_blocks are then not used.
 
 resource "aws_security_group" "this" {
+  count = local.create_security_group ? 1 : 0
+
   name_prefix = "${local.cluster_identifier}-"
   description = "Aurora PostgreSQL ${local.cluster_identifier}"
   vpc_id      = var.vpc_id
@@ -20,9 +26,9 @@ resource "aws_security_group" "this" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "from_security_groups" {
-  count = length(var.allowed_security_group_ids)
+  count = local.create_security_group ? length(var.allowed_security_group_ids) : 0
 
-  security_group_id            = aws_security_group.this.id
+  security_group_id            = aws_security_group.this[0].id
   description                  = "PostgreSQL from an allowed security group"
   ip_protocol                  = "tcp"
   from_port                    = var.port
@@ -33,9 +39,9 @@ resource "aws_vpc_security_group_ingress_rule" "from_security_groups" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "from_cidr_blocks" {
-  for_each = toset(var.allowed_cidr_blocks)
+  for_each = toset(local.create_security_group ? var.allowed_cidr_blocks : [])
 
-  security_group_id = aws_security_group.this.id
+  security_group_id = aws_security_group.this[0].id
   description       = "PostgreSQL from an allowed CIDR block"
   ip_protocol       = "tcp"
   from_port         = var.port
@@ -43,4 +49,15 @@ resource "aws_vpc_security_group_ingress_rule" "from_cidr_blocks" {
   cidr_ipv4         = each.value
 
   tags = module.this.tags
+}
+
+locals {
+  create_security_group = length(var.security_group_ids) == 0
+  security_group_ids    = local.create_security_group ? [aws_security_group.this[0].id] : var.security_group_ids
+}
+
+# Before 4.4.0 the security group had no count.
+moved {
+  from = aws_security_group.this
+  to   = aws_security_group.this[0]
 }

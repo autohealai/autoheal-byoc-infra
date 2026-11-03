@@ -5,8 +5,10 @@
 # We create it in the data subnets, cluster mode disabled, with Multi-AZ
 # automatic failover from two nodes, TLS in transit, encryption at rest with the
 # data key, an AUTH token, daily snapshots and the slow and engine logs in
-# CloudWatch. Only the node security group may connect. The chart connects with
-# rediss:// and the token, both written to Secrets Manager in secrets.tf.
+# CloudWatch. Only the node security group may connect. With
+# redis_security_group_ids the cache uses those groups and we create no
+# security group or rule. The chart connects with rediss:// and the token,
+# both written to Secrets Manager in secrets.tf.
 
 resource "random_password" "redis" {
   count   = local.create_redis ? 1 : 0
@@ -27,6 +29,7 @@ module "redis" {
   vpc_id                     = local.vpc_id
   subnet_ids                 = local.data_subnet_ids
   allowed_security_group_ids = [local.node_security_group_id]
+  security_group_ids         = var.redis_security_group_ids
 
   engine                     = "valkey"
   engine_version             = var.redis_engine_version

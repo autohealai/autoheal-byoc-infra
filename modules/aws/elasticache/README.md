@@ -7,9 +7,9 @@ Valkey by default; Redis OSS 6.2 and later is also supported.
 Clients must use TLS and the AUTH token. Data at rest and snapshots are
 encrypted with the caller's KMS key. Slow log and engine log go to CloudWatch log
 groups the module creates. The module also creates its own security group
-(ingress on the cache port only from the allowed security groups and CIDRs), the
-subnet group and a parameter group whose family follows the engine and major
-version (`valkey8`, `redis7`).
+(ingress on the cache port only from the allowed security groups and CIDRs)
+unless `security_group_ids` is set, the subnet group and a parameter group whose
+family follows the engine and major version (`valkey8`, `redis7`).
 
 The Azure analogue is `modules/azure/managed-redis`. Naming and tags follow the repo's
 null-label convention (see `label.tf` and
@@ -27,6 +27,12 @@ null-label convention (see `label.tf` and
   `automatic_failover_enabled = false` and `multi_az_enabled = false`.
 - **Replacement.** Changing `kms_key_arn` or moving to an older engine version
   replaces the replication group, which empties the cache.
+- **Existing security groups.** With `security_group_ids` the cache uses those
+  groups and the module creates no security group or rule, so the groups' owner
+  allows the cache port. For deployers that may not create security groups.
+  Clearing it later creates the module's own group. Setting it on a running
+  cache moves the cache to those groups and deletes the module's group in the
+  same apply, so have the owner allow the port first.
 - **Log encryption.** When `log_kms_key_arn` is set, its key policy must allow
   the CloudWatch Logs service (modules/aws/kms `cloudwatch_logs_enabled`).
 
@@ -95,6 +101,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_num_cache_clusters"></a> [num\_cache\_clusters](#input\_num\_cache\_clusters) | Number of nodes: one primary plus read replicas (1-6). Automatic failover and Multi-AZ need at least 2. | `number` | `2` | no |
 | <a name="input_parameters"></a> [parameters](#input\_parameters) | Parameter overrides for the module's parameter group (for example maxmemory-policy). | `map(string)` | `{}` | no |
 | <a name="input_port"></a> [port](#input\_port) | Port the cache listens on. | `number` | `6379` | no |
+| <a name="input_security_group_ids"></a> [security\_group\_ids](#input\_security\_group\_ids) | Existing security groups for the cache. When set, the module creates no security group and no rule, and allowed\_security\_group\_ids and allowed\_cidr\_blocks are not used: the groups' owner allows the cache port. | `list(string)` | `[]` | no |
 | <a name="input_snapshot_retention_limit"></a> [snapshot\_retention\_limit](#input\_snapshot\_retention\_limit) | Days to keep automatic snapshots (0-35). 0 turns snapshots off. | `number` | `7` | no |
 | <a name="input_snapshot_window"></a> [snapshot\_window](#input\_snapshot\_window) | Daily snapshot window in UTC (hh24:mi-hh24:mi). Must not overlap the maintenance window. | `string` | `"05:00-06:00"` | no |
 | <a name="input_subnet_ids"></a> [subnet\_ids](#input\_subnet\_ids) | Subnets for the cache subnet group (the VPC's data subnets). Use subnets in at least two availability zones for Multi-AZ. | `list(string)` | n/a | yes |
@@ -110,5 +117,6 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="output_primary_endpoint_address"></a> [primary\_endpoint\_address](#output\_primary\_endpoint\_address) | Primary (read and write) endpoint hostname. Clients connect with TLS and the AUTH token. |
 | <a name="output_reader_endpoint_address"></a> [reader\_endpoint\_address](#output\_reader\_endpoint\_address) | Reader endpoint hostname. It spreads reads over the replicas and resolves to the primary when there are none. |
 | <a name="output_replication_group_id"></a> [replication\_group\_id](#output\_replication\_group\_id) | Replication group ID. |
-| <a name="output_security_group_id"></a> [security\_group\_id](#output\_security\_group\_id) | ID of the cache's security group. |
+| <a name="output_security_group_id"></a> [security\_group\_id](#output\_security\_group\_id) | ID of the security group the module created. Null with security\_group\_ids. |
+| <a name="output_security_group_ids"></a> [security\_group\_ids](#output\_security\_group\_ids) | Security groups the cache uses: the one the module created, or security\_group\_ids. |
 <!-- END_TF_DOCS -->

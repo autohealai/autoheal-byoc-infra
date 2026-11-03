@@ -1,6 +1,6 @@
 # Outputs for the clients of the Temporal VM.
 #
-#   temporal_address         dns_name or the IP, with :7233: what clients dial
+#   temporal_address         dns_name or the IP, with :client_port: what clients dial
 #   temporal_ip              the load balancer's static IP, for DNS and allow lists
 #   temporal_server_name     the name clients check in the certificate
 #   temporal_ca_certificate  the private CA clients trust; null with certificate_name
@@ -13,12 +13,12 @@
 # key, the CA's private key and the gate's private key stay in the state.
 
 output "temporal_address" {
-  description = "Address clients dial: dns_name, or the load balancer's IP, with :7233. Pass it to compositions/azure-runner as temporal_address."
-  value       = "${var.dns_name != "" ? var.dns_name : module.temporal_vm.public_ip}:7233"
+  description = "Address clients dial: dns_name, or the load balancer's IP, with :client_port (7233 by default). Pass it to compositions/azure-runner as temporal_address, and set it as the Temporal address in the app."
+  value       = "${var.dns_name != "" ? var.dns_name : module.temporal_vm.public_ip}:${module.temporal_vm.client_port}"
 }
 
 output "temporal_ip" {
-  description = "Static public IP of the load balancer. It stays when the VM is reimaged. Point dns_name at it, add it to the install vault's firewall (see the README), pass it to compositions/azure-runner as temporal_ip, and allow it out of your network on TCP 7233 if your egress is filtered."
+  description = "Static public IP of the load balancer. It stays when the VM is reimaged. Point dns_name at it, add it to the install vault's firewall (see the README), pass it to compositions/azure-runner as temporal_ip, and allow it out of your network on TCP client_port if your egress is filtered."
   value       = module.temporal_vm.public_ip
 }
 

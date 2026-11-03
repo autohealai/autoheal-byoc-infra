@@ -58,7 +58,7 @@ module "temporal" {
 
 output "temporal_address" {
   description = "Address clients dial."
-  value       = "${module.temporal.public_ip}:7233"
+  value       = "${module.temporal.public_ip}:${module.temporal.client_port}"
 }
 
 output "identity_principal_id" {

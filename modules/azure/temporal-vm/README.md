@@ -1,10 +1,11 @@
 # Autoheal BYOC - Azure Temporal VM
 
 One VM that runs the Temporal server for an install whose cluster cannot host
-it. The app and the runner reach it over the internet on TCP 7233. Temporal
-listens on 127.0.0.1 only. In front of it a gate (Envoy) ends TLS 1.3 and
-checks a key on each call. Clients send `authorization: Bearer <key>`, and the
-gate removes the header before the call goes on. Its routes, in order:
+it. The app and the runner reach it over the internet on TCP `client_port`,
+7233 by default. Temporal listens on 127.0.0.1 only. In front of it a gate
+(Envoy) on 7233 ends TLS 1.3 and checks a key on each call. Clients send
+`authorization: Bearer <key>`, and the gate removes the header before the call
+goes on. Its routes, in order:
 
 1. `/grpc.health.v1.Health/` with any valid key.
 2. The runner key: the WorkflowService calls in `runner_allowed_methods`.
@@ -31,12 +32,15 @@ form. The gate reloads a changed file and keeps open connections. When a
 refresh fails, the gate keeps the last good keys and certificate.
 
 The VM is the only instance of a scale set behind a Standard public load
-balancer with one static IP. The load balancer forwards TCP 7233 and gives
-the VM its way out on the same IP (an outbound rule), so Postgres, Key Vault
-and the clients' firewalls see one address. The VM has no public IP of its
-own and a VNet that is connected to nothing. The NSG lets in TCP 7233 from
-`allowed_source_cidrs` and the load balancer (`AzureLoadBalancer`) on 7233
-and `health_port`, and denies the rest, SSH included. Password login is off;
+balancer with one static IP. The load balancer forwards TCP `client_port` to
+the gate on 7233 and gives the VM its way out on the same IP (an outbound
+rule), so Postgres, Key Vault and the clients' firewalls see one address. The
+VM has no public IP of its own and a VNet that is connected to nothing. The
+NSG lets in TCP 7233 from `allowed_source_cidrs` and the load balancer
+(`AzureLoadBalancer`) on 7233 and `health_port`, and denies the rest, SSH
+included. It sees 7233 whatever `client_port` is: floating IP is off, so the
+load balancer changes the destination to the VM's address and 7233 before
+the NSG checks it. Password login is off;
 `az vmss run-command` reaches the host. Temporal keeps its data in Postgres
 (the `temporal` and `temporal_visibility` databases), so the VM holds no
 state. It connects with `sslmode` `verify-full`: the server's name and chain
@@ -159,10 +163,11 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_admin_ssh_public_key"></a> [admin\_ssh\_public\_key](#input\_admin\_ssh\_public\_key) | SSH public key for the admin user. No password login. The NSG lets no SSH in; use az vmss run-command to reach the host. | `string` | n/a | yes |
 | <a name="input_admin_username"></a> [admin\_username](#input\_admin\_username) | Admin username on the VM. | `string` | `"azureuser"` | no |
 | <a name="input_agents_key_secret_name"></a> [agents\_key\_secret\_name](#input\_agents\_key\_secret\_name) | Key Vault entry with the agents-py key. The gate accepts its two newest enabled versions for the app routes. | `string` | `"temporal-agents-key"` | no |
-| <a name="input_allowed_source_cidrs"></a> [allowed\_source\_cidrs](#input\_allowed\_source\_cidrs) | Public ranges allowed to reach the gate on TCP 7233, such as the cluster's outbound addresses and the runner's NAT IP. Nothing else gets in: no SSH, no other port. The load balancer keeps the client's address, so the NSG sees it. The VM's own IP is left out, so a list copied from the install's workload\_egress\_ip\_ranges works. | `list(string)` | n/a | yes |
+| <a name="input_allowed_source_cidrs"></a> [allowed\_source\_cidrs](#input\_allowed\_source\_cidrs) | Public ranges allowed to reach the gate (client\_port on the load balancer, 7233 on the VM), such as the cluster's outbound addresses and the runner's NAT IP. Nothing else gets in: no SSH, no other port. The load balancer keeps the client's address, so the NSG sees it. The VM's own IP is left out, so a list copied from the install's workload\_egress\_ip\_ranges works. | `list(string)` | n/a | yes |
 | <a name="input_api_server_key_secret_name"></a> [api\_server\_key\_secret\_name](#input\_api\_server\_key\_secret\_name) | Key Vault entry with the api-server-go key. The gate accepts its two newest enabled versions for the app routes. | `string` | `"temporal-api-server-key"` | no |
 | <a name="input_attributes"></a> [attributes](#input\_attributes) | ID element. Extra qualifiers appended to id, e.g. ['db']. | `list(string)` | `[]` | no |
 | <a name="input_certificate_secret_name"></a> [certificate\_secret\_name](#input\_certificate\_secret\_name) | Key Vault secret with the gate's certificate, its chain and its private key: the name of a Key Vault certificate (its secret has the same name), or a secret with content type application/x-pem-file. PEM and PKCS#12 (application/x-pkcs12) both work. The gate serves its newest version. | `string` | n/a | yes |
+| <a name="input_client_port"></a> [client\_port](#input\_client\_port) | TCP port clients dial on the load balancer's IP. The load balancer forwards it to the gate on 7233, so the NSG and the gate stay as they are. 443 suits a network that lets only HTTPS out, if its firewall passes the TLS through as it is: clients check the gate's certificate, so a firewall that decrypts and signs again breaks the call. Changing it updates the load balancer rule in place, and clients on the old port lose Temporal until they move. Azure takes 1 to 65534. | `number` | `7233` | no |
 | <a name="input_context"></a> [context](#input\_context) | Single object to set the entire naming/tagging context at once (inheritance from the composition). Individual non-null inputs below override it. | `any` | <pre>{<br/>  "additional_tag_map": {},<br/>  "attributes": [],<br/>  "delimiter": null,<br/>  "descriptor_formats": {},<br/>  "enabled": true,<br/>  "environment": null,<br/>  "id_length_limit": null,<br/>  "label_key_case": null,<br/>  "label_order": [],<br/>  "label_value_case": null,<br/>  "labels_as_tags": [<br/>    "unset"<br/>  ],<br/>  "name": null,<br/>  "namespace": null,<br/>  "regex_replace_chars": null,<br/>  "stage": null,<br/>  "tags": {},<br/>  "tenant": null<br/>}</pre> | no |
 | <a name="input_enabled"></a> [enabled](#input\_enabled) | Set to false to prevent the module from creating any resources. | `bool` | `null` | no |
 | <a name="input_environment"></a> [environment](#input\_environment) | ID element. Lifecycle (stage/prod/play) in this repo — NOT region. | `string` | `null` | no |
@@ -192,6 +197,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | Name | Description |
 |------|-------------|
 | <a name="output_certificate_alert_id"></a> [certificate\_alert\_id](#output\_certificate\_alert\_id) | Resource ID of the log alert on the gate's certificate expiry. Null without log\_analytics\_workspace\_id. |
+| <a name="output_client_port"></a> [client\_port](#output\_client\_port) | TCP port clients dial on public\_ip: the load balancer rule's frontend port. |
 | <a name="output_data_collection_rule_id"></a> [data\_collection\_rule\_id](#output\_data\_collection\_rule\_id) | Resource ID of the data collection rule that sends the VM's logs to the workspace. Null without log\_analytics\_workspace\_id. |
 | <a name="output_health_alert_id"></a> [health\_alert\_id](#output\_health\_alert\_id) | Resource ID of the metric alert on the load balancer's health probe. |
 | <a name="output_identity_client_id"></a> [identity\_client\_id](#output\_identity\_client\_id) | Client ID of the VM's user-assigned identity. |
@@ -199,7 +205,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="output_identity_principal_id"></a> [identity\_principal\_id](#output\_identity\_principal\_id) | Principal ID of the VM's user-assigned identity. Grant it Key Vault Secrets User on each key entry and the certificate entry. |
 | <a name="output_load_balancer_id"></a> [load\_balancer\_id](#output\_load\_balancer\_id) | Resource ID of the load balancer in front of the VM. |
 | <a name="output_network_security_group_id"></a> [network\_security\_group\_id](#output\_network\_security\_group\_id) | Resource ID of the NSG on snet-temporal. |
-| <a name="output_public_ip"></a> [public\_ip](#output\_public\_ip) | Static public IP of the load balancer. Clients dial <public\_ip>:7233, and the VM's outbound traffic leaves from it. |
+| <a name="output_public_ip"></a> [public\_ip](#output\_public\_ip) | Static public IP of the load balancer. Clients dial <public\_ip>:<client\_port>, and the VM's outbound traffic leaves from it. |
 | <a name="output_vmss_id"></a> [vmss\_id](#output\_vmss\_id) | Resource ID of the Temporal scale set (one VM). |
 | <a name="output_vmss_name"></a> [vmss\_name](#output\_vmss\_name) | Name of the Temporal scale set, for az vmss run-command and az vmss reimage. |
 | <a name="output_vnet_id"></a> [vnet\_id](#output\_vnet\_id) | Resource ID of the VM's VNet. |

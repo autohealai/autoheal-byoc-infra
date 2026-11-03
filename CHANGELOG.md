@@ -6,6 +6,34 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [4.6.0] - 2026-11-03
+
+On Azure, the Temporal VM can take clients on a port other than 7233, such as
+443 for a network that lets only HTTPS out. The load balancer forwards that
+port to the gate on 7233, so the VM, its NSG and its certificate stay as they
+are. An install on 4.5.0 that keeps its inputs plans no change. The chart
+stays 1.0.0-rc.14.
+
+### Added
+- `compositions/azure-temporal` and `modules/azure/temporal-vm`: `client_port`,
+  the port clients dial on the load balancer's IP, 7233 by default. The
+  `temporal_address` output carries it. The firewall on the client's side must
+  pass the TLS through as it is, and one that allows by name checks
+  `temporal_server_name`, so set `dns_name`. Changing it on a running install
+  updates the load balancer rule in place: clients on the old port lose
+  Temporal until the app and the runner move to the new `temporal_address`.
+  Azure cannot serve both ports at once.
+- `modules/azure/temporal-vm`: the `client_port` output.
+
+### Changed
+- `compositions/azure-runner` and `modules/azure/runner-vmss`: with
+  `temporal_ip`, the rule on the runner VMs takes its port from
+  `temporal_address` instead of 7233 always, so it follows the Temporal VM's
+  `client_port`. On 7233 the runner VMs' cloud-init is the same as in 4.5.0,
+  so they are not reimaged. `modules/azure/runner-vmss` stops the plan when
+  `temporal_ip` is set and `temporal_host` has no port.
+- Examples and docs pin v4.6.0.
+
 ## [4.5.0] - 2026-11-03
 
 On AWS, the edge Network Load Balancer can carry tags of its own, set when it

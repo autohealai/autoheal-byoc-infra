@@ -1,7 +1,8 @@
 # Temporal on a VM of its own, optional: for a cluster that cannot run the
-# Temporal server. The app and the runner reach it on <temporal_ip>:7233, or
-# on dns_name, with TLS and a key. A gate on the VM checks the key on every
-# call. See the README of compositions/azure-temporal.
+# Temporal server. The app and the runner reach it on <temporal_ip or
+# dns_name>:<client_port>, 7233 by default, with TLS and a key. A gate on the
+# VM checks the key on every call. See the README of
+# compositions/azure-temporal.
 #
 # Order:
 #   1. Apply ../infra: it makes Postgres, the temporal databases, the runner
@@ -45,8 +46,9 @@ locals {
 
 include "root" { path = find_in_parent_folders("root.hcl") }
 
-# compositions/azure-temporal is new in 4.3.0, and infra_values in 4.3.1:
-# infra_version in versions.hcl must be 4.3.1 or later.
+# compositions/azure-temporal is new in 4.3.0, infra_values in 4.3.1 and
+# client_port in 4.6.0: infra_version in versions.hcl must be 4.3.1 or later,
+# or 4.6.0 or later with client_port.
 terraform {
   source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure-temporal?ref=v${local.v.infra_version}"
 }
@@ -80,12 +82,20 @@ inputs = {
   # the VM's IP.
   infra_values = dependency.infra.outputs.autoheal_values
 
-  # Who may reach 7233: the cluster's public outbound addresses, from ../infra,
+  # Who may reach Temporal: the cluster's public outbound addresses, from ../infra,
   # and the runner's NAT IP (the egress_ip output of ../runner) once ../runner
   # is applied. A change here touches only the NSG, not the VM.
   allowed_source_cidrs = concat(local.cluster_cidrs, [
     # "198.51.100.30/32", # egress_ip of ../runner, after step 6
   ])
+
+  # The port clients dial, 7233 by default. 443 suits a network that lets only
+  # HTTPS out, if its firewall passes TLS through without decrypting it. A
+  # firewall that allows by name checks the server name, so set dns_name too.
+  # Changing it on a running install updates the load balancer rule in place:
+  # clients on the old port lose Temporal until the app and ../runner move to
+  # the new temporal_address. See "Port" in the README of compositions/azure-temporal.
+  # client_port = 443
 
   # By default clients dial the IP and trust a private CA made here, with
   # temporal.autoheal.internal as the server name. To use a DNS name and a

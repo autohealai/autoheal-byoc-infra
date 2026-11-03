@@ -27,9 +27,10 @@
 #
 # With temporal_ip (the IP of a Temporal VM from compositions/azure-temporal),
 # runner-go runs on a Docker network of its own (runner_network_cidr), and no
-# other container on the VM may reach that IP on TCP 7233. Sandboxes stay on
-# Docker's default bridge; runner-go drives them through the Docker socket, not
-# over the network. Empty temporal_ip leaves the custom data as it was.
+# other container on the VM may reach that IP on the port of temporal_host, the
+# only port the Temporal VM's load balancer forwards. Sandboxes stay on Docker's
+# default bridge; runner-go drives them through the Docker socket, not over the
+# network. Empty temporal_ip leaves the custom data as it was.
 
 resource "azurerm_user_assigned_identity" "runner" {
   name                = "${module.this.id}-uai"
@@ -46,6 +47,10 @@ resource "azurerm_role_assignment" "acr_pull" {
 }
 
 locals {
+  # The port after the last colon of temporal_host: 7233 or the Temporal VM's
+  # client_port. With temporal_ip, block-imds.sh resets it for other containers.
+  temporal_port = reverse(split(":", var.temporal_host))[0]
+
   # Managed-identity ACR auth; host az login --identity uses this client id.
   cloud_init = templatefile("${path.module}/cloudinit.yaml.tftpl", {
     temporal_host              = var.temporal_host
@@ -55,6 +60,7 @@ locals {
     temporal_ca_certificate    = var.temporal_ca_certificate
     tool_response_callback_url = var.tool_response_callback_url
     temporal_ip                = var.temporal_ip
+    temporal_port              = local.temporal_port
     runner_network_cidr        = var.runner_network_cidr
     runner_image               = var.runner_image
     sandbox_image              = var.sandbox_image
@@ -117,6 +123,14 @@ resource "azurerm_linux_virtual_machine_scale_set" "runner" {
   }
 
   tags = module.this.tags
+
+  lifecycle {
+    # The rule for temporal_ip needs the port runner-go dials.
+    precondition {
+      condition     = var.temporal_ip == "" || can(regex("^[0-9]{1,5}$", local.temporal_port))
+      error_message = "temporal_ip is set, so temporal_host must end in :<port>, such as 198.51.100.7:7233: the runner VMs reset that port to temporal_ip for every container but runner-go."
+    }
+  }
 
   # AcrPull must exist before boot, or the first image pull fails before the hourly
   # credential-refresh timer can recover it.

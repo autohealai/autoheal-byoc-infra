@@ -206,6 +206,10 @@ run "load_balancer" {
     error_message = "The load balancer must forward TCP 7233 to 7233."
   }
   assert {
+    condition     = azurerm_lb_rule.temporal.name == "temporal-7233" && output.client_port == 7233
+    error_message = "By default the rule must keep its earlier name, temporal-7233, so an upgrade plans no change, and client_port must be 7233."
+  }
+  assert {
     condition     = azurerm_lb_rule.temporal.disable_outbound_snat == true
     error_message = "The 7233 rule must not give outbound SNAT: the outbound rule does."
   }
@@ -216,6 +220,54 @@ run "load_balancer" {
   assert {
     condition     = azurerm_lb_probe.health.protocol == "Http" && azurerm_lb_probe.health.port == 8080 && azurerm_lb_probe.health.request_path == "/healthz"
     error_message = "The probe must be HTTP on the health port at /healthz."
+  }
+}
+
+# client_port 443: the load balancer takes 443 and forwards it to the gate on
+# 7233. The NSG sees 7233 after the load balancer, so it does not change.
+run "load_balancer_on_443" {
+  command = plan
+
+  module {
+    source = "../../modules/azure/temporal-vm"
+  }
+
+  variables {
+    client_port = 443
+  }
+
+  assert {
+    condition     = azurerm_lb_rule.temporal.frontend_port == 443 && azurerm_lb_rule.temporal.backend_port == 7233 && azurerm_lb_rule.temporal.protocol == "Tcp"
+    error_message = "With client_port 443 the load balancer must forward TCP 443 to 7233."
+  }
+  assert {
+    condition     = azurerm_lb_rule.temporal.name == "temporal-7233" && output.client_port == 443
+    error_message = "The rule keeps the name temporal-7233 whatever client_port is, so a change of port updates it in place, and the client_port output must be 443."
+  }
+  assert {
+    condition     = azurerm_lb_rule.temporal.floating_ip_enabled == false
+    error_message = "Floating IP must stay off: the NSG then sees 7233, the port on the VM."
+  }
+  assert {
+    condition = anytrue([
+      for r in azurerm_network_security_group.temporal.security_rule : (
+        r.access == "Allow" && r.destination_port_range == "7233" &&
+        toset(r.source_address_prefixes) == toset(["198.51.100.20/32", "203.0.113.0/28"])
+      )
+    ])
+    error_message = "The NSG must still allow 7233 from allowed_source_cidrs."
+  }
+  assert {
+    condition = alltrue([
+      for r in azurerm_network_security_group.temporal.security_rule : (
+        r.destination_port_range == "7233" || toset(r.destination_port_ranges) == toset(["7233", "8080"])
+      ) if r.access == "Allow"
+    ])
+    error_message = "client_port must not open another port in the NSG."
+  }
+  assert {
+    condition     = azurerm_lb_probe.health.port == 8080
+    error_message = "The probe must stay on the health port."
   }
 }
 
@@ -559,4 +611,32 @@ run "health_port_on_temporal_port_fails" {
   }
 
   expect_failures = [var.health_port]
+}
+
+run "client_port_out_of_range_fails" {
+  command = plan
+
+  module {
+    source = "../../modules/azure/temporal-vm"
+  }
+
+  variables {
+    client_port = 65535
+  }
+
+  expect_failures = [var.client_port]
+}
+
+run "fractional_client_port_fails" {
+  command = plan
+
+  module {
+    source = "../../modules/azure/temporal-vm"
+  }
+
+  variables {
+    client_port = 443.5
+  }
+
+  expect_failures = [var.client_port]
 }

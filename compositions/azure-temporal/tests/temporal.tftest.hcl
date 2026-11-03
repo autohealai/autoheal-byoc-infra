@@ -446,6 +446,39 @@ run "outputs_and_values" {
   }
 }
 
+# client_port 443: the address the app and the runner dial carries the port.
+# A plan after the applies above, so the load balancer's IP is known.
+run "outputs_on_443" {
+  command = plan
+
+  variables {
+    client_port = 443
+  }
+
+  assert {
+    condition     = output.temporal_address == "198.51.100.7:443" && output.temporal_ip == "198.51.100.7"
+    error_message = "With client_port 443 temporal_address must be <load balancer IP>:443."
+  }
+  assert {
+    condition     = can(regex("^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?:[0-9]{1,5}$", output.temporal_address))
+    error_message = "temporal_address must pass compositions/azure-runner's check."
+  }
+}
+
+run "outputs_on_443_with_dns_name" {
+  command = plan
+
+  variables {
+    client_port = 443
+    dns_name    = "temporal.acme.example.com"
+  }
+
+  assert {
+    condition     = output.temporal_address == "temporal.acme.example.com:443" && output.temporal_server_name == "temporal.acme.example.com"
+    error_message = "With client_port 443 and dns_name, clients must dial dns_name:443 and check dns_name."
+  }
+}
+
 # The VM calls the vault at the URI the vault reports, in whatever cloud it is.
 # The entry is made again, since Terraform 1.9 gives override values only to
 # what the run makes.
@@ -570,6 +603,16 @@ run "bad_dns_name_fails" {
   }
 
   expect_failures = [var.dns_name]
+}
+
+run "client_port_zero_fails" {
+  command = plan
+
+  variables {
+    client_port = 0
+  }
+
+  expect_failures = [var.client_port]
 }
 
 run "empty_allowed_source_cidrs_fails" {

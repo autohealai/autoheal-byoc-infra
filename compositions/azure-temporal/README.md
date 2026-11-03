@@ -2,7 +2,8 @@
 
 The Temporal step, optional: one VM that runs the Temporal server, for an
 install whose cluster cannot run it. The app and the runner reach it on
-`<IP or dns_name>:7233` over TLS 1.3, with a key.
+`<IP or dns_name>:<client_port>` over TLS 1.3, with a key. `client_port` is
+7233 by default; see "Port".
 
 The VM (`modules/azure/temporal-vm`) runs Temporal against the install's
 Postgres: the `temporal` and `temporal_visibility` databases that
@@ -33,8 +34,9 @@ This composition never reads the cluster. It creates, in `subscription_id`:
    nothing, and an NSG that lets in TCP 7233 from `allowed_source_cidrs`
    (except the VM's own IP) and the load balancer's probe, and denies the
    rest, SSH included;
-3. a Standard load balancer with one static public IP, which forwards TCP 7233
-   and gives the VM its way out on the same IP;
+3. a Standard load balancer with one static public IP, which forwards TCP
+   `client_port` to the gate on 7233 and gives the VM its way out on the same
+   IP;
 4. a scale set with exactly one VM, no public IP of its own, and a
    user-assigned identity;
 5. in `key_vault_id`, the entries `temporal-api-server-key` and
@@ -65,6 +67,30 @@ Two ways:
 
 The gate reads PEM and PKCS#12 entries and serves the newest version of the
 entry.
+
+## Port
+
+Clients dial `client_port` on `temporal_ip`, 7233 by default. The load
+balancer forwards it to the gate on 7233, so the VM, the gate and the NSG are
+the same for any port. Set `client_port = 443` when the network of the
+cluster or the runner lets only HTTPS out. The call is gRPC over TLS 1.3 with
+HTTP/2, so its firewall must:
+
+- let TCP 443 out to `temporal_ip`, or to `dns_name`;
+- pass the TLS through as it is. A firewall that decrypts and signs again
+  (TLS inspection) breaks the call: clients check the gate's certificate
+  against `temporal_ca_certificate`, or against the CA of `certificate_name`;
+- if it allows names rather than addresses, allow the name clients send in
+  the TLS hello, `temporal_server_name`. Without `dns_name` that is
+  `temporal.autoheal.internal`, which no DNS server knows, so set `dns_name`
+  and make its record.
+
+A change of `client_port` updates the load balancer rule in place. Clients on
+the old port lose Temporal until the app and the runner use the new
+`temporal_address`, so change it in a window and apply the app and the runner
+right after. The load balancer cannot serve both ports at once: without
+floating IP, Azure allows one rule per port on the VM. Azure takes frontend
+ports 1 to 65534.
 
 ## Key Vault network
 
@@ -167,8 +193,8 @@ temporal_ca_certificate = <temporal_ca_certificate output, or "" with certificat
 temporal_ip             = <temporal_ip output>
 ```
 
-With `temporal_ip`, the runner VM lets only runner-go reach that IP on 7233;
-sandbox containers cannot.
+With `temporal_ip`, the runner VM lets only runner-go reach that IP on the
+port of `temporal_address`; sandbox containers cannot.
 
 Put the runner's NAT IP (its `egress_ip` output) in `allowed_source_cidrs`.
 For a new runner, add it after step 6 and apply this composition again. That
@@ -200,7 +226,8 @@ az vmss run-command invoke -g "$RG" -n "$VMSS" --instance-id "$ID" \
 | `resource_group_name` | `""` | Empty means `rg-<namespace>-<environment>-<name>-temporal`. |
 | `existing_resource_group_id` | `""` | A resource group in `subscription_id` to use instead of creating one. |
 | `address_space` | `10.62.0.0/28` | Range of the VM's VNet, all of it for `snet-temporal`. Any private range works. |
-| `allowed_source_cidrs` | required | Public ranges that may reach TCP 7233: the cluster's outbound addresses and the runner's NAT IP. At least one; not `0.0.0.0/0`. |
+| `allowed_source_cidrs` | required | Public ranges that may reach Temporal on `client_port`: the cluster's outbound addresses and the runner's NAT IP. At least one; not `0.0.0.0/0`. |
+| `client_port` | `7233` | TCP port clients dial on `temporal_ip`. 443 for a network that lets only HTTPS out; see "Port". A change updates the load balancer rule in place. 1 to 65534. |
 | `dns_name` | `""` | DNS name clients dial. You make the record, pointing at `temporal_ip`. Required with `certificate_name`. |
 | `certificate_name` | `""` | A Key Vault certificate in `key_vault_id` for `dns_name`. Empty means the private CA. |
 | `ca_generations` | `["1"]` | Names of the private CAs, one or two. The first signs the gate's certificate; clients trust all of them. Change it only to move to a new CA. |
@@ -250,7 +277,7 @@ apply it, and keep that ID typed.
 
 | Output | Contents |
 |--------|----------|
-| `temporal_address` | `dns_name` or the IP, with `:7233`: what clients dial. |
+| `temporal_address` | `dns_name` or the IP, with `:<client_port>`: what clients dial. |
 | `temporal_ip` | The load balancer's static IP, for the DNS record, the vault firewall, the runner and allow lists. |
 | `temporal_server_name` | `dns_name`, or `temporal.autoheal.internal`: the name clients check. |
 | `temporal_ca_certificate` | PEM of the private CAs, one or two. Not a secret. Null with `certificate_name`. |
@@ -394,12 +421,14 @@ terraform test
 `tests/temporal.tftest.hcl` runs this composition against mocked providers:
 the names, the app keys and their entries, the private CA with and without
 `dns_name`, the vault certificate, the VM's role assignment on each entry,
-the Postgres firewall rule, the outputs the runner takes, that a new value
+the Postgres firewall rule, the outputs the runner takes on 7233 and on 443,
+that a new value
 from Terraform does not overwrite a key in the vault, and the input checks.
 `tests/ca.tftest.hcl` runs the steps of "Moving to a new CA" with the real tls
 provider (it works offline). The warning in a CA's last year is the last run of
 `tests/temporal.tftest.hcl`.
 `tests/vm.tftest.hcl` runs `modules/azure/temporal-vm` on its own: one VM with
-no public IP in the load balancer's pool, the NSG, the load balancer rules,
+no public IP in the load balancer's pool, the NSG, the load balancer rules
+on 7233 and on 443,
 the units with `start_temporal` off and on, the guard's place, the gate's
 config, logs and the alert.

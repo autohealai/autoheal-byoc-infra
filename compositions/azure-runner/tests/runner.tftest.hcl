@@ -241,6 +241,26 @@ run "temporal_vm_by_ip" {
   }
 }
 
+# The same Temporal VM with client_port = 443: the port comes from
+# temporal_address, for the owner action and the rule on the runner VMs.
+run "temporal_vm_on_443" {
+  command = plan
+
+  variables {
+    temporal_address        = "198.51.100.7:443"
+    temporal_ip             = "198.51.100.7"
+    temporal_server_name    = "temporal.autoheal.internal"
+    temporal_ca_certificate = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+  }
+
+  assert {
+    condition = output.required_network_owner_actions == [
+      "Add the runner's outbound IP (the egress_ip output, the NAT gateway's IP) to allowed_source_cidrs of compositions/azure-temporal, so the Temporal VM 198.51.100.7 lets the runner in on TCP 443.",
+    ]
+    error_message = "On client_port 443 the owner action names 443."
+  }
+}
+
 # The Temporal VM on its DNS name, from a brought subnet: the owner also points
 # the name at the IP.
 run "temporal_vm_by_name_from_existing_subnet" {
@@ -395,8 +415,8 @@ run "temporal_ip_on_an_ip_needs_server_name" {
   expect_failures = [terraform_data.validate_inputs]
 }
 
-# An IP in temporal_address must be temporal_ip, or the 7233 rule on the runner
-# VMs guards the wrong address.
+# An IP in temporal_address must be temporal_ip, or the rule on the runner VMs
+# guards the wrong address.
 run "temporal_ip_must_match_address" {
   command = plan
 

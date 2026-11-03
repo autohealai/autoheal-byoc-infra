@@ -31,10 +31,11 @@ description: |-
 
   With temporal_ip, the IP of a Temporal VM from compositions/azure-temporal,
   runner-go runs on a Docker network of its own (runner_network_cidr), and the
-  same unit adds a rule that resets TCP 7233 to that IP from any other
-  container, sandboxes included. Sandboxes stay on Docker's default bridge;
-  runner-go drives them through the Docker socket, not over the network. With
-  temporal_ip empty the cloud-init is the same as before it existed.
+  same unit adds a rule that resets TCP on the port of temporal_host to that IP
+  from any other container, sandboxes included. Sandboxes stay on Docker's
+  default bridge; runner-go drives them through the Docker socket, not over the
+  network. With temporal_ip empty the cloud-init is the same as before it
+  existed.
 
 usage: |-
   See examples/basic for a runnable configuration.

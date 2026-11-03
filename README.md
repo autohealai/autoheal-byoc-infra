@@ -23,7 +23,8 @@ hostname of their own, with the runner key from the infra folder.
 
 For a cluster that cannot run the Temporal server, `compositions/azure-temporal`
 runs it on a VM of its own, against the install's Postgres. The app and the
-runner reach it on the VM's public IP, port 7233, with TLS and a key.
+runner reach it on the VM's public IP, port 7233 or another `client_port` such
+as 443, with TLS and a key.
 
 Customers run compositions, never individual modules.
 
@@ -73,7 +74,7 @@ One semver version for the whole repo. Pin a release tag; the examples read it
 from `versions.hcl`:
 
 ```hcl
-source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure?ref=v4.5.0"
+source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure?ref=v4.6.0"
 ```
 
 Upgrading from 1.x or 3.x: see the upgrade notes in [CHANGELOG.md](CHANGELOG.md).

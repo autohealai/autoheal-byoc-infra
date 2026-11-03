@@ -9,8 +9,13 @@ output "vmss_name" {
 }
 
 output "public_ip" {
-  description = "Static public IP of the load balancer. Clients dial <public_ip>:7233, and the VM's outbound traffic leaves from it."
+  description = "Static public IP of the load balancer. Clients dial <public_ip>:<client_port>, and the VM's outbound traffic leaves from it."
   value       = azurerm_public_ip.temporal.ip_address
+}
+
+output "client_port" {
+  description = "TCP port clients dial on public_ip: the load balancer rule's frontend port."
+  value       = azurerm_lb_rule.temporal.frontend_port
 }
 
 output "load_balancer_id" {

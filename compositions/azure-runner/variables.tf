@@ -120,7 +120,7 @@ variable "temporal_ca_certificate" {
 variable "temporal_ip" {
   type        = string
   default     = ""
-  description = "IP of the Temporal VM: the temporal_ip output of compositions/azure-temporal. When set, runner-go runs on a Docker network of its own on each runner VM, and no other container there, sandboxes included, may reach this IP on TCP 7233. Needs temporal_tls. Empty, the default, changes nothing on the VMs."
+  description = "IP of the Temporal VM: the temporal_ip output of compositions/azure-temporal. When set, runner-go runs on a Docker network of its own on each runner VM, and no other container there, sandboxes included, may reach this IP on the TCP port of temporal_address. Needs temporal_tls. Empty, the default, changes nothing on the VMs."
 
   validation {
     condition     = var.temporal_ip == "" || (can(regex("^[0-9]{1,3}(\\.[0-9]{1,3}){3}$", var.temporal_ip)) && can(cidrhost("${var.temporal_ip}/32", 0)))

@@ -418,6 +418,17 @@ run "edge_security_group_without_load_balancer" {
   expect_failures = [terraform_data.validate_inputs]
 }
 
+run "edge_lb_tags_without_load_balancer" {
+  command = plan
+
+  variables {
+    edge_mode    = "istio"
+    edge_lb_tags = { "acme:elb:cname" = "Require-CNAME" }
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}
+
 run "postgres_security_groups_with_brought_database" {
   command = plan
 

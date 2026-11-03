@@ -168,3 +168,15 @@ variable "access_logs_prefix" {
   default     = ""
   description = "Key prefix for the access logs in access_logs_bucket. Empty writes to the bucket root."
 }
+
+variable "lb_tags" {
+  type        = map(string)
+  default     = {}
+  nullable    = false
+  description = "Extra tags for the NLB only, merged over tags. They are set when the NLB is created, which suits a tag that an automation looks for on new load balancers, for example one that creates DNS records. Added to an existing NLB, they only tag it. The security group and the target groups do not get them."
+
+  validation {
+    condition     = alltrue([for k, v in var.lb_tags : length(k) >= 1 && length(k) <= 128 && length(v) <= 256 && !startswith(lower(k), "aws:")])
+    error_message = "lb_tags keys must be 1 to 128 characters and must not start with aws:, and values at most 256 characters."
+  }
+}

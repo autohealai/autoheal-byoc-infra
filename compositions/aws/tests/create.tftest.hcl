@@ -509,3 +509,69 @@ run "cluster_viewer_permission_set" {
     error_message = "A viewer permission set should get the view policy."
   }
 }
+
+run "edge_lb_tags" {
+  command = plan
+
+  variables {
+    tags         = { team = "platform" }
+    edge_lb_tags = { "acme:elb:cname" = "Require-CNAME" }
+  }
+
+  assert {
+    condition     = module.edge_nlb[0].tags["acme:elb:cname"] == "Require-CNAME" && module.edge_nlb[0].tags["team"] == "platform"
+    error_message = "edge_lb_tags should reach the edge load balancer, on top of tags."
+  }
+}
+
+run "edge_lb_tags_null" {
+  command = plan
+
+  variables {
+    edge_lb_tags = null
+  }
+
+  assert {
+    condition     = !contains(keys(module.edge_nlb[0].tags), "acme:elb:cname")
+    error_message = "edge_lb_tags = null should plan like no edge_lb_tags."
+  }
+}
+
+# A test cannot read the resources inside a module the composition calls, so
+# this run plans the edge load balancer's module directly with the same tags,
+# to check what does not get them.
+run "edge_lb_tags_on_the_load_balancer_only" {
+  command = plan
+
+  module {
+    source = "../../modules/aws/nlb"
+  }
+
+  variables {
+    name                = "autoheal"
+    attributes          = ["edge"]
+    tags                = { team = "platform" }
+    lb_tags             = { "acme:elb:cname" = "Require-CNAME" }
+    vpc_id              = "vpc-0123456789abcdef0"
+    vpc_cidr_block      = "10.20.0.0/16"
+    subnet_ids          = ["subnet-0123456789abcdef0", "subnet-0123456789abcdef1"]
+    allowed_cidr_blocks = ["10.20.0.0/16"]
+    listeners = {
+      https = { port = 443, target_port = 8443 }
+      http  = { port = 80, target_port = 8090 }
+    }
+  }
+
+  assert {
+    condition     = aws_lb.this.tags["acme:elb:cname"] == "Require-CNAME" && aws_lb.this.tags["team"] == "platform"
+    error_message = "The load balancer should carry lb_tags on top of tags."
+  }
+
+  assert {
+    condition = (
+      !contains(keys(aws_security_group.this[0].tags), "acme:elb:cname") &&
+      alltrue([for tg in aws_lb_target_group.this : !contains(keys(tg.tags), "acme:elb:cname") && tg.tags["team"] == "platform"])
+    )
+    error_message = "lb_tags should go on the load balancer only, not on its security group or target groups."
+  }
+}

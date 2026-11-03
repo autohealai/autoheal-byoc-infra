@@ -118,6 +118,18 @@ variable "existing_edge_security_group_id" {
   }
 }
 
+variable "edge_lb_tags" {
+  type        = map(string)
+  default     = {}
+  nullable    = false
+  description = "Extra tags for the edge Network Load Balancer only, in loadbalancer mode, merged over tags. They are set when the load balancer is created, which suits a tag that the account's automation looks for on new load balancers, for example one that creates DNS records. Set them before the apply that creates the load balancer: added later, they only tag the existing one, which such automation does not see. No other resource gets them."
+
+  validation {
+    condition     = alltrue([for k, v in var.edge_lb_tags : length(k) >= 1 && length(k) <= 128 && length(v) <= 256 && !startswith(lower(k), "aws:")])
+    error_message = "edge_lb_tags keys must be 1 to 128 characters and must not start with aws:, and values at most 256 characters."
+  }
+}
+
 variable "edge_address" {
   type        = string
   default     = ""

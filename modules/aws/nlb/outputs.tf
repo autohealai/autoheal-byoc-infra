@@ -23,6 +23,11 @@ output "zone_id" {
   value       = aws_lb.this.zone_id
 }
 
+output "tags" {
+  description = "Tags set on the NLB: tags plus lb_tags."
+  value       = aws_lb.this.tags
+}
+
 output "security_group_id" {
   description = "ID of the NLB security group: the one we created, or existing_security_group_id when brought."
   value       = local.security_group_id

@@ -40,6 +40,17 @@ variable "allowed_cidr_blocks" {
   }
 }
 
+variable "security_group_ids" {
+  type        = list(string)
+  default     = []
+  description = "Existing security groups for the cache. When set, the module creates no security group and no rule, and allowed_security_group_ids and allowed_cidr_blocks are not used: the groups' owner allows the cache port."
+
+  validation {
+    condition     = alltrue([for id in var.security_group_ids : can(regex("^sg-[0-9a-f]+$", id))])
+    error_message = "security_group_ids must contain security group IDs (sg-...)."
+  }
+}
+
 # Engine and nodes
 
 variable "engine" {

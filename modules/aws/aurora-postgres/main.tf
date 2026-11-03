@@ -3,7 +3,7 @@
 # modules/azure/postgres-flexible.
 #
 # The cluster is reachable only through its own security group (security-group.tf)
-# from the allowed security groups and CIDRs. Storage, snapshots and Performance
+# from the allowed security groups and CIDRs, or through security_group_ids. Storage, snapshots and Performance
 # Insights use kms_key_arn. rds.force_ssl = 1 in the cluster parameter group
 # rejects plain TCP connections. Exported logs go to log groups this module
 # creates first, so it sets their retention and encryption rather than RDS
@@ -116,7 +116,7 @@ resource "aws_rds_cluster" "this" {
   port            = var.port
 
   db_subnet_group_name            = aws_db_subnet_group.this.name
-  vpc_security_group_ids          = [aws_security_group.this.id]
+  vpc_security_group_ids          = local.security_group_ids
   db_cluster_parameter_group_name = aws_rds_cluster_parameter_group.this.name
 
   storage_encrypted                   = true

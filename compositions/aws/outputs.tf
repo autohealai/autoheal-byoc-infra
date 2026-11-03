@@ -13,8 +13,8 @@
 #                              what the owner of a brought cluster must do, filled
 #                              only for a brought cluster
 #   required_datastore_owner_actions
-#                              what the owner of a brought database or Redis must
-#                              do, filled only for a brought data store
+#                              what the owner of a brought database or Redis, or
+#                              of the security groups given for one, must do
 #   required_edge_owner_actions
 #                              what the owner of a brought edge security group
 #                              must do, filled only when one is brought
@@ -71,7 +71,7 @@ output "required_cluster_owner_actions" {
 }
 
 output "required_datastore_owner_actions" {
-  description = "What the owner of a brought database or ElastiCache replication group must do, as readable lines: a security group rule letting the cluster's pods in on its port. Filled only when existing_postgres_arn or existing_redis_arn is set."
+  description = "What the owner of a brought database or ElastiCache replication group, or of the security groups given for one we create, must do, as readable lines: a security group rule letting the cluster's pods in on its port. Filled only when existing_postgres_arn, existing_redis_arn, postgres_security_group_ids or redis_security_group_ids is set."
   value       = local.datastore_owner_actions
 }
 

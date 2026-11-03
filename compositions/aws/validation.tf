@@ -69,6 +69,14 @@ resource "terraform_data" "validate_inputs" {
       error_message = "existing_edge_security_group_id is set but edge_mode is ${var.edge_mode}, so there is no edge load balancer to use it. Clear it, or set edge_mode = \"loadbalancer\"."
     }
     precondition {
+      condition     = length(var.postgres_security_group_ids) == 0 || local.create_postgres
+      error_message = "postgres_security_group_ids is set but existing_postgres_arn brings the database, so we create no Aurora cluster to use it. Clear postgres_security_group_ids."
+    }
+    precondition {
+      condition     = length(var.redis_security_group_ids) == 0 || local.create_redis
+      error_message = "redis_security_group_ids is set but we create no ElastiCache replication group (existing_redis_arn is set or redis_enabled is false). Clear redis_security_group_ids."
+    }
+    precondition {
       condition     = length(local.registry_prefix) >= 2
       error_message = "The ECR repository prefix ${local.registry_prefix} is too short. Set registry_repository_prefix."
     }

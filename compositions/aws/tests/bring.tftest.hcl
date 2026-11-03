@@ -418,6 +418,16 @@ run "edge_security_group_without_load_balancer" {
   expect_failures = [terraform_data.validate_inputs]
 }
 
+run "postgres_security_groups_with_brought_database" {
+  command = plan
+
+  variables {
+    postgres_security_group_ids = ["sg-0abcdef0123456789"]
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}
+
 run "rds_instance" {
   command = plan
 

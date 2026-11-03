@@ -5,8 +5,10 @@
 # other zones, storage and Performance Insights encrypted with the data key,
 # TLS required (rds.force_ssl), automatic backups, deletion protection, a final
 # snapshot and postgresql logs in CloudWatch. Only the node security group may
-# connect. The chart's db-provision hook creates the databases and roles with
-# the admin login; see secrets.tf.
+# connect. With postgres_security_group_ids the cluster uses those groups and we
+# create no security group or rule; postgres_monitoring_interval = 0 also skips
+# the Enhanced Monitoring role. The chart's db-provision hook creates the
+# databases and roles with the admin login; see secrets.tf.
 
 module "postgres" {
   source = "../../modules/aws/aurora-postgres"
@@ -21,6 +23,7 @@ module "postgres" {
   vpc_id                     = local.vpc_id
   subnet_ids                 = local.data_subnet_ids
   allowed_security_group_ids = [local.node_security_group_id]
+  security_group_ids         = var.postgres_security_group_ids
 
   engine_version          = var.postgres_engine_version
   instance_class          = var.postgres_instance_class
@@ -36,6 +39,8 @@ module "postgres" {
   backup_retention_period = var.postgres_backup_retention_days
   deletion_protection     = var.postgres_deletion_protection_enabled
   skip_final_snapshot     = var.postgres_skip_final_snapshot
+
+  monitoring_interval = var.postgres_monitoring_interval
 
   log_retention_days = var.log_retention_days
   log_kms_key_arn    = local.kms_key_arns.logs

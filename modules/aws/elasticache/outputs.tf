@@ -24,6 +24,11 @@ output "port" {
 }
 
 output "security_group_id" {
-  description = "ID of the cache's security group."
-  value       = aws_security_group.this.id
+  description = "ID of the security group the module created. Null with security_group_ids."
+  value       = one(aws_security_group.this[*].id)
+}
+
+output "security_group_ids" {
+  description = "Security groups the cache uses: the one the module created, or security_group_ids."
+  value       = local.security_group_ids
 }

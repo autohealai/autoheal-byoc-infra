@@ -755,6 +755,28 @@ variable "postgres_storage_type" {
   }
 }
 
+variable "postgres_security_group_ids" {
+  type        = list(string)
+  default     = []
+  description = "Existing security groups for the Aurora cluster we create. Empty: we create one that allows TCP 5432 from the nodes. Set: we create no security group or rule, and the groups' owner allows TCP 5432 from the nodes. For a deployer that may not create security groups."
+
+  validation {
+    condition     = alltrue([for id in var.postgres_security_group_ids : can(regex("^sg-[0-9a-f]+$", id))])
+    error_message = "postgres_security_group_ids must contain security group IDs (sg-...)."
+  }
+}
+
+variable "postgres_monitoring_interval" {
+  type        = number
+  default     = 60
+  description = "Enhanced Monitoring interval in seconds for the Aurora instances we create. 0 turns it off, and we then create no monitoring IAM role. For a deployer that may not create IAM roles."
+
+  validation {
+    condition     = contains([0, 1, 5, 10, 15, 30, 60], var.postgres_monitoring_interval)
+    error_message = "postgres_monitoring_interval must be one of 0, 1, 5, 10, 15, 30, 60."
+  }
+}
+
 # ---------------------------------------------------------------------------
 # ElastiCache
 # ---------------------------------------------------------------------------
@@ -779,6 +801,17 @@ variable "redis_node_count" {
   validation {
     condition     = var.redis_node_count >= 1 && var.redis_node_count <= 6
     error_message = "redis_node_count must be between 1 and 6."
+  }
+}
+
+variable "redis_security_group_ids" {
+  type        = list(string)
+  default     = []
+  description = "Existing security groups for the ElastiCache replication group we create. Empty: we create one that allows TCP 6379 from the nodes. Set: we create no security group or rule, and the groups' owner allows TCP 6379 from the nodes. For a deployer that may not create security groups."
+
+  validation {
+    condition     = alltrue([for id in var.redis_security_group_ids : can(regex("^sg-[0-9a-f]+$", id))])
+    error_message = "redis_security_group_ids must contain security group IDs (sg-...)."
   }
 }
 

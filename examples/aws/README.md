@@ -28,6 +28,7 @@ building block takes an `existing_*` ID; uncomment the ones you already have.
 | Pod Identity associations made by your administrators | `create_pod_identity_associations = false`, then run the commands in the `required_role_assignments` output |
 | Workload IAM roles made by a central team | `existing_secrets_role_arn`, `existing_api_server_role_arn`, `existing_agents_worker_role_arn`, with the trust and policies from the `required_role_policies` output |
 | The edge load balancer's security group, owned by a central team | `existing_edge_security_group_id`, then add the rules in the `required_edge_owner_actions` output |
+| Security groups for the Aurora cluster and ElastiCache we create, owned by a central team | `postgres_security_group_ids`, `redis_security_group_ids`, then add the rules in the `required_datastore_owner_actions` output. With no right to create IAM roles, also `postgres_monitoring_interval = 0`. |
 | DNS outside Route 53 | `create_dns_records = false`, then create the records in the `required_dns_records` output |
 
 A brought resource is only read. Mixes that cannot work (a brought cluster

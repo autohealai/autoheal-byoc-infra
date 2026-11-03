@@ -392,6 +392,38 @@ run "no_redis" {
   }
 }
 
+# A deployer that may not create security groups or IAM roles: the database and
+# the cache use the given security groups, and Enhanced Monitoring is off.
+run "data_security_groups_brought" {
+  command = plan
+
+  variables {
+    postgres_security_group_ids  = ["sg-0abcdef0123456789"]
+    redis_security_group_ids     = ["sg-0abcdef0123456789"]
+    postgres_monitoring_interval = 0
+  }
+
+  assert {
+    condition = (
+      module.postgres[0].security_group_id == null &&
+      module.postgres[0].security_group_ids == tolist(["sg-0abcdef0123456789"]) &&
+      module.redis[0].security_group_id == null &&
+      module.redis[0].security_group_ids == tolist(["sg-0abcdef0123456789"])
+    )
+    error_message = "The database and the cache should use the given security groups and create none."
+  }
+
+  assert {
+    condition     = module.postgres[0].monitoring_role_arn == null
+    error_message = "postgres_monitoring_interval = 0 should create no monitoring role."
+  }
+
+  assert {
+    condition     = length(output.required_datastore_owner_actions) == 2
+    error_message = "required_datastore_owner_actions should list the rule for each given group."
+  }
+}
+
 run "optional_entries" {
   command = plan
 

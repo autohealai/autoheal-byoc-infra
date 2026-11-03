@@ -69,6 +69,10 @@ resource "terraform_data" "validate_inputs" {
       error_message = "existing_edge_security_group_id is set but edge_mode is ${var.edge_mode}, so there is no edge load balancer to use it. Clear it, or set edge_mode = \"loadbalancer\"."
     }
     precondition {
+      condition     = length(var.edge_lb_tags) == 0 || local.create_edge_lb
+      error_message = "edge_lb_tags is set but edge_mode is ${var.edge_mode}, so there is no edge load balancer to tag. Clear it, or set edge_mode = \"loadbalancer\"."
+    }
+    precondition {
       condition     = length(var.postgres_security_group_ids) == 0 || local.create_postgres
       error_message = "postgres_security_group_ids is set but existing_postgres_arn brings the database, so we create no Aurora cluster to use it. Clear postgres_security_group_ids."
     }

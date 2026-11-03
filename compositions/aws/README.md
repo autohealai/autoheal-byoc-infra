@@ -116,6 +116,11 @@ security group gets ingress from it on the target ports only. In a brought
 cluster these rules are added to `existing_network.node_security_group_id`, or
 to the cluster security group when that is empty.
 
+`edge_lb_tags` puts tags on the load balancer alone, on top of `tags`. They are
+set when it is created, so an automation that acts on new load balancers (one
+that creates DNS records from a tag, for example) sees them. The plan stops
+when they are set in another edge mode.
+
 In the other edge modes we create no load balancer, and the cluster needs no
 AWS Load Balancer Controller.
 
@@ -335,7 +340,8 @@ terraform test
 ```
 
 `tests/` plans each case against mocked providers: `create.tftest.hcl` (case 1,
-each edge mode, the optional blocks and cluster access), `bring.tftest.hcl`
+each edge mode, the optional blocks, cluster access and the edge load balancer's
+tags), `bring.tftest.hcl`
 (case 2, the hybrid case, each guard on a brought resource and the owner's
 actions for a brought cluster) and `validation.tftest.hcl` (the plan-time checks
 on inputs).

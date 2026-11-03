@@ -168,3 +168,9 @@ variable "access_logs_prefix" {
   default     = ""
   description = "Key prefix for the access logs in access_logs_bucket. Empty writes to the bucket root."
 }
+
+variable "lb_tags" {
+  type        = map(string)
+  default     = {}
+  description = "Extra tags for the NLB only, merged over tags. They are set when the NLB is created, which suits a tag that an automation looks for on new load balancers, for example one that creates DNS records. The security group and the target groups do not get them."
+}

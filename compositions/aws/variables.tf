@@ -118,6 +118,12 @@ variable "existing_edge_security_group_id" {
   }
 }
 
+variable "edge_lb_tags" {
+  type        = map(string)
+  default     = {}
+  description = "Extra tags for the edge Network Load Balancer only, in loadbalancer mode, merged over tags. They are set when the load balancer is created, which suits a tag that the account's automation looks for on new load balancers, for example one that creates DNS records. No other resource gets them."
+}
+
 variable "edge_address" {
   type        = string
   default     = ""

@@ -13,6 +13,10 @@
 # With existing_edge_security_group_id the load balancer uses that group and we
 # add no security group rule, on it or on the nodes' group. The
 # required_edge_owner_actions output lists the rules its owner adds.
+#
+# edge_lb_tags go on the load balancer alone, on top of tags, and are set when
+# it is created: the moment an account's automation (DNS records, for example)
+# looks at a new load balancer.
 
 module "edge_nlb" {
   source = "../../modules/aws/nlb"
@@ -43,6 +47,8 @@ module "edge_nlb" {
   existing_security_group_id = var.existing_edge_security_group_id
   allowed_cidr_blocks        = local.edge_allowed_cidr_blocks
   target_security_group_ids  = local.edge_sg_brought ? [] : [local.node_security_group_id]
+
+  lb_tags = var.edge_lb_tags
 }
 
 locals {

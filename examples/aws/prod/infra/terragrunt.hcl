@@ -89,6 +89,9 @@ inputs = {
   # edge_address to that edge's address so the DNS records point there.
   edge_mode     = "loadbalancer"
   edge_exposure = "internal" # internet-facing needs edge_allowed_cidr_blocks
+  # Tags for the edge load balancer alone, set when it is created, for example
+  # one your DNS automation looks for on new load balancers.
+  # edge_lb_tags = { "acme:dns" = "create-records" }
   # edge_mode    = "ingress"
   # edge_address = "k8s-ingress-0123456789.elb.us-west-2.amazonaws.com"
 

@@ -6,6 +6,24 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [4.5.0] - 2026-11-03
+
+On AWS, the edge Network Load Balancer can carry tags of its own, set when it
+is created. An account whose automation acts on new load balancers, for
+example one that creates DNS records from a tag, can then use the load
+balancer we create. An install on 4.4.0 that keeps its inputs plans no
+change. The chart stays 1.0.0-rc.14.
+
+### Added
+- `compositions/aws`: `edge_lb_tags`, tags for the edge load balancer only,
+  merged over `tags`. The plan stops when they are set and `edge_mode` is not
+  `loadbalancer`.
+- `modules/aws/nlb`: `lb_tags`, tags for the NLB only. Its security group and
+  target groups do not get them.
+
+### Changed
+- Examples and docs pin v4.5.0.
+
 ## [4.4.0] - 2026-11-02
 
 On AWS, the Aurora cluster and the ElastiCache group we create can use

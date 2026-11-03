@@ -22,6 +22,7 @@
 # and the target egress. target_security_group_ids still gets its rules.
 #
 # Naming and tags come from the null-label base (module.this); see label.tf.
+# lb_tags go on the NLB alone, over those tags.
 # NLB and target group names are limited to 32 characters and are cut with a
 # short hash suffix.
 
@@ -155,7 +156,7 @@ resource "aws_lb" "this" {
     prefix  = var.access_logs_prefix == "" ? null : var.access_logs_prefix
   }
 
-  tags = module.this.tags
+  tags = merge(module.this.tags, var.lb_tags)
 }
 
 resource "aws_lb_target_group" "this" {

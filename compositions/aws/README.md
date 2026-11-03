@@ -118,8 +118,10 @@ to the cluster security group when that is empty.
 
 `edge_lb_tags` puts tags on the load balancer alone, on top of `tags`. They are
 set when it is created, so an automation that acts on new load balancers (one
-that creates DNS records from a tag, for example) sees them. The plan stops
-when they are set in another edge mode.
+that creates DNS records from a tag, for example) sees them. Set them before
+the apply that creates the load balancer: added later, they only tag the
+existing one, and such an automation does not act on it. The plan stops when
+they are set in another edge mode.
 
 In the other edge modes we create no load balancer, and the cluster needs no
 AWS Load Balancer Controller.

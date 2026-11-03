@@ -16,7 +16,7 @@
 #
 # edge_lb_tags go on the load balancer alone, on top of tags, and are set when
 # it is created: the moment an account's automation (DNS records, for example)
-# looks at a new load balancer.
+# looks at a new load balancer. Added later, they only tag the existing one.
 
 module "edge_nlb" {
   source = "../../modules/aws/nlb"

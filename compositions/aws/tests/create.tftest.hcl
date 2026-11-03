@@ -519,13 +519,27 @@ run "edge_lb_tags" {
   }
 
   assert {
-    condition     = length(module.edge_nlb) == 1
-    error_message = "edge_lb_tags should plan with the edge load balancer."
+    condition     = module.edge_nlb[0].tags["acme:elb:cname"] == "Require-CNAME" && module.edge_nlb[0].tags["team"] == "platform"
+    error_message = "edge_lb_tags should reach the edge load balancer, on top of tags."
+  }
+}
+
+run "edge_lb_tags_null" {
+  command = plan
+
+  variables {
+    edge_lb_tags = null
+  }
+
+  assert {
+    condition     = !contains(keys(module.edge_nlb[0].tags), "acme:elb:cname")
+    error_message = "edge_lb_tags = null should plan like no edge_lb_tags."
   }
 }
 
 # A test cannot read the resources inside a module the composition calls, so
-# this run plans the edge load balancer's module directly with the same tags.
+# this run plans the edge load balancer's module directly with the same tags,
+# to check what does not get them.
 run "edge_lb_tags_on_the_load_balancer_only" {
   command = plan
 

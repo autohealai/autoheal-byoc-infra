@@ -16,10 +16,12 @@ change. The chart stays 1.0.0-rc.14.
 
 ### Added
 - `compositions/aws`: `edge_lb_tags`, tags for the edge load balancer only,
-  merged over `tags`. The plan stops when they are set and `edge_mode` is not
-  `loadbalancer`.
+  merged over `tags`. Set them before the apply that creates the load balancer:
+  added later, they only tag the existing one. The plan stops when they are set
+  and `edge_mode` is not `loadbalancer`, or when a key starts with `aws:` or a
+  key or value is too long for AWS.
 - `modules/aws/nlb`: `lb_tags`, tags for the NLB only. Its security group and
-  target groups do not get them.
+  target groups do not get them. The new `tags` output gives the NLB's tags.
 
 ### Changed
 - Examples and docs pin v4.5.0.

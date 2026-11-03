@@ -400,3 +400,23 @@ run "permission_set_also_by_arn" {
 
   expect_failures = [terraform_data.validate_inputs]
 }
+
+run "edge_lb_tags_reserved_prefix" {
+  command = plan
+
+  variables {
+    edge_lb_tags = { "AWS:dns" = "create-records" }
+  }
+
+  expect_failures = [var.edge_lb_tags]
+}
+
+run "edge_lb_tags_value_too_long" {
+  command = plan
+
+  variables {
+    edge_lb_tags = { "acme:dns" = join("", [for i in range(257) : "x"]) }
+  }
+
+  expect_failures = [var.edge_lb_tags]
+}

@@ -89,11 +89,13 @@ inputs = {
   # edge_address to that edge's address so the DNS records point there.
   edge_mode     = "loadbalancer"
   edge_exposure = "internal" # internet-facing needs edge_allowed_cidr_blocks
-  # Tags for the edge load balancer alone, set when it is created, for example
-  # one your DNS automation looks for on new load balancers.
-  # edge_lb_tags = { "acme:dns" = "create-records" }
   # edge_mode    = "ingress"
   # edge_address = "k8s-ingress-0123456789.elb.us-west-2.amazonaws.com"
+
+  # Tags for the edge load balancer alone, for example one your DNS automation
+  # looks for on new load balancers. Set them before the first apply: they are
+  # set when the load balancer is created, and added later they only tag it.
+  # edge_lb_tags = { "acme:dns" = "create-records" }
 
   # Models through Bedrock with the agents' Pod Identity roles, so no API key.
   # For another provider, set this to false and pass TF_VAR_llm_api_key.

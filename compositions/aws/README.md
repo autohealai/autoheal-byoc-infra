@@ -26,7 +26,7 @@ One file per building block.
 | `registry.tf` | ECR pull-through cache of the public Autoheal registry, only with `create_registry = true`. Brought: `existing_registry_url`. |
 | `identity.tf` | IAM roles, one per chart workload group, bound to the chart's service accounts through EKS Pod Identity. Brought: `existing_secrets_role_arn`, `existing_api_server_role_arn`, `existing_agents_worker_role_arn`. |
 | `secrets.tf` | Every secret the chart reads, generated or passed in, written to Secrets Manager. |
-| `load-balancers.tf` | The edge Network Load Balancer, in `loadbalancer` mode. Brought: `existing_edge_security_group_id`, its security group. |
+| `load-balancers.tf` | The edge Network Load Balancer, in `loadbalancer` mode, and the runner Network Load Balancer, with `runner_lb_enabled`. Brought: `existing_edge_security_group_id` and `existing_runner_lb_security_group_id`, their security groups. |
 | `dns.tf` | Records for the three hostnames in your Route 53 zone. |
 | `validation.tf` | Plan-time checks with plain messages. |
 | `autoheal-values.tf` | The `autoheal_values` hand-off to the chart. |
@@ -49,7 +49,10 @@ interface endpoints.
 We change no security group of a brought database or Redis.
 `required_datastore_owner_actions` lists the rule its owner adds so the pods can
 connect. With `existing_edge_security_group_id` we add no security group rule
-at all; `required_edge_owner_actions` lists the rules.
+for the edge load balancer, on its group or the nodes';
+`required_edge_owner_actions` lists the rules. `existing_runner_lb_security_group_id`
+does the same for the runner load balancer, with
+`required_runner_lb_owner_actions`.
 
 For a deployer that may not create security groups or IAM roles,
 `postgres_security_group_ids` and `redis_security_group_ids` give the Aurora
@@ -123,8 +126,35 @@ the apply that creates the load balancer: added later, they only tag the
 existing one, and such an automation does not act on it. The plan stops when
 they are set in another edge mode.
 
-In the other edge modes we create no load balancer, and the cluster needs no
-AWS Load Balancer Controller.
+In the other edge modes we create no edge load balancer.
+
+### Runner load balancer
+
+`runner_lb_enabled = true` creates a second Network Load Balancer, for the
+sandbox runner of `compositions/aws-runner`. It is internal, in the private
+subnets, and works in every edge mode:
+
+| Listener | Target | Health check |
+|----------|--------|--------------|
+| 7233 | Temporal frontend pods on 7233 | TCP |
+| 8083 | api-server-go's internal listener on 8083, where the runner posts sandbox tool results | HTTP `/health` |
+
+This is how Autoheal's hosted runners reach Temporal: plain gRPC and HTTP
+inside the network, with no TLS and no runner key, so the load balancer's
+security group decides who may connect. It lets in the VPC CIDR by default;
+`runner_lb_allowed_cidr_blocks` and `runner_lb_allowed_security_group_ids`
+narrow it, for example to the runner's security group. The node security group
+gets ingress from it on 7233 and 8083. Where a central team owns security
+groups, `existing_runner_lb_security_group_id` gives the load balancer theirs:
+we then add no rule for it, on it or on the nodes' group, and
+`required_runner_lb_owner_actions` lists the rules, with the two allowed lists
+as the clients. `autoheal_values` adds the `temporal` and
+`toolResponse` target groups and turns on the chart's
+`temporalFrontendLoadBalancer` and `toolResponseLoadBalancer`, the Services that
+bind to them. The `runner_load_balancer` output gives `compositions/aws-runner`
+its `temporal_address` and `tool_response_url`.
+
+With neither load balancer the cluster needs no AWS Load Balancer Controller.
 
 ## Edge modes
 
@@ -133,6 +163,9 @@ AWS Load Balancer Controller.
 | `loadbalancer` (default) | the edge Network Load Balancer (alias records) | `edgeHttps` (443 to the proxy's 8443) and `edgeHttp` (80 to 8090) |
 | `gateway-api`, `istio`, `ingress` | `edge_address`; listed in `required_dns_records` while it is empty | not set |
 | `none` | nothing; no records | not set |
+
+With `runner_lb_enabled`, `global.infra.targetGroups` also holds `temporal`
+and `toolResponse` in every mode.
 
 The default needs nothing in the cluster besides the AWS Load Balancer
 Controller: no Ingress controller, Gateway or Istio. The other modes are for a
@@ -156,13 +189,14 @@ limit 1) and no long-lived AWS key exists anywhere.
 | secrets | `autoheal-hooks` | read `<secrets_prefix>*` and decrypt with the secrets key |
 | api-server | `api-server-go` | read and write the three buckets; keep the tenant bucket's versioning and lifecycle rules (and create it when `create_tenant_bucket = false`); manage secrets under `<runtime_secrets_prefix>/`; Bedrock |
 | agents-worker | `agents-py-http`, `agents-py-worker` | read and write the three buckets; Bedrock |
-| lb-controller | `kube-system/aws-load-balancer-controller` | describe load balancers and network state; register targets in the edge load balancer's target groups only |
+| lb-controller | `kube-system/aws-load-balancer-controller` | describe load balancers and network state; register targets in our load balancers' target groups only |
 
 Bedrock (`InvokeModel`, `InvokeModelWithResponseStream`) is on by default, on
 every foundation model and inference profile in the account
 (`bedrock_resource_arns` narrows it). The lb-controller role is created in
-`loadbalancer` mode with a cluster we create; a brought cluster's own controller
-needs `elasticloadbalancing:RegisterTargets` on our target groups.
+`loadbalancer` mode or with `runner_lb_enabled`, with a cluster we create; a
+brought cluster's own controller needs `elasticloadbalancing:RegisterTargets` on
+our target groups.
 
 With `create_pod_identity_associations = false` the roles are created and
 `required_role_assignments` lists the associations as `aws eks
@@ -285,8 +319,10 @@ the chart pulls from your mirror, which must hold the images under `app/` and
 | `required_cluster_owner_actions` | What the owner of a brought cluster must do, as readable lines: an access entry and IAM permissions for the deployer, the Pod Identity agent and Secrets Store CSI add-ons, and, when they apply, the AWS Load Balancer Controller (`loadbalancer` mode), a path to a private API endpoint and image pull access for the nodes. Filled only with `existing_eks_cluster_arn`. |
 | `required_datastore_owner_actions` | What the owner of a brought database or Redis, or of the security groups given for one we create, must do: a security group rule letting the pods in on its port. Filled only with `existing_postgres_arn`, `existing_redis_arn`, `postgres_security_group_ids` or `redis_security_group_ids`. |
 | `required_edge_owner_actions` | What the owner of a brought edge security group must do: listener ingress from the clients, egress to the proxy pods, and ingress on the nodes' security group from it. Filled only with `existing_edge_security_group_id` in `loadbalancer` mode. |
+| `required_runner_lb_owner_actions` | The same for a brought runner load balancer security group: ingress on 7233 and 8083 from the runners, egress to the Temporal frontend and api-server-go pods, and ingress on the nodes' security group from it. Filled only with `existing_runner_lb_security_group_id` and `runner_lb_enabled`. |
 | `required_role_policies` | Per workload role (`secrets`, `api_server`, `agents_worker`): the service accounts, the Pod Identity trust policy and the inline policy JSON. For a central team that creates the roles (`existing_*_role_arn`). Always filled. |
 | `network` | `vpc_id`, `vpc_cidr_block`, `private_subnet_ids`, `data_subnet_ids`, `public_subnet_ids`. |
+| `runner_load_balancer` | `dns_name`, `temporal_address` (`<dns_name>:7233`), `tool_response_url` (`http://<dns_name>:8083/api/v1/internal/sandbox-tool-responses`) and `security_group_id` of the runner load balancer, for `compositions/aws-runner`. null without `runner_lb_enabled`. |
 
 `autoheal_values` keys:
 
@@ -301,6 +337,7 @@ global.infra.database.{host,port,adminUser,adminPasswordVaultEntry}
 global.infra.redis.{host,port}                when there is Redis
 global.infra.objectStore.{kind,bucket,artifactsBucket,tenantBucketPrefix}
 global.infra.targetGroups.{edgeHttps,edgeHttp}   loadbalancer mode only
+global.infra.targetGroups.{temporal,toolResponse}   runner_lb_enabled only
 global.imageRegistry                          suggestion, with a registry
 global.addons.install                         suggestion: false, the EKS add-ons provide the CSI driver
 global.secrets.mode                           suggestion: keyvault-csi
@@ -311,6 +348,7 @@ temporal.server.config.persistence.{default,visibility}.sql.host   copy of the d
 zitadel.zitadel.configmapConfig.ExternalDomain                     copy of hosts.auth
 zitadel.zitadel.configmapConfig.Database.Postgres.Host             copy of the database host
 temporal.*.image.repository, zitadel.image.repository, zitadel.login.image.repository, zitadel.imageRegistry   with a registry
+temporalFrontendLoadBalancer.enabled, toolResponseLoadBalancer.enabled         true, runner_lb_enabled only
 ```
 
 None of the outputs holds a secret.
@@ -333,6 +371,12 @@ the runner inputs (`autoheal_version`, `runner_*`); the old
    results target groups before step 2 deletes those target groups.
 2. This composition.
 3. `compositions/app` again.
+
+From 4.6.0, `runner_lb_enabled = true` brings that load balancer back for
+`compositions/aws-runner`. Coming straight from 3.x with it set, the apply
+keeps the 3.x load balancer and its target groups (a `moved` block), so its DNS
+name does not change. The 3.x runner Auto Scaling group is still destroyed:
+create the new runner with `compositions/aws-runner` after the app is applied.
 
 ## Tests
 

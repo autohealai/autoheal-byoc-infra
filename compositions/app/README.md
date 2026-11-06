@@ -47,8 +47,10 @@ objects, so it needs no more than that. See `examples/azure/split/app`.
 
 ## AWS Load Balancer Controller
 
-In loadbalancer mode on EKS the chart binds the proxy Service to the edge NLB
-target groups that `compositions/aws` made, with `TargetGroupBinding` objects. The AWS Load
+On EKS the chart binds its Services to the target groups of the load balancers
+`compositions/aws` made, with `TargetGroupBinding` objects: the proxy to the
+edge NLB in loadbalancer mode, and the Temporal frontend and api-server-go's
+internal listener to the runner NLB with `runner_lb_enabled`. The AWS Load
 Balancer Controller registers the pod IPs in them. With
 `aws_load_balancer_controller = { enabled = true }` this composition installs it
 first, in `kube-system`, as service account `aws-load-balancer-controller` (the

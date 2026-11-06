@@ -73,6 +73,14 @@ resource "terraform_data" "validate_inputs" {
       error_message = "edge_lb_tags is set but edge_mode is ${var.edge_mode}, so there is no edge load balancer to tag. Clear it, or set edge_mode = \"loadbalancer\"."
     }
     precondition {
+      condition     = local.create_runner_lb || length(concat(var.runner_lb_allowed_cidr_blocks, var.runner_lb_allowed_security_group_ids)) == 0
+      error_message = "runner_lb_allowed_cidr_blocks or runner_lb_allowed_security_group_ids is set but runner_lb_enabled is false, so there is no runner load balancer to open. Clear them, or set runner_lb_enabled = true."
+    }
+    precondition {
+      condition     = var.existing_runner_lb_security_group_id == "" || local.create_runner_lb
+      error_message = "existing_runner_lb_security_group_id is set but runner_lb_enabled is false, so there is no runner load balancer to use it. Clear it, or set runner_lb_enabled = true."
+    }
+    precondition {
       condition     = length(var.postgres_security_group_ids) == 0 || local.create_postgres
       error_message = "postgres_security_group_ids is set but existing_postgres_arn brings the database, so we create no Aurora cluster to use it. Clear postgres_security_group_ids."
     }
@@ -230,6 +238,22 @@ resource "terraform_data" "edge_sg_guard" {
     precondition {
       condition     = data.aws_security_group.edge[0].vpc_id == local.vpc_id
       error_message = "Security group ${var.existing_edge_security_group_id} (existing_edge_security_group_id) is in VPC ${data.aws_security_group.edge[0].vpc_id}, not ${local.vpc_id}, the VPC Autoheal runs in. A load balancer can only use a security group from its own VPC."
+    }
+  }
+}
+
+data "aws_security_group" "runner_lb" {
+  count = local.runner_lb_sg_brought ? 1 : 0
+  id    = var.existing_runner_lb_security_group_id
+}
+
+resource "terraform_data" "runner_lb_sg_guard" {
+  count = local.runner_lb_sg_brought ? 1 : 0
+
+  lifecycle {
+    precondition {
+      condition     = data.aws_security_group.runner_lb[0].vpc_id == local.vpc_id
+      error_message = "Security group ${var.existing_runner_lb_security_group_id} (existing_runner_lb_security_group_id) is in VPC ${data.aws_security_group.runner_lb[0].vpc_id}, not ${local.vpc_id}, the VPC Autoheal runs in. A load balancer can only use a security group from its own VPC."
     }
   }
 }

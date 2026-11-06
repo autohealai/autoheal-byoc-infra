@@ -97,6 +97,17 @@ inputs = {
   # set when the load balancer is created, and added later they only tag it.
   # edge_lb_tags = { "acme:dns" = "create-records" }
 
+  # For the sandbox runner of ../runner: an internal load balancer it reaches
+  # Temporal on (TCP 7233) and posts tool results to (TCP 8083), as Autoheal's
+  # hosted runners do, with no TLS and no key. Its security group lets in this
+  # VPC; from another network, or to let in only the runner, list the sources.
+  # runner_lb_enabled                    = true
+  # runner_lb_allowed_cidr_blocks        = ["10.60.0.0/16"]
+  # runner_lb_allowed_security_group_ids = ["sg-0123456789abcdef0"]
+  # Where a central team owns security groups: theirs, with no rule added; the
+  # required_runner_lb_owner_actions output lists the rules it needs.
+  # existing_runner_lb_security_group_id = "sg-0fedcba9876543210"
+
   # Models through Bedrock with the agents' Pod Identity roles, so no API key.
   # For another provider, set this to false and pass TF_VAR_llm_api_key.
   bedrock_access_enabled = true

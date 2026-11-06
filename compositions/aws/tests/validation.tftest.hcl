@@ -420,3 +420,36 @@ run "edge_lb_tags_value_too_long" {
 
   expect_failures = [var.edge_lb_tags]
 }
+
+run "runner_lb_allowed_ipv6" {
+  command = plan
+
+  variables {
+    runner_lb_enabled             = true
+    runner_lb_allowed_cidr_blocks = ["fd00::/8"]
+  }
+
+  expect_failures = [var.runner_lb_allowed_cidr_blocks]
+}
+
+run "runner_lb_allowed_not_a_security_group" {
+  command = plan
+
+  variables {
+    runner_lb_enabled                    = true
+    runner_lb_allowed_security_group_ids = ["runner"]
+  }
+
+  expect_failures = [var.runner_lb_allowed_security_group_ids]
+}
+
+run "existing_runner_lb_security_group_not_an_id" {
+  command = plan
+
+  variables {
+    runner_lb_enabled                    = true
+    existing_runner_lb_security_group_id = "runner"
+  }
+
+  expect_failures = [var.existing_runner_lb_security_group_id]
+}

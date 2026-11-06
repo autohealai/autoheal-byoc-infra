@@ -6,6 +6,116 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [4.6.0] - 2026-11-05
+
+The sandbox runner comes to AWS as an optional step of its own, applied after
+the app, like `compositions/azure-runner`. Runner instances on an EC2 Auto
+Scaling group reach Temporal the way Autoheal's hosted runners do: on an
+internal Network Load Balancer of `compositions/aws`, Temporal on 7233 and
+sandbox tool results on 8083, in plain gRPC and HTTP with no TLS and no key.
+The load balancer's security group decides who may connect. No secret is
+added. The chart stays 1.0.0-rc.14, which has the Services that bind to that
+load balancer. An install on 4.5.0 that keeps its inputs plans no resource
+change.
+
+### Added
+- `compositions/aws`: `runner_lb_enabled` creates the runner load balancer,
+  internal in the private subnets, with listeners 7233 to the Temporal
+  frontend and 8083 to api-server-go's internal listener. It works in every
+  `edge_mode`. It lets in the VPC CIDR by default;
+  `runner_lb_allowed_cidr_blocks` and `runner_lb_allowed_security_group_ids`
+  narrow it. The node security group gets ingress from it on 7233 and 8083,
+  and the AWS Load Balancer Controller role, when we create it, may register
+  targets in its target groups. `autoheal_values` adds the `temporal` and
+  `toolResponse` target groups and turns on the chart's
+  `temporalFrontendLoadBalancer` and `toolResponseLoadBalancer`. The new
+  `runner_load_balancer` output gives its DNS name, `temporal_address`,
+  `tool_response_url` and security group, null when it is off.
+- `compositions/aws`: `existing_runner_lb_security_group_id`, for accounts
+  where a central team owns security groups. The runner load balancer uses
+  that group, and we add no rule for it, on it or on the nodes' group. The new
+  `required_runner_lb_owner_actions` output lists the rules its owner adds,
+  and the plan stops if the group is in another VPC or `runner_lb_enabled` is
+  off.
+- `compositions/aws-runner`: the runner step. An Auto Scaling group in the
+  subnets you pass, usually the `network.private_subnet_ids` output of
+  `compositions/aws`, with `temporal_address` and `tool_response_url` from the
+  `runner_load_balancer` output. As nothing guards those addresses but the
+  network, the plan stops unless each one is private: a private IPv4 address,
+  an internal load balancer of this account and region (looked up by the name
+  in its DNS name), or a name under `private_dns_domains`. An empty
+  `tool_response_url` sends tool results through Temporal. It never reads the
+  cluster: `required_network_owner_actions` lists what the network owner
+  opens. Where a central team owns IAM or security groups,
+  `existing_instance_profile_arn` and `existing_security_group_id` replace
+  ours, and `required_role_policies` lists what the brought role needs.
+  Instance refresh starts each new instance before its old one stops, so a
+  single runner keeps polling through a change.
+- `modules/aws/runner-asg`, removed in 4.0.0, back and reworked like
+  `modules/azure/runner-vmss`, without its TLS and key. Also new:
+  - `sandbox_blocked_destinations`, CIDRs, addresses or names sandboxes may
+    not reach, on top of the runner load balancer (below).
+  - `http_proxy` and `no_proxy`, for subnets whose way out is a proxy: dnf,
+    Docker's image pulls, the AWS CLI and runner-go use it. Sandboxes do not.
+  - `trusted_ca_certificates`, PEM CAs added to the system trust store by
+    cloud-init before the packages install and before Docker starts, for a
+    registry mirror or a TLS-inspecting proxy with a private CA. dnf, Docker's
+    image pulls and the ECR login trust them; runner-go and sandboxes do not.
+    `compositions/aws-runner` passes it through.
+  - `ecr_repository_prefix`, and the inline policy `ecr-pull` on
+    `ecr_registry_host`, with the same actions as `modules/aws/ecr`.
+  - `existing_instance_profile_arn`, `existing_security_group_id`,
+    `additional_security_group_ids`, `additional_inline_policies`,
+    `additional_iam_policy_arns`, `permissions_boundary_arn`, and the
+    `required_role_policies` output.
+  - `ami_name_filter` and `ami_owners`, for a company image built from Amazon
+    Linux 2023; `ssm_enabled`, `key_name` and `ssh_ingress_cidr_blocks`, for
+    accounts without Session Manager.
+  - The cloud-init is gzipped into the user data, so a long block list and a
+    proxy fit the 16 KB EC2 limit. The plan stops if even the gzipped one does
+    not fit.
+- Examples: `runner_lb_enabled`, its allowed lists and
+  `existing_runner_lb_security_group_id`, commented out, in
+  `examples/aws/prod/infra`, a `runner` folder in `examples/aws/prod`, and the
+  sandbox setting in its `values-customer.yaml`.
+
+### Security
+- Sandboxes run untrusted code, and the runner load balancer takes no key, so
+  each instance keeps them off it. runner-go runs on a Docker network of its
+  own, and sandboxes on Docker's default bridge. A firewall script in Docker's
+  `DOCKER-USER` chain rejects sandbox traffic to the load balancer's addresses
+  and to `sandbox_blocked_destinations`, and all container traffic to the
+  instance metadata address. It runs before each runner-go start, which does
+  not start without it, and every 5 minutes, looking the names up again, as a
+  load balancer's addresses can change.
+- The launch template requires IMDSv2 with a hop limit of 1, so containers
+  cannot use the instance role.
+- runner-go's lambda drivers are off (`DISABLED_DRIVERS=shell,bubblewrap`), as
+  on Azure.
+
+### Changed
+- Examples and docs pin v4.6.0.
+
+### Upgrading from 4.5.x
+Nothing changes until you turn the runner on. For the runner:
+1. Set `runner_lb_enabled = true` in the infra unit and apply it. The plan adds
+   the load balancer, its listeners, target groups and security group, and
+   the node security group rules.
+2. Apply the app, so the chart binds Temporal and api-server-go to the load
+   balancer.
+3. Apply the `runner` folder.
+4. Once the runner polls, set `global.sandbox.enabled` and apply the app again.
+
+The `runner` folder's `dependency "infra"` block sets
+`mock_outputs_merge_strategy_with_state = "shallow"`. Keep it: until the 4.6.0
+infra apply, the infra state has outputs but no `runner_load_balancer`, and
+without it the runner plan fails. The apply never uses the placeholder.
+
+From 3.x straight to 4.6.0 with `runner_lb_enabled = true`, the apply keeps
+the 3.x runner load balancer and its target groups (a `moved` block), so the
+address does not change. The 3.x runner Auto Scaling group is still destroyed,
+as in 4.0.0.
+
 ## [4.5.0] - 2026-11-03
 
 On AWS, the edge Network Load Balancer can carry tags of its own, set when it

@@ -18,9 +18,11 @@ Two folders in a repository you own, each with its own state:
 
 Without a sandbox runner, the agents answer and call the integrations you
 connect, but run no shell commands or skill scripts, and say so when a step
-needs one. On Azure, an optional `prod/runner` folder (`compositions/azure-runner`)
-adds runner VMs that reach Temporal through the edge; see its README and
-`examples/azure/split/runner`.
+needs one. An optional `prod/runner` folder adds them. On Azure,
+`compositions/azure-runner` adds runner VMs that reach Temporal through the
+edge; see its README and `examples/azure/split/runner`. On AWS,
+`compositions/aws-runner` adds EC2 instances that reach Temporal on an internal
+load balancer of the infra folder; see its README and `examples/aws/prod/runner`.
 
 You drive both with **Terragrunt**, a thin wrapper around Terraform, from your
 laptop for a first try or from a pipeline for a real install.
@@ -135,7 +137,7 @@ az account set --subscription "<subscription-id>"   # az account show --query id
 Copy `examples/azure` from a released tag into a repository you own:
 
 ```bash
-git clone --branch v4.5.0 https://github.com/autohealai/autoheal-byoc-infra.git
+git clone --branch v4.6.0 https://github.com/autohealai/autoheal-byoc-infra.git
 mkdir acme-autoheal && cp -r autoheal-byoc-infra/examples/azure/. acme-autoheal/
 cd acme-autoheal
 ```
@@ -424,7 +426,7 @@ A first apply takes roughly 30 minutes; EKS and Aurora are the slow parts.
 ### Step 2: Copy the example into your repository
 
 ```bash
-git clone --branch v4.5.0 https://github.com/autohealai/autoheal-byoc-infra.git
+git clone --branch v4.6.0 https://github.com/autohealai/autoheal-byoc-infra.git
 mkdir acme-autoheal && cp -r autoheal-byoc-infra/examples/aws/. acme-autoheal/
 cd acme-autoheal
 ```

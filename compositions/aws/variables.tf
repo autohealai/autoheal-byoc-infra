@@ -144,6 +144,49 @@ variable "edge_address" {
 }
 
 # ---------------------------------------------------------------------------
+# Runner load balancer
+# ---------------------------------------------------------------------------
+
+variable "runner_lb_enabled" {
+  type        = bool
+  default     = false
+  description = "Create an internal Network Load Balancer in the private subnets for compositions/aws-runner: the Temporal frontend on 7233 and api-server-go's internal listener on 8083, where the runner posts sandbox tool results. This is how Autoheal's hosted runners connect: plain gRPC and HTTP inside the network, with no TLS and no runner key, so its security group decides who may connect. The chart binds to it through global.infra.targetGroups, and the runner_load_balancer output gives the runner its addresses. Works in every edge_mode."
+}
+
+variable "runner_lb_allowed_cidr_blocks" {
+  type        = list(string)
+  default     = []
+  description = "Client CIDRs allowed to reach the runner load balancer on 7233 and 8083, usually the runner subnets. Empty means the VPC CIDR, unless runner_lb_allowed_security_group_ids is set. Needs runner_lb_enabled."
+
+  validation {
+    condition     = alltrue([for c in var.runner_lb_allowed_cidr_blocks : can(cidrhost(c, 0)) && !strcontains(c, ":")])
+    error_message = "Every runner_lb_allowed_cidr_blocks entry must be an IPv4 CIDR such as 10.0.8.0/22."
+  }
+}
+
+variable "runner_lb_allowed_security_group_ids" {
+  type        = list(string)
+  default     = []
+  description = "Security groups allowed to reach the runner load balancer on 7233 and 8083, usually the runner's (compositions/aws-runner security_group_id output, or its existing_security_group_id). Set alone, only these groups may connect; with runner_lb_allowed_cidr_blocks, both may. Needs runner_lb_enabled."
+
+  validation {
+    condition     = alltrue([for g in var.runner_lb_allowed_security_group_ids : can(regex("^sg-[0-9a-f]+$", g))])
+    error_message = "Every runner_lb_allowed_security_group_ids entry must be a security group ID (sg-...)."
+  }
+}
+
+variable "existing_runner_lb_security_group_id" {
+  type        = string
+  default     = ""
+  description = "ID of a security group you already have for the runner load balancer, for accounts where a central team owns security groups. When set, we create no security group for it and add no security group rule for it anywhere, including on the nodes' group; the required_runner_lb_owner_actions output lists the rules to add, with runner_lb_allowed_cidr_blocks and runner_lb_allowed_security_group_ids as the clients. Needs runner_lb_enabled. Empty means we create the group and its rules."
+
+  validation {
+    condition     = var.existing_runner_lb_security_group_id == "" || can(regex("^sg-[0-9a-f]+$", var.existing_runner_lb_security_group_id))
+    error_message = "existing_runner_lb_security_group_id must be empty or a security group ID (sg-...)."
+  }
+}
+
+# ---------------------------------------------------------------------------
 # DNS
 # ---------------------------------------------------------------------------
 
@@ -259,7 +302,7 @@ variable "private_endpoint_services" {
 variable "existing_eks_cluster_arn" {
   type        = string
   default     = ""
-  description = "ARN of an EKS cluster you already have, in this account and region. It needs the eks-pod-identity-agent add-on, the Secrets Store CSI driver with the AWS provider (aws-secrets-store-csi-driver-provider add-on) and, in loadbalancer mode, an AWS Load Balancer Controller (or aws_load_balancer_controller in compositions/app). Needs existing_network."
+  description = "ARN of an EKS cluster you already have, in this account and region. It needs the eks-pod-identity-agent add-on, the Secrets Store CSI driver with the AWS provider (aws-secrets-store-csi-driver-provider add-on) and, in loadbalancer mode or with runner_lb_enabled, an AWS Load Balancer Controller (or aws_load_balancer_controller in compositions/app). Needs existing_network."
 
   validation {
     condition     = var.existing_eks_cluster_arn == "" || can(regex("^arn:aws[a-z-]*:eks:[a-z0-9-]+:[0-9]{12}:cluster/[A-Za-z0-9][A-Za-z0-9_-]*$", var.existing_eks_cluster_arn))
@@ -552,7 +595,7 @@ variable "create_load_balancer_controller_role" {
   type        = bool
   default     = null
   nullable    = true
-  description = "Create the IAM role and Pod Identity association for the AWS Load Balancer Controller (kube-system/aws-load-balancer-controller), limited to registering targets in the edge load balancer's target groups. null means true when we create the cluster. Ignored unless edge_mode is loadbalancer: the other edge modes need no controller. A brought cluster usually has its own controller, whose role must allow elasticloadbalancing:RegisterTargets on our target groups."
+  description = "Create the IAM role and Pod Identity association for the AWS Load Balancer Controller (kube-system/aws-load-balancer-controller), limited to registering targets in the target groups of the load balancers we create (the edge one in loadbalancer mode, the runner one with runner_lb_enabled). null means true when we create the cluster. Ignored when we create neither: the other edge modes need no controller. A brought cluster usually has its own controller, whose role must allow elasticloadbalancing:RegisterTargets on our target groups."
 }
 
 variable "kms_key_administrator_arns" {

@@ -33,8 +33,9 @@ locals {
   create_kms                = var.existing_kms_key_arn == ""
   create_registry           = var.existing_registry_url == "" && var.create_registry
   create_edge_lb            = var.edge_mode == "loadbalancer"
-  # The controller only binds the edge load balancer's target groups.
-  create_lb_controller_role = local.create_edge_lb && (
+  create_runner_lb          = var.runner_lb_enabled
+  # The controller only binds the target groups of the load balancers we create.
+  create_lb_controller_role = (local.create_edge_lb || local.create_runner_lb) && (
     var.create_load_balancer_controller_role != null ? var.create_load_balancer_controller_role : local.create_cluster
   )
 

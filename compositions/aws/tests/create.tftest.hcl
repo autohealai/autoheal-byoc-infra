@@ -217,6 +217,16 @@ run "everything_created" {
     )
     error_message = "Temporal and Zitadel copies are wrong."
   }
+
+  assert {
+    condition = (
+      length(module.runner_nlb) == 0 &&
+      output.runner_load_balancer == null &&
+      !contains(keys(output.autoheal_values), "temporalFrontendLoadBalancer") &&
+      !contains(keys(output.autoheal_values), "toolResponseLoadBalancer")
+    )
+    error_message = "Without runner_lb_enabled there should be no runner load balancer and no runner bindings."
+  }
 }
 
 run "registry_created" {
@@ -324,6 +334,66 @@ run "edge_none" {
       length(data.aws_iam_policy_document.lb_controller) == 0
     )
     error_message = "Outside loadbalancer mode the load balancer controller role is not created, even when asked for."
+  }
+}
+
+run "runner_load_balancer" {
+  command = plan
+
+  variables {
+    runner_lb_enabled = true
+  }
+
+  assert {
+    condition     = length(module.runner_nlb) == 1 && length(module.edge_nlb) == 1
+    error_message = "runner_lb_enabled should add the runner load balancer next to the edge one."
+  }
+
+  assert {
+    condition     = toset(keys(output.autoheal_values.global.infra.targetGroups)) == toset(["edgeHttp", "edgeHttps", "temporal", "toolResponse"])
+    error_message = "targetGroups should hold the edge and the runner target groups."
+  }
+
+  assert {
+    condition = (
+      output.autoheal_values.temporalFrontendLoadBalancer.enabled &&
+      output.autoheal_values.toolResponseLoadBalancer.enabled
+    )
+    error_message = "The chart should bind the Temporal frontend and api-server-go to the runner load balancer."
+  }
+
+  assert {
+    condition     = output.runner_load_balancer != null && one(local.runner_lb_allowed_cidr_blocks) == "10.60.0.0/16"
+    error_message = "The runner load balancer should be in the output and open to the VPC by default."
+  }
+}
+
+run "runner_load_balancer_without_edge" {
+  command = plan
+
+  variables {
+    edge_mode                            = "istio"
+    runner_lb_enabled                    = true
+    runner_lb_allowed_security_group_ids = ["sg-0123456789abcdef0"]
+  }
+
+  assert {
+    condition = (
+      length(module.edge_nlb) == 0 &&
+      length(module.runner_nlb) == 1 &&
+      toset(keys(output.autoheal_values.global.infra.targetGroups)) == toset(["temporal", "toolResponse"])
+    )
+    error_message = "Outside loadbalancer mode targetGroups should hold the runner target groups only."
+  }
+
+  assert {
+    condition     = length(module.lb_controller_identity) == 1
+    error_message = "The runner load balancer needs the load balancer controller role."
+  }
+
+  assert {
+    condition     = length(local.runner_lb_allowed_cidr_blocks) == 0
+    error_message = "A security group given alone should be the only way in."
   }
 }
 

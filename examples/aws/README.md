@@ -207,6 +207,9 @@ private.
    (`existing_instance_profile_arn`), hand its `required_role_policies` output
    to that team first. When the image registry, or a proxy that inspects TLS,
    has a certificate from a private CA, set `trusted_ca_certificates` there.
+   When the sandboxes call your own systems behind private root CAs, set
+   `custom_ca_certificate` to the same PEM as the chart's
+   `global.trust.caVaultEntry`.
 4. Once the runner polls Temporal, set `global.sandbox.enabled: true` and apply
    the app again.
 

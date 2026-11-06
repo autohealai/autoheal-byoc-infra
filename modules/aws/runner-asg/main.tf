@@ -13,7 +13,8 @@
 # is the Azure template with the AWS changes: the Amazon Linux packages, an ECR
 # login through the instance role instead of an ACR login, and no key.
 # trusted_ca_certificates go into the system trust store, for a registry or a
-# proxy with a private CA.
+# proxy with a private CA. custom_ca_certificate goes to runner-go, which adds
+# it to every sandbox it creates.
 #
 # The launch template requires IMDSv2 with a hop limit of 1. runner-go runs on
 # a Docker network of its own, and container-firewall.sh rejects container
@@ -157,6 +158,7 @@ locals {
     http_proxy                   = var.http_proxy
     no_proxy                     = local.no_proxy
     trusted_ca_certificates      = var.trusted_ca_certificates
+    custom_ca_certificate        = var.custom_ca_certificate
   })
 }
 
@@ -336,7 +338,7 @@ resource "aws_launch_template" "this" {
     # 16 KB of user data is 21848 characters in base64.
     precondition {
       condition     = length(base64gzip(local.user_data)) <= 21848
-      error_message = "The compressed cloud-init is larger than the 16 KB EC2 user data limit. Shorten sandbox_blocked_destinations, no_proxy or trusted_ca_certificates."
+      error_message = "The compressed cloud-init is larger than the 16 KB EC2 user data limit. Shorten sandbox_blocked_destinations, no_proxy, trusted_ca_certificates or custom_ca_certificate."
     }
   }
 }

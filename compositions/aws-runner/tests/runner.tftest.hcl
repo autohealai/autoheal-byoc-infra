@@ -377,3 +377,72 @@ run "trusted_ca_certificate_must_be_pem" {
 
   expect_failures = [var.trusted_ca_certificates]
 }
+
+# Names between the blocks and Windows line ends, as an export often has.
+run "custom_ca_bundle" {
+  command = plan
+
+  variables {
+    custom_ca_certificate = "Acme Root CA\r\n-----BEGIN CERTIFICATE-----\r\nMIIB\r\n-----END CERTIFICATE-----\r\nAcme Issuing CA\r\n-----BEGIN CERTIFICATE-----\r\nMIIC\r\n-----END CERTIFICATE-----\r\n"
+  }
+}
+
+run "custom_ca_must_be_pem" {
+  command = plan
+
+  variables {
+    custom_ca_certificate = "not a certificate"
+  }
+
+  expect_failures = [var.custom_ca_certificate]
+}
+
+run "custom_ca_refuses_a_private_key" {
+  command = plan
+
+  variables {
+    custom_ca_certificate = "-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+  }
+
+  expect_failures = [var.custom_ca_certificate]
+}
+
+run "custom_ca_refuses_a_crl" {
+  command = plan
+
+  variables {
+    custom_ca_certificate = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n-----BEGIN X509 CRL-----\nMIIC\n-----END X509 CRL-----\n"
+  }
+
+  expect_failures = [var.custom_ca_certificate]
+}
+
+run "custom_ca_refuses_one_line" {
+  command = plan
+
+  variables {
+    custom_ca_certificate = "-----BEGIN CERTIFICATE----- MIIB -----END CERTIFICATE-----"
+  }
+
+  expect_failures = [var.custom_ca_certificate]
+}
+
+run "custom_ca_refuses_a_byte_order_mark" {
+  command = plan
+
+  variables {
+    custom_ca_certificate = "﻿-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+  }
+
+  expect_failures = [var.custom_ca_certificate]
+}
+
+run "custom_ca_refuses_a_missing_end" {
+  command = plan
+
+  variables {
+    custom_ca_certificate = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nMIIC\n"
+  }
+
+  expect_failures = [var.custom_ca_certificate]
+}

@@ -6,7 +6,11 @@ namespace at `temporal_host`. It is the AWS port of `modules/azure/runner-vmss`:
 the same cloud-init files, environment and systemd unit, on Amazon Linux 2023
 (or an image built from it) with Docker from its package repository. No
 public address: the subnets' routes give the way out, and `http_proxy` covers
-subnets whose way out is a proxy.
+subnets whose way out is a proxy. `trusted_ca_certificates` go into the host's
+trust store, for a registry or proxy with a private CA. `custom_ca_certificate`
+is written to `/opt/runner-go/ca/custom-ca.pem` and mounted into runner-go,
+which trusts those private root CAs and adds them to every sandbox it
+creates.
 
 `compositions/aws-runner` creates it as its own step, after the app:
 `temporal_host` is the internal runner load balancer of `compositions/aws` on
@@ -103,6 +107,7 @@ that wires it to `compositions/aws`.
 | <a name="input_architecture"></a> [architecture](#input\_architecture) | CPU architecture of the AMI and instance type: x86\_64 or arm64. The runner and sandbox images must be built for it. | `string` | `"x86_64"` | no |
 | <a name="input_attributes"></a> [attributes](#input\_attributes) | ID element. Extra qualifiers appended to id, e.g. ['db']. | `list(string)` | `[]` | no |
 | <a name="input_context"></a> [context](#input\_context) | Single object to set the entire naming/tagging context at once (inheritance from the composition). Individual non-null inputs below override it. | `any` | <pre>{<br/>  "additional_tag_map": {},<br/>  "attributes": [],<br/>  "delimiter": null,<br/>  "descriptor_formats": {},<br/>  "enabled": true,<br/>  "environment": null,<br/>  "id_length_limit": null,<br/>  "label_key_case": null,<br/>  "label_order": [],<br/>  "label_value_case": null,<br/>  "labels_as_tags": [<br/>    "unset"<br/>  ],<br/>  "name": null,<br/>  "namespace": null,<br/>  "regex_replace_chars": null,<br/>  "stage": null,<br/>  "tags": {},<br/>  "tenant": null<br/>}</pre> | no |
+| <a name="input_custom_ca_certificate"></a> [custom\_ca\_certificate](#input\_custom\_ca\_certificate) | PEM of private root CAs, one after another, that runner-go and every sandbox it creates trust on top of the public CAs: the same PEM as the vault entry of the chart's global.trust.caVaultEntry. Written to /opt/runner-go/ca/custom-ca.pem, the path runner-go reads by default. The host's trust store does not get them; that is trusted\_ca\_certificates. Changing it rolls the instances. Empty adds none. | `string` | `""` | no |
 | <a name="input_ecr_registry_host"></a> [ecr\_registry\_host](#input\_ecr\_registry\_host) | ECR registry host the images come from, e.g. 123456789012.dkr.ecr.us-west-2.amazonaws.com. When set, the instances install amazon-ecr-credential-helper, the host docker CLI pulls from it with the instance role, runner-go gets a login file refreshed every hour, and the role gets the inline policy ecr-pull on it (pull, and the import and create a pull-through cache needs). Empty means the images are public or come from a registry that needs no login. | `string` | `""` | no |
 | <a name="input_ecr_repository_prefix"></a> [ecr\_repository\_prefix](#input\_ecr\_repository\_prefix) | Repository prefix the ecr-pull policy is limited to, such as the repository prefix of a pull-through cache. Empty means every repository in ecr\_registry\_host. Used only with ecr\_registry\_host. | `string` | `""` | no |
 | <a name="input_egress_cidr_blocks"></a> [egress\_cidr\_blocks](#input\_egress\_cidr\_blocks) | IPv4 CIDRs the instances may reach on any port, on the module's security group. Sandboxes need the git hosts, package registries and the APIs the tools call, and the runner needs Temporal, the registry and Secrets Manager. | `list(string)` | <pre>[<br/>  "0.0.0.0/0"<br/>]</pre> | no |

@@ -140,6 +140,16 @@ private CA, give that CA in `trusted_ca_certificates`. cloud-init adds it to
 the system trust store before dnf installs packages and before Docker starts,
 so the image pulls trust it without turning off TLS checks.
 
+When the sandboxes call your own systems, such as an internal GitLab, whose
+certificates a private CA signs, give those root CAs in
+`custom_ca_certificate`: the same PEM you store in the vault for the chart's
+`global.trust.caVaultEntry`. cloud-init writes it to
+`/opt/runner-go/ca/custom-ca.pem` and mounts that folder read-only into
+runner-go, which trusts the CAs and adds them to every sandbox it creates. The
+two inputs are apart: `trusted_ca_certificates` is for the host,
+`custom_ca_certificate` for runner-go and the sandboxes. A CA both need goes in
+both.
+
 The security group we create lets the instances out to `egress_cidr_blocks` and
 lets nothing in, apart from `ssh_ingress_cidr_blocks` on TCP 22. With
 `existing_security_group_id` we add no rule, and
@@ -171,6 +181,7 @@ lets nothing in, apart from `ssh_ingress_cidr_blocks` on TCP 22. With
 | `http_proxy` | `""` | Outbound proxy, such as `http://proxy.acme.example:8080`. Sandboxes do not get it. |
 | `no_proxy` | `[]` | Hosts, `.domains` and CIDRs reached without the proxy. |
 | `trusted_ca_certificates` | `[]` | PEM CA certificates added to the instances' trust store, such as `file("nexus-ca.pem")`: for a registry or a TLS-inspecting proxy whose certificate a private CA signs. dnf, Docker's image pulls and the ECR login trust them; runner-go and sandboxes do not. |
+| `custom_ca_certificate` | `""` | PEM of your private root CAs, one after another: the same PEM you store in the vault for the chart's `global.trust.caVaultEntry`, such as `file("${get_terragrunt_dir()}/custom-ca.pem")`. The runner and every sandbox it creates trust them on top of the public CAs; the host's trust store does not. Certificates only, no private key. With the rest of the cloud-init, it must fit the 16 KB user data once gzipped. Changing it rolls the instances. |
 | `existing_instance_profile_arn` | `""` | An instance profile to use instead of ours, for accounts where a central team owns IAM. Its role needs `required_role_policies`. |
 | `additional_iam_policy_arns` | `{}` | More managed policies for our role, keyed by a stable name. |
 | `iam_permissions_boundary_arn` | `""` | Permissions boundary on our role. |
@@ -260,10 +271,10 @@ that plan passes its checks; the apply never uses them. With
 
 ## Upgrading
 
-Bump `chart_version` with the app's. A new image tag, AMI or setting changes
-the launch template, and the apply starts an instance refresh: with the
-defaults the group launches each new instance, waits for it, then stops the
-old one. A sandbox running on an old instance when it stops fails. The apply
+Bump `chart_version` with the app's. A new image tag, AMI or setting, such as
+`custom_ca_certificate`, changes the launch template, and the apply starts an
+instance refresh: with the defaults the group launches each new instance,
+waits for it, then stops the old one. A sandbox running on an old instance when it stops fails. The apply
 does not wait for the refresh; follow it with
 `aws autoscaling describe-instance-refreshes`.
 
@@ -284,11 +295,14 @@ ECR registry, private addresses and a private DNS domain, the network owner's
 lines, and the input checks (address, private domains, blocked destinations,
 images, subnets in two VPCs, a public address or name, an internet-facing load
 balancer, a load balancer of the same name elsewhere, an `http://` tool-result
-URL that is not private, a repository prefix without a registry).
+URL that is not private, a repository prefix without a registry, a
+`custom_ca_certificate` that is not PEM certificates only).
 
 `tests/cloudinit.tftest.hcl` plans `modules/aws/runner-asg` against a mocked
 provider and compares its cloud-init with `tests/fixtures/`, once with the
 defaults and once with every option. The user data must be the gzipped
 cloud-init, it must set no TLS and an empty key, the block list must hold the
 runner load balancer, and a block list of 600 ranges with every option must
-still fit.
+still fit. `custom_ca_certificate` must add only its file and the CA folder
+mount, stay out of the host's trust store, and stop the plan when the user
+data would no longer fit.

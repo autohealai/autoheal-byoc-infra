@@ -99,6 +99,14 @@ write_files:
 %{ if tool_response_callback_url != "" ~}
       SANDBOX_TOOL_RESPONSE_CALLBACK_URL=${tool_response_callback_url}
 %{ endif ~}
+%{ if custom_ca_certificate != "" ~}
+  # The customer's private root CAs. runner-go reads this path by default and
+  # mounts them, on top of its public roots, into every sandbox it creates.
+  - path: /opt/runner-go/ca/custom-ca.pem
+    permissions: '0644'
+    content: |
+      ${indent(6, trimspace(custom_ca_certificate))}
+%{ endif ~}
 %{ if ecr_registry_host != "" ~}
   # The host docker CLI (runner-pull.sh, the sandbox pre-pull) gets ECR
   # credentials from the instance role through the credential helper.
@@ -297,6 +305,9 @@ write_files:
         -v /var/lib/runner-go/agent-sessions:/var/lib/runner-go/agent-sessions \
 %{ if ecr_registry_host != "" ~}
         -v /opt/runner-go/docker:/opt/runner-go/docker:ro \
+%{ endif ~}
+%{ if custom_ca_certificate != "" ~}
+        -v /opt/runner-go/ca:/opt/runner-go/ca:ro \
 %{ endif ~}
         --env-file /opt/runner-go/config.env \
 %{ if http_proxy != "" ~}

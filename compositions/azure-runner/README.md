@@ -165,6 +165,7 @@ one on the subnet if your policy needs it; the runner needs no inbound rule.
 | `temporal_token` | `""` | Sensitive. The runner key: the `runner_token` output of `compositions/azure`. Required with `temporal_tls`, empty without. Letters and digits, at least 32. |
 | `temporal_server_name` | `""` | Host name to check in the edge certificate. Empty means the host of `temporal_address`. On a Temporal VM, its `temporal_server_name` output. |
 | `temporal_ca_certificate` | `""` | PEM of a private CA that signed the edge certificate, such as the `edge_ca_certificate` of `compositions/azure`, or the `temporal_ca_certificate` of `compositions/azure-temporal` (two CAs while it moves to a new CA). Through the edge, runner-go trusts it on top of the public CAs. With `temporal_ip`, only its Temporal client trusts it. |
+| `custom_ca_certificate` | `""` | PEM of your private root CAs, one after another: the same PEM you store in the vault for the chart's `global.trust.caVaultEntry`, such as `file("${get_terragrunt_dir()}/custom-ca.pem")` or the value of an `azurerm_key_vault_secret` data source on a secret that holds only the CAs, not one behind a Key Vault certificate, which holds its key. The runner and every sandbox it creates trust them on top of the public CAs. Certificates only, at most 40,000 characters. Changing it reimages the runner VMs. |
 | `temporal_ip` | `""` | The `temporal_ip` output of `compositions/azure-temporal`. Puts runner-go on its own Docker network and keeps other containers off TCP 7233 to that IP. Needs `temporal_tls`. An IP in `temporal_address` must be this one. Empty changes nothing on the VMs. |
 | `runner_network_cidr` | `172.31.255.240/28` | With `temporal_ip`, the range of runner-go's own Docker network. Change it when it overlaps the VNet, a route the runner uses, or Docker's default bridge. |
 | `tool_response_url` | `""` | Empty sends tool results through Temporal. With the runner load balancers it may be `http://<address>:8083/api/v1/internal/sandbox-tool-responses`. An `http://` URL must be a private IPv4 address; `https://` may be any host. |
@@ -243,8 +244,8 @@ the apply updates and reimages each VM in place (the azurerm features
 `roll_instances_when_required` and `reimage_on_manual_upgrade`, both on by
 default). A sandbox running on a VM during the reimage fails.
 
-Setting or changing `temporal_ip` changes the custom data, so it reimages the
-VMs the same way. Leaving it empty does not.
+Setting or changing `temporal_ip` or `custom_ca_certificate` changes the custom
+data, so it reimages the VMs the same way. Leaving them empty does not.
 
 ## Tests
 
@@ -262,7 +263,8 @@ resource IDs, address space, a public address or a host name without TLS, an
 `http://` tool-result URL that is not a private address, the key with and
 without TLS, the key's characters, the CA, a resource group or subnet in
 another subscription, `temporal_ip` without TLS, not matching the address, or
-not an IPv4 address).
+not an IPv4 address, and custom CAs that hold a private key, a CRL, a
+certificate on one line, a byte-order mark or more than 40,000 characters).
 
 `tests/cloudinit.tftest.hcl` applies `modules/azure/runner-vmss` against a
 mocked provider and compares its cloud-init with `tests/fixtures/`: the
@@ -270,4 +272,5 @@ cloud-init of the release before `temporal_ip`, rendered from that release's
 template, once with the defaults and once with every option. Without
 `temporal_ip` it must match byte for byte, and the custom data must be its
 base64. With `temporal_ip` it must add the runner network and the 7233 rule and
-nothing else.
+nothing else. With `custom_ca_certificate` it must add `custom-ca.pem`, and the
+CA folder mount when no Temporal CA brings it, and nothing else.

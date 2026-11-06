@@ -38,6 +38,14 @@ write_files:
     content: |
       ${indent(6, trimspace(temporal_ca_certificate))}
 %{ endif ~}
+%{ if custom_ca_certificate != "" ~}
+  # The customer's private root CAs. runner-go reads this path by default and
+  # mounts them, on top of its public roots, into every sandbox it creates.
+  - path: /opt/runner-go/ca/custom-ca.pem
+    permissions: '0644'
+    content: |
+      ${indent(6, trimspace(custom_ca_certificate))}
+%{ endif ~}
   # Root only: it holds the runner key. docker reads it as root at each start.
   # DISABLED_DRIVERS turns off runner-go's lambda drivers. A lambda would run
   # inside the runner container with its environment, the key included, and
@@ -230,7 +238,7 @@ write_files:
 %{ if acr_name != "" ~}
         -v /opt/runner-go/docker:/opt/runner-go/docker:ro \
 %{ endif ~}
-%{ if temporal_ca_certificate != "" ~}
+%{ if temporal_ca_certificate != "" || custom_ca_certificate != "" ~}
         -v /opt/runner-go/ca:/opt/runner-go/ca:ro \
 %{ endif ~}
         --env-file /opt/runner-go/config.env \

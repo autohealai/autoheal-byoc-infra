@@ -16,7 +16,10 @@ over TLS (`temporal_tls`) with the runner key (`temporal_token`), or the
 private address of the chart's runner load balancers with TLS off. The runner
 retries until Temporal answers. `temporal_ca_certificate` adds a private CA to
 the trust store runner-go reads; with `temporal_ip` it goes to runner-go's
-Temporal client only (`TEMPORAL_TLS_CA_FILE`). The key sits in `/opt/runner-go/config.env`,
+Temporal client only (`TEMPORAL_TLS_CA_FILE`). `custom_ca_certificate` writes the
+customer's private root CAs to `/opt/runner-go/ca/custom-ca.pem`, which
+runner-go reads by default: runner-go and every sandbox it creates trust them
+on top of the public CAs. The key sits in `/opt/runner-go/config.env`,
 readable by root only, and runner-go's lambda drivers are off
 (`DISABLED_DRIVERS`), since a lambda would run with that environment. Before
 each start the systemd unit blocks containers, sandboxes included, from the
@@ -79,6 +82,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_admin_username"></a> [admin\_username](#input\_admin\_username) | Admin username on the VMSS instances. | `string` | `"azureuser"` | no |
 | <a name="input_attributes"></a> [attributes](#input\_attributes) | ID element. Extra qualifiers appended to id, e.g. ['db']. | `list(string)` | `[]` | no |
 | <a name="input_context"></a> [context](#input\_context) | Single object to set the entire naming/tagging context at once (inheritance from the composition). Individual non-null inputs below override it. | `any` | <pre>{<br/>  "additional_tag_map": {},<br/>  "attributes": [],<br/>  "delimiter": null,<br/>  "descriptor_formats": {},<br/>  "enabled": true,<br/>  "environment": null,<br/>  "id_length_limit": null,<br/>  "label_key_case": null,<br/>  "label_order": [],<br/>  "label_value_case": null,<br/>  "labels_as_tags": [<br/>    "unset"<br/>  ],<br/>  "name": null,<br/>  "namespace": null,<br/>  "regex_replace_chars": null,<br/>  "stage": null,<br/>  "tags": {},<br/>  "tenant": null<br/>}</pre> | no |
+| <a name="input_custom_ca_certificate"></a> [custom\_ca\_certificate](#input\_custom\_ca\_certificate) | PEM of private root CAs, one after another, that runner-go and every sandbox it creates trust on top of the public CAs: the same PEM as the vault entry of the chart's global.trust.caVaultEntry. Written to /opt/runner-go/ca/custom-ca.pem, the path runner-go reads by default. Changing it reimages the VMs. Empty adds none. | `string` | `""` | no |
 | <a name="input_enabled"></a> [enabled](#input\_enabled) | Set to false to prevent the module from creating any resources. | `bool` | `null` | no |
 | <a name="input_environment"></a> [environment](#input\_environment) | ID element. Lifecycle (stage/prod/play) in this repo — NOT region. | `string` | `null` | no |
 | <a name="input_instance_count"></a> [instance\_count](#input\_instance\_count) | VMSS instance count. Each runner is an independent Temporal worker; scale out by raising this. | `number` | `1` | no |

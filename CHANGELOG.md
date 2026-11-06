@@ -6,6 +6,23 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [4.7.0] - 2026-11-06
+
+On Azure, the runner and every sandbox it creates can trust the customer's
+private root CAs, given as one Terraform input. An install on 4.6.0 that keeps
+its inputs plans no change.
+
+### Added
+- `compositions/azure-runner` and `modules/azure/runner-vmss`:
+  `custom_ca_certificate`, the PEM of private root CAs that the runner and
+  every sandbox it creates trust on top of the public CAs: the same PEM as the
+  vault entry of the chart's `global.trust.caVaultEntry`. Cloud-init writes it
+  to `/opt/runner-go/ca/custom-ca.pem` and mounts that folder read-only into
+  runner-go. The plan stops when it holds anything but PEM certificates, such
+  as a private key, or is longer than 40,000 characters. Setting or changing it
+  reimages the runner VMs; an install that leaves it empty plans no change.
+- `examples/azure/*/runner`: a commented `custom_ca_certificate` line.
+
 ## [4.6.0] - 2026-11-05
 
 The sandbox runner comes to AWS as an optional step of its own, applied after

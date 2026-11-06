@@ -117,6 +117,29 @@ variable "temporal_ca_certificate" {
   }
 }
 
+variable "custom_ca_certificate" {
+  type        = string
+  default     = ""
+  description = "PEM of your private root CAs, one after another: the same PEM you store in the vault for the chart's global.trust.caVaultEntry. The runner and every sandbox it creates trust them on top of the public CAs. Changing it reimages the runner VMs. Empty adds none."
+
+  # runner-go stops at startup on anything but certificates it can read, and
+  # Go's PEM reader needs each BEGIN and END line on a line of its own.
+  validation {
+    condition = var.custom_ca_certificate == "" || (
+      length(regexall("(?m)^-----BEGIN CERTIFICATE-----[ \\t\\r]*$", var.custom_ca_certificate)) > 0 &&
+      length(regexall("-----BEGIN ", var.custom_ca_certificate)) == length(regexall("(?m)^-----BEGIN CERTIFICATE-----[ \\t\\r]*$", var.custom_ca_certificate)) &&
+      length(regexall("-----END ", var.custom_ca_certificate)) == length(regexall("(?m)^-----END CERTIFICATE-----[ \\t\\r]*$", var.custom_ca_certificate)) &&
+      length(regexall("-----BEGIN ", var.custom_ca_certificate)) == length(regexall("-----END ", var.custom_ca_certificate))
+    )
+    error_message = "custom_ca_certificate must be empty or PEM certificates only: every -----BEGIN CERTIFICATE----- and -----END CERTIFICATE----- on a line of its own, and no other PEM block, such as a private key or a CRL."
+  }
+
+  validation {
+    condition     = length(var.custom_ca_certificate) <= 40000
+    error_message = "custom_ca_certificate must be at most 40,000 characters: Azure caps the VMs' custom data at 64 KB. Keep only the CAs your systems need."
+  }
+}
+
 variable "temporal_ip" {
   type        = string
   default     = ""

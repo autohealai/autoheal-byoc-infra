@@ -527,6 +527,90 @@ run "ca_must_be_pem" {
   expect_failures = [var.temporal_ca_certificate]
 }
 
+# Two CAs as a bundle file gives them: a name between the blocks and Windows
+# line ends. The plan succeeding is the check.
+run "custom_ca_bundle" {
+  command = plan
+
+  variables {
+    custom_ca_certificate = "Acme Root CA\r\n-----BEGIN CERTIFICATE-----\r\nMIIB\r\n-----END CERTIFICATE-----\r\nAcme Issuing CA\r\n-----BEGIN CERTIFICATE-----\r\nMIIC\r\n-----END CERTIFICATE-----\r\n"
+  }
+}
+
+run "custom_ca_must_be_pem" {
+  command = plan
+
+  variables {
+    custom_ca_certificate = "not a certificate"
+  }
+
+  expect_failures = [var.custom_ca_certificate]
+}
+
+# The secret behind a Key Vault certificate holds its key too.
+run "custom_ca_refuses_a_private_key" {
+  command = plan
+
+  variables {
+    custom_ca_certificate = "-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+  }
+
+  expect_failures = [var.custom_ca_certificate]
+}
+
+run "custom_ca_refuses_a_crl" {
+  command = plan
+
+  variables {
+    custom_ca_certificate = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n-----BEGIN X509 CRL-----\nMIIC\n-----END X509 CRL-----\n"
+  }
+
+  expect_failures = [var.custom_ca_certificate]
+}
+
+# The newlines lost, as when a PEM is pasted into a single-line field.
+run "custom_ca_refuses_one_line" {
+  command = plan
+
+  variables {
+    custom_ca_certificate = "-----BEGIN CERTIFICATE----- MIIB -----END CERTIFICATE-----"
+  }
+
+  expect_failures = [var.custom_ca_certificate]
+}
+
+# Go's PEM reader finds no block after a byte-order mark.
+run "custom_ca_refuses_a_byte_order_mark" {
+  command = plan
+
+  variables {
+    custom_ca_certificate = "﻿-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+  }
+
+  expect_failures = [var.custom_ca_certificate]
+}
+
+run "custom_ca_refuses_a_missing_end" {
+  command = plan
+
+  variables {
+    custom_ca_certificate = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nMIIC\n"
+  }
+
+  expect_failures = [var.custom_ca_certificate]
+}
+
+# Azure caps the custom data at 64 KB.
+run "custom_ca_at_most_40000_characters" {
+  command = plan
+
+  variables {
+    custom_ca_certificate = "-----BEGIN CERTIFICATE-----\n${join("", [for i in range(700) : "MIIBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"])}-----END CERTIFICATE-----\n"
+  }
+
+  expect_failures = [var.custom_ca_certificate]
+}
+
 run "tool_response_url_must_be_http" {
   command = plan
 

@@ -8,6 +8,8 @@
 # the custom data, must match them byte for byte, or every runner VM would be
 # reimaged on upgrade. With temporal_ip it must add the runner network and the
 # 7233 rule, give the CA to the Temporal client only, and nothing else.
+# custom_ca_certificate must add its file, and the CA folder mount when no
+# Temporal CA brings it, and nothing else.
 #
 # The cloud-init takes the identity's client ID, which Terraform 1.9 leaves
 # unknown in a plan, so these runs apply against the mocks. It holds the
@@ -170,6 +172,103 @@ run "temporal_ip_adds_runner_network_and_rule" {
   }
 }
 
+# Every option and the custom CAs: the file is the only addition, the CA folder
+# is mounted once, and no environment variable is set.
+run "custom_ca_adds_its_file" {
+  command = apply
+
+  module {
+    source = "../../modules/azure/runner-vmss"
+  }
+
+  variables {
+    temporal_host              = "198.51.100.7:7233"
+    temporal_server_name       = "temporal.autoheal.internal"
+    temporal_ca_certificate    = "-----BEGIN CERTIFICATE-----\nplaceholder-ca\n-----END CERTIFICATE-----\n"
+    custom_ca_certificate      = "-----BEGIN CERTIFICATE-----\nplaceholder-custom-ca-1\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nplaceholder-custom-ca-2\n-----END CERTIFICATE-----\n"
+    tool_response_callback_url = "http://10.60.15.253:8083/api/v1/internal/sandbox-tool-responses"
+    sandbox_image              = "public.ecr.aws/e4h3h0d9/app/sandbox:chart-1.0.0-rc.12"
+    acr_name                   = "cracmeprodautoheal"
+  }
+
+  assert {
+    condition = [for f in yamldecode(nonsensitive(local.cloud_init)).write_files : f if f.path == "/opt/runner-go/ca/custom-ca.pem"] == [{
+      path        = "/opt/runner-go/ca/custom-ca.pem"
+      permissions = "0644"
+      content     = "-----BEGIN CERTIFICATE-----\nplaceholder-custom-ca-1\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nplaceholder-custom-ca-2\n-----END CERTIFICATE-----\n"
+    }]
+    error_message = "The custom CAs go to /opt/runner-go/ca/custom-ca.pem, 0644, as given."
+  }
+
+  assert {
+    condition     = replace(nonsensitive(local.cloud_init), "  # The customer's private root CAs. runner-go reads this path by default and\n  # mounts them, on top of its public roots, into every sandbox it creates.\n  - path: /opt/runner-go/ca/custom-ca.pem\n    permissions: '0644'\n    content: |\n      -----BEGIN CERTIFICATE-----\n      placeholder-custom-ca-1\n      -----END CERTIFICATE-----\n      -----BEGIN CERTIFICATE-----\n      placeholder-custom-ca-2\n      -----END CERTIFICATE-----\n", "") == file("tests/fixtures/cloud-init-all-options.yaml")
+    error_message = "custom_ca_certificate adds its file and changes nothing else: one CA folder mount, no environment variable."
+  }
+}
+
+# The custom CAs alone: the file, and the CA folder mount the Temporal CA
+# would otherwise bring. SSL_CERT_DIR and TEMPORAL_TLS_CA_FILE stay unset.
+run "custom_ca_alone_mounts_the_ca_folder" {
+  command = apply
+
+  module {
+    source = "../../modules/azure/runner-vmss"
+  }
+
+  variables {
+    custom_ca_certificate = "-----BEGIN CERTIFICATE-----\nplaceholder-custom-ca\n-----END CERTIFICATE-----\n"
+  }
+
+  assert {
+    condition     = strcontains([for f in yamldecode(nonsensitive(local.cloud_init)).write_files : f.content if f.path == "/etc/systemd/system/runner-go.service"][0], "  -v /opt/runner-go/ca:/opt/runner-go/ca:ro \\\n")
+    error_message = "The CA folder is mounted read-only into runner-go."
+  }
+
+  assert {
+    condition = replace(replace(nonsensitive(local.cloud_init),
+      "  # The customer's private root CAs. runner-go reads this path by default and\n  # mounts them, on top of its public roots, into every sandbox it creates.\n  - path: /opt/runner-go/ca/custom-ca.pem\n    permissions: '0644'\n    content: |\n      -----BEGIN CERTIFICATE-----\n      placeholder-custom-ca\n      -----END CERTIFICATE-----\n", ""),
+    "        -v /opt/runner-go/ca:/opt/runner-go/ca:ro \\\n", "") == file("tests/fixtures/cloud-init-default.yaml")
+    error_message = "custom_ca_certificate alone adds its file and the CA folder mount, and nothing else."
+  }
+}
+
+# A Temporal VM and the custom CAs: the folder holds both files, but only
+# custom-ca.pem is for every call. The Temporal CA stays with the Temporal
+# client, SSL_CERT_DIR stays unset, and the folder is mounted once.
+run "custom_ca_with_temporal_ip" {
+  command = apply
+
+  module {
+    source = "../../modules/azure/runner-vmss"
+  }
+
+  variables {
+    temporal_host           = "198.51.100.7:7233"
+    temporal_server_name    = "temporal.autoheal.internal"
+    temporal_ca_certificate = "-----BEGIN CERTIFICATE-----\nplaceholder-ca\n-----END CERTIFICATE-----\n"
+    custom_ca_certificate   = "-----BEGIN CERTIFICATE-----\nplaceholder-custom-ca\n-----END CERTIFICATE-----\n"
+    temporal_ip             = "198.51.100.7"
+  }
+
+  assert {
+    condition = { for f in yamldecode(nonsensitive(local.cloud_init)).write_files : f.path => f.content if startswith(f.path, "/opt/runner-go/ca/") } == {
+      "/opt/runner-go/ca/temporal-ca.pem" = "-----BEGIN CERTIFICATE-----\nplaceholder-ca\n-----END CERTIFICATE-----\n"
+      "/opt/runner-go/ca/custom-ca.pem"   = "-----BEGIN CERTIFICATE-----\nplaceholder-custom-ca\n-----END CERTIFICATE-----\n"
+    }
+    error_message = "The CA folder holds the Temporal CA and the custom CAs, each in its own file."
+  }
+
+  assert {
+    condition     = strcontains([for f in yamldecode(nonsensitive(local.cloud_init)).write_files : f.content if f.path == "/opt/runner-go/config.env"][0], "\nTEMPORAL_TLS_CA_FILE=/opt/runner-go/ca/temporal-ca.pem\n") && !strcontains(nonsensitive(local.cloud_init), "SSL_CERT_DIR")
+    error_message = "The Temporal CA stays with the Temporal client only, and SSL_CERT_DIR stays unset."
+  }
+
+  assert {
+    condition     = length(regexall("-v /opt/runner-go/ca:/opt/runner-go/ca:ro", nonsensitive(local.cloud_init))) == 1
+    error_message = "The CA folder is mounted once."
+  }
+}
+
 # Another range for the runner network.
 run "custom_runner_network" {
   command = apply
@@ -235,4 +334,18 @@ run "runner_network_without_host_bits" {
   }
 
   expect_failures = [var.runner_network_cidr]
+}
+
+run "custom_ca_refuses_a_private_key" {
+  command = plan
+
+  module {
+    source = "../../modules/azure/runner-vmss"
+  }
+
+  variables {
+    custom_ca_certificate = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n"
+  }
+
+  expect_failures = [var.custom_ca_certificate]
 }

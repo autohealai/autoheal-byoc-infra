@@ -58,6 +58,11 @@ inputs = {
   # need nothing here.
   # temporal_ca_certificate = file("${get_terragrunt_dir()}/edge-ca.pem")
 
+  # Private root CAs of your own systems, such as an internal GitLab: the same
+  # PEM as the vault entry of the chart's global.trust.caVaultEntry. The runner
+  # and every sandbox it creates trust them on top of the public CAs.
+  # custom_ca_certificate = file("${get_terragrunt_dir()}/custom-ca.pem")
+
   # The runner image is runner-go:chart-<chart_version>, so it moves with the
   # chart.
   chart_version = local.v.chart_version

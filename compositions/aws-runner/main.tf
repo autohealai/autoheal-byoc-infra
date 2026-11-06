@@ -131,6 +131,7 @@ module "runner" {
   http_proxy                    = var.http_proxy
   no_proxy                      = var.no_proxy
   trusted_ca_certificates       = var.trusted_ca_certificates
+  custom_ca_certificate         = var.custom_ca_certificate
 
   instance_type                           = var.instance_type
   architecture                            = var.architecture

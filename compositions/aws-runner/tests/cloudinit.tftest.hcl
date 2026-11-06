@@ -6,7 +6,9 @@
 # balancer, public images, no proxy), one with every option (private ECR,
 # proxy, more blocked destinations, sandbox pre-pull, private CAs). A change to the
 # cloud-init rolls every runner instance, so it must match them byte for byte;
-# update a fixture only on purpose.
+# update a fixture only on purpose. The fixtures have no custom_ca_certificate:
+# its runs check that it adds its file and the CA folder mount, and nothing
+# else.
 
 mock_provider "aws" {
   mock_data "aws_partition" {
@@ -181,4 +183,108 @@ run "trusted_ca_certificate_must_be_pem" {
   }
 
   expect_failures = [var.trusted_ca_certificates]
+}
+
+# With every option, the custom CAs add their file and the CA folder mount, and
+# change nothing else.
+run "custom_ca_adds_its_file" {
+  command = plan
+
+  module {
+    source = "../../modules/aws/runner-asg"
+  }
+
+  variables {
+    sandbox_blocked_destinations = ["10.60.0.0/16", "10.60.15.253", "api.eks.acme.internal"]
+    runner_image                 = "123456789012.dkr.ecr.us-west-2.amazonaws.com/acme-prod-autoheal/e4h3h0d9/app/runner-go:chart-1.0.0"
+    sandbox_image                = "123456789012.dkr.ecr.us-west-2.amazonaws.com/acme-prod-autoheal/e4h3h0d9/app/sandbox:chart-1.0.0"
+    ecr_registry_host            = "123456789012.dkr.ecr.us-west-2.amazonaws.com"
+    http_proxy                   = "http://proxy.acme.example:8080"
+    no_proxy                     = [".acme.example", "10.0.0.0/8"]
+    max_concurrent_activities    = 10
+    trusted_ca_certificates = [
+      "-----BEGIN CERTIFICATE-----\nplaceholder-registry-ca\n-----END CERTIFICATE-----\n",
+      "\r\n-----BEGIN CERTIFICATE-----\r\nplaceholder-proxy-ca\r\n-----END CERTIFICATE-----\r\n",
+    ]
+    custom_ca_certificate = "-----BEGIN CERTIFICATE-----\nplaceholder-custom-ca-1\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nplaceholder-custom-ca-2\n-----END CERTIFICATE-----\n"
+  }
+
+  assert {
+    condition = [for f in yamldecode(local.user_data).write_files : f if f.path == "/opt/runner-go/ca/custom-ca.pem"] == [{
+      path        = "/opt/runner-go/ca/custom-ca.pem"
+      permissions = "0644"
+      content     = "-----BEGIN CERTIFICATE-----\nplaceholder-custom-ca-1\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nplaceholder-custom-ca-2\n-----END CERTIFICATE-----\n"
+    }]
+    error_message = "The custom CAs go to /opt/runner-go/ca/custom-ca.pem, 0644, as given."
+  }
+
+  assert {
+    condition     = length(regexall("-v /opt/runner-go/ca:/opt/runner-go/ca:ro", local.user_data)) == 1
+    error_message = "The CA folder is mounted once."
+  }
+
+  assert {
+    condition     = length(yamldecode(local.user_data).ca_certs.trusted) == 2
+    error_message = "The custom CAs stay out of the host's trust store."
+  }
+
+  assert {
+    condition = replace(replace(local.user_data,
+      "  # The customer's private root CAs. runner-go reads this path by default and\n  # mounts them, on top of its public roots, into every sandbox it creates.\n  - path: /opt/runner-go/ca/custom-ca.pem\n    permissions: '0644'\n    content: |\n      -----BEGIN CERTIFICATE-----\n      placeholder-custom-ca-1\n      -----END CERTIFICATE-----\n      -----BEGIN CERTIFICATE-----\n      placeholder-custom-ca-2\n      -----END CERTIFICATE-----\n", ""),
+    "        -v /opt/runner-go/ca:/opt/runner-go/ca:ro \\\n", "") == file("tests/fixtures/cloud-init-all-options.yaml")
+    error_message = "custom_ca_certificate adds its file and the CA folder mount, and nothing else: no environment variable."
+  }
+}
+
+run "custom_ca_alone_mounts_the_ca_folder" {
+  command = plan
+
+  module {
+    source = "../../modules/aws/runner-asg"
+  }
+
+  variables {
+    custom_ca_certificate = "-----BEGIN CERTIFICATE-----\nplaceholder-custom-ca\n-----END CERTIFICATE-----\n"
+  }
+
+  assert {
+    condition     = strcontains([for f in yamldecode(local.user_data).write_files : f.content if f.path == "/etc/systemd/system/runner-go.service"][0], "  -v /opt/runner-go/ca:/opt/runner-go/ca:ro \\\n")
+    error_message = "The CA folder is mounted read-only into runner-go."
+  }
+
+  assert {
+    condition = replace(replace(local.user_data,
+      "  # The customer's private root CAs. runner-go reads this path by default and\n  # mounts them, on top of its public roots, into every sandbox it creates.\n  - path: /opt/runner-go/ca/custom-ca.pem\n    permissions: '0644'\n    content: |\n      -----BEGIN CERTIFICATE-----\n      placeholder-custom-ca\n      -----END CERTIFICATE-----\n", ""),
+    "        -v /opt/runner-go/ca:/opt/runner-go/ca:ro \\\n", "") == file("tests/fixtures/cloud-init-default.yaml")
+    error_message = "custom_ca_certificate alone adds its file and the CA folder mount, and nothing else."
+  }
+}
+
+# Certificates barely compress, so a long bundle stops at the user data limit.
+run "custom_ca_must_fit_the_user_data" {
+  command = plan
+
+  module {
+    source = "../../modules/aws/runner-asg"
+  }
+
+  variables {
+    custom_ca_certificate = "-----BEGIN CERTIFICATE-----\n${join("", [for i in range(600) : "${substr(sha512(tostring(i)), 0, 64)}\n"])}-----END CERTIFICATE-----\n"
+  }
+
+  expect_failures = [aws_launch_template.this]
+}
+
+run "custom_ca_refuses_a_private_key" {
+  command = plan
+
+  module {
+    source = "../../modules/aws/runner-asg"
+  }
+
+  variables {
+    custom_ca_certificate = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n"
+  }
+
+  expect_failures = [var.custom_ca_certificate]
 }

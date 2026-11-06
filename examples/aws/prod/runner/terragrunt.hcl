@@ -85,6 +85,11 @@ inputs = {
   # its CA, added to the instances' trust store.
   # trusted_ca_certificates = [file("${get_terragrunt_dir()}/nexus-ca.pem")]
 
+  # Private root CAs of your own systems, such as an internal GitLab: the same
+  # PEM as the vault entry of the chart's global.trust.caVaultEntry. The runner
+  # and every sandbox it creates trust them on top of the public CAs.
+  # custom_ca_certificate = file("${get_terragrunt_dir()}/custom-ca.pem")
+
   # A company image built from Amazon Linux 2023, instead of the public one.
   # ami_name_filter = "*golden-amzn-linux-2023-v*"
   # ami_owners      = ["111111111111"]

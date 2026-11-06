@@ -7,7 +7,11 @@ description: |-
   the same cloud-init files, environment and systemd unit, on Amazon Linux 2023
   (or an image built from it) with Docker from its package repository. No
   public address: the subnets' routes give the way out, and http_proxy covers
-  subnets whose way out is a proxy.
+  subnets whose way out is a proxy. trusted_ca_certificates go into the host's
+  trust store, for a registry or proxy with a private CA. custom_ca_certificate
+  is written to /opt/runner-go/ca/custom-ca.pem and mounted into runner-go,
+  which trusts those private root CAs and adds them to every sandbox it
+  creates.
 
   compositions/aws-runner creates it as its own step, after the app:
   temporal_host is the internal runner load balancer of compositions/aws on

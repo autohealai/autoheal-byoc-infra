@@ -53,6 +53,7 @@ locals {
     temporal_server_name       = var.temporal_server_name
     temporal_token             = var.temporal_token
     temporal_ca_certificate    = var.temporal_ca_certificate
+    custom_ca_certificate      = var.custom_ca_certificate
     tool_response_callback_url = var.tool_response_callback_url
     temporal_ip                = var.temporal_ip
     runner_network_cidr        = var.runner_network_cidr

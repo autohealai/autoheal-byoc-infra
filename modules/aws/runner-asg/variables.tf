@@ -107,6 +107,25 @@ variable "trusted_ca_certificates" {
   }
 }
 
+variable "custom_ca_certificate" {
+  type        = string
+  default     = ""
+  nullable    = false
+  description = "PEM of private root CAs, one after another, that runner-go and every sandbox it creates trust on top of the public CAs: the same PEM as the vault entry of the chart's global.trust.caVaultEntry. Written to /opt/runner-go/ca/custom-ca.pem, the path runner-go reads by default. The host's trust store does not get them; that is trusted_ca_certificates. Changing it rolls the instances. Empty adds none."
+
+  # runner-go stops at startup on anything but certificates it can read, and
+  # Go's PEM reader needs each BEGIN and END line on a line of its own.
+  validation {
+    condition = var.custom_ca_certificate == "" || (
+      length(regexall("(?m)^-----BEGIN CERTIFICATE-----[ \\t\\r]*$", var.custom_ca_certificate)) > 0 &&
+      length(regexall("-----BEGIN ", var.custom_ca_certificate)) == length(regexall("(?m)^-----BEGIN CERTIFICATE-----[ \\t\\r]*$", var.custom_ca_certificate)) &&
+      length(regexall("-----END ", var.custom_ca_certificate)) == length(regexall("(?m)^-----END CERTIFICATE-----[ \\t\\r]*$", var.custom_ca_certificate)) &&
+      length(regexall("-----BEGIN ", var.custom_ca_certificate)) == length(regexall("-----END ", var.custom_ca_certificate))
+    )
+    error_message = "custom_ca_certificate must be empty or PEM certificates only: every -----BEGIN CERTIFICATE----- and -----END CERTIFICATE----- on a line of its own, and no other PEM block, such as a private key or a CRL."
+  }
+}
+
 # --- Instances ---
 
 variable "instance_type" {

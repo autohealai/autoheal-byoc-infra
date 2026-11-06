@@ -1,0 +1,59 @@
+name: aws/runner-asg
+title: Autoheal BYOC - AWS runner ASG
+description: |-
+  EC2 Auto Scaling group that runs the runner-go worker as a container
+  (Docker-out-of-Docker) in private subnets, polling Temporal's runners
+  namespace at temporal_host. It is the AWS port of modules/azure/runner-vmss:
+  the same cloud-init files, environment and systemd unit, on Amazon Linux 2023
+  (or an image built from it) with Docker from its package repository. No
+  public address: the subnets' routes give the way out, and http_proxy covers
+  subnets whose way out is a proxy.
+
+  compositions/aws-runner creates it as its own step, after the app:
+  temporal_host is the internal runner load balancer of compositions/aws on
+  7233, and tool_response_callback_url api-server-go's internal listener on the
+  same load balancer. The runner connects as Autoheal's hosted runners do:
+  plain gRPC and HTTP, with no TLS and no key in the user data or anywhere
+  else, so the load balancer's security group alone decides who connects. The
+  runner-go unit pulls runner_image, retrying with a backoff (15 seconds,
+  doubling up to 5 minutes) until it succeeds. When ecr_registry_host is set,
+  the role may pull from it (limited to ecr_repository_prefix when set), the
+  instances install the ECR credential helper so docker pulls with the
+  instance role, and a timer writes a login file every hour for runner-go,
+  which pulls the sandbox image through the Docker API and does not use
+  credential helpers.
+
+  The launch template requires IMDSv2 with a hop limit of 1. runner-go runs on
+  a Docker network of its own and starts sandboxes on Docker's default bridge.
+  A firewall script in Docker's DOCKER-USER chain rejects container traffic to
+  the metadata address, so containers cannot reach the instance role, and
+  sandbox traffic to the runner load balancer and to
+  sandbox_blocked_destinations, so sandboxes, which run untrusted code, cannot
+  reach Temporal. It runs before each runner start and every 5 minutes, and
+  looks the names up again each time. Host names are the instance ID, which
+  runner-go uses for its per-host task queue. Access is through SSM Session
+  Manager (ssm_enabled), or SSH with key_name and ssh_ingress_cidr_blocks. The
+  root volume is encrypted gp3. A change to the launch template, such as a new
+  runner image or AMI, rolls the instances through an instance refresh. The
+  cloud-init is gzipped into the user data to stay inside the 16 KB EC2 limit;
+  Terraform's gzip output is stable, so an unchanged cloud-init rolls nothing.
+
+  Where a central team owns IAM or the network, existing_instance_profile_arn
+  and existing_security_group_id replace the module's role and security group,
+  and required_role_policies lists the trust policy, inline policies and
+  managed policies the brought role needs. ami_name_filter with ami_owners
+  picks a company image instead of the public Amazon Linux 2023 AMI. Naming and
+  tags follow the repo's null-label convention (see label.tf and
+  docs/MODULE_STANDARD.md).
+
+usage: |-
+  See examples/basic for a runnable configuration, and compositions/aws-runner
+  for the composition that wires it to compositions/aws.
+
+related:
+  - name: Module standard
+    url: ../../../docs/MODULE_STANDARD.md
+  - name: AWS runner composition
+    url: ../../../compositions/aws-runner
+  - name: Azure analogue
+    url: ../../azure/runner-vmss

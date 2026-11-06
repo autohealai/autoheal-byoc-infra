@@ -91,5 +91,5 @@ variable "aws_load_balancer_controller" {
     values        = optional(string, "")
   })
   default     = {}
-  description = "Install the AWS Load Balancer Controller in kube-system before the chart (EKS only; ignored on Azure). Set enabled = true in loadbalancer mode when compositions/aws created the cluster or its controller role (create_load_balancer_controller_role); leave it false on a cluster that already runs one, or with another edge mode. values is a YAML document merged over the composition's settings, for example image.repository for a private VPC without a NAT gateway."
+  description = "Install the AWS Load Balancer Controller in kube-system before the chart (EKS only; ignored on Azure). Set enabled = true in loadbalancer mode or with runner_lb_enabled when compositions/aws created the cluster or its controller role (create_load_balancer_controller_role); leave it false on a cluster that already runs one, or when compositions/aws creates no load balancer. values is a YAML document merged over the composition's settings, for example image.repository for a private VPC without a NAT gateway."
 }

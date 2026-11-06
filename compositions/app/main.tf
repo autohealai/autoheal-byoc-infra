@@ -6,10 +6,12 @@ locals {
   install_lbc = var.cluster.cloud == "aws" && local.lbc.enabled
 }
 
-# The AWS Load Balancer Controller, on EKS in loadbalancer mode only. The chart
-# binds the proxy Service to the infra composition's edge NLB target groups with
-# TargetGroupBinding objects, and this controller registers the pod IPs in them. The service account name is the
-# one compositions/aws federates (create_load_balancer_controller_role). The
+# The AWS Load Balancer Controller, on EKS when compositions/aws creates a load
+# balancer: the edge one in loadbalancer mode, the runner one with
+# runner_lb_enabled. The chart binds its Services to their target groups with
+# TargetGroupBinding objects, and this controller registers the pod IPs in them.
+# The service account name is the one compositions/aws federates
+# (create_load_balancer_controller_role). The
 # controller only serves TargetGroupBinding here: no IngressClass, no Service
 # webhook, no WAF or Shield, which its role does not allow anyway.
 resource "helm_release" "aws_load_balancer_controller" {

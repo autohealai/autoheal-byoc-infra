@@ -18,6 +18,7 @@ together by [`compositions/aws`](../../compositions/aws).
 | [`nlb`](nlb) | (internal load balancer IPs) | NLB with TCP listeners and ip target groups for TargetGroupBinding |
 | [`route53`](route53) | `azure/dns` | Records in a hosted zone the customer already has |
 | [`ecr`](ecr) | `azure/acr` | Pull-through cache of the public Autoheal registry |
+| [`runner-asg`](runner-asg) | `azure/runner-vmss` | Auto Scaling group running runner-go for sandboxes, polling Temporal on the internal runner load balancer, with a sandbox firewall |
 
 Naming and tags follow the repo's null-label convention; `label.tf` in each module
 is a copyable template forwarding to `modules/_shared/label`.

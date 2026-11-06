@@ -17,9 +17,12 @@ For an AKS cluster you bring, a third folder runs between the two:
 identities to it and outputs `cluster` for the app folder. The infra folder then
 needs no access to the cluster at all.
 
-On Azure, an optional fourth folder runs after the app: `compositions/azure-runner`
-makes the sandbox runner VMs, which reach Temporal through the edge on a
+An optional last folder runs after the app and makes the sandbox runners.
+`compositions/azure-runner` makes VMs that reach Temporal through the edge on a
 hostname of their own, with the runner key from the infra folder.
+`compositions/aws-runner` makes EC2 instances that reach Temporal the way
+Autoheal's hosted runners do: on an internal load balancer of the infra folder
+(`runner_lb_enabled`), with no key, behind its security group.
 
 For a cluster that cannot run the Temporal server, `compositions/azure-temporal`
 runs it on a VM of its own, against the install's Postgres. The app and the
@@ -35,13 +38,15 @@ modules/            Building blocks, one concern each.
                     ACR, DNS records, private endpoints, identities, runner VMSS,
                     Temporal VM.
   aws/              VPC, EKS, Aurora, ElastiCache, S3, KMS, Secrets Manager, ECR,
-                    Route 53 records, NLBs, Pod Identity roles.
+                    Route 53 records, NLBs, Pod Identity roles, runner Auto
+                    Scaling group.
 compositions/       Full wiring, one per cloud, plus the app install.
   azure/            Create, bring or mix every Azure building block.
   azure-cluster/    For an AKS cluster you bring: read it, federate the identities.
   azure-runner/     Optional sandbox runner VMs outside the cluster.
   azure-temporal/   Optional Temporal server on a VM outside the cluster.
   aws/              Create, bring or mix every AWS building block.
+  aws-runner/       Optional sandbox runner EC2 instances outside the cluster.
   app/              The chart, on any cloud (helm_release), and the AWS Load
                     Balancer Controller on EKS.
 examples/
@@ -73,7 +78,7 @@ One semver version for the whole repo. Pin a release tag; the examples read it
 from `versions.hcl`:
 
 ```hcl
-source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure?ref=v4.5.0"
+source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure?ref=v4.6.0"
 ```
 
 Upgrading from 1.x or 3.x: see the upgrade notes in [CHANGELOG.md](CHANGELOG.md).

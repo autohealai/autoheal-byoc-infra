@@ -10,9 +10,12 @@ prod/
   infra/terragrunt.hcl       cloud resources (compositions/aws)
   app/terragrunt.hcl         the chart (compositions/app)
   app/values-customer.yaml   your chart settings
+  runner/terragrunt.hcl      optional: the sandbox runner (compositions/aws-runner)
 ```
 
 Each folder has its own state file (`autoheal/prod/infra`, `autoheal/prod/app`).
+The `runner` folder is optional; without it sandboxes stay off. See "Sandboxes"
+below.
 For a second environment, copy `prod/` to `staging/` and change the inputs.
 
 ## Which resources you bring
@@ -28,6 +31,7 @@ building block takes an `existing_*` ID; uncomment the ones you already have.
 | Pod Identity associations made by your administrators | `create_pod_identity_associations = false`, then run the commands in the `required_role_assignments` output |
 | Workload IAM roles made by a central team | `existing_secrets_role_arn`, `existing_api_server_role_arn`, `existing_agents_worker_role_arn`, with the trust and policies from the `required_role_policies` output |
 | The edge load balancer's security group, owned by a central team | `existing_edge_security_group_id`, then add the rules in the `required_edge_owner_actions` output |
+| The runner load balancer's security group, owned by a central team | `existing_runner_lb_security_group_id` with `runner_lb_enabled`, then add the rules in the `required_runner_lb_owner_actions` output |
 | Security groups for the Aurora cluster and ElastiCache we create, owned by a central team | `postgres_security_group_ids`, `redis_security_group_ids` (with `existing_network`), then add the rules in the `required_datastore_owner_actions` output. With no right to create IAM roles, also `postgres_monitoring_interval = 0`, keep `create_registry` off, and have an administrator create the RDS and ElastiCache service-linked roles first if the account has none (`aws iam create-service-linked-role --aws-service-name rds.amazonaws.com`, then `elasticache.amazonaws.com`). |
 | DNS outside Route 53 | `create_dns_records = false`, then create the records in the `required_dns_records` output |
 
@@ -184,11 +188,40 @@ outputs in the `dependency` block. The app folder logs in to EKS with
 In `loadbalancer` mode it installs the AWS Load Balancer Controller first, then
 the chart.
 
+## Sandboxes
+
+Sandboxes, where the agents run commands, need the runner: EC2 instances that
+`prod/runner` creates in the private subnets. They reach Temporal the way
+Autoheal's hosted runners do: on an internal load balancer that the infra
+folder makes (`runner_lb_enabled`), Temporal on TCP 7233 and tool results on
+TCP 8083, with no TLS and no key. The load balancer's security group decides
+who may connect, and the runner composition refuses an address that is not
+private.
+
+1. Set `runner_lb_enabled = true` in `prod/infra/terragrunt.hcl` and apply the
+   infra folder.
+2. Apply the app folder, so the chart binds Temporal and the tool-result
+   listener to the load balancer.
+3. Apply the runner folder, and hand its `required_network_owner_actions`
+   output to the network owner. With an instance role made by a central team
+   (`existing_instance_profile_arn`), hand its `required_role_policies` output
+   to that team first. When the image registry, or a proxy that inspects TLS,
+   has a certificate from a private CA, set `trusted_ca_certificates` there.
+4. Once the runner polls Temporal, set `global.sandbox.enabled: true` and apply
+   the app again.
+
+```bash
+cd prod/runner && terragrunt plan && terragrunt apply
+```
+
+The README of `compositions/aws-runner` in autoheal-byoc-infra has the details:
+private registries, a proxy, a company AMI and how to check the runner.
+
 ## Upgrading
 
 Change the two numbers in `prod/versions.hcl` (after staging has run them), then
-run both folders again. Read the release notes in autoheal-byoc-infra's
-`CHANGELOG.md` first.
+run the folders again in order: infra, app, and runner when you have one. Read
+the release notes in autoheal-byoc-infra's `CHANGELOG.md` first.
 
 ## Installing with Helm or Flux instead
 

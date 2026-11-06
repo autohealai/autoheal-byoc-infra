@@ -344,6 +344,38 @@ run "brought_edge_security_group" {
   }
 }
 
+run "brought_runner_lb_security_group" {
+  command = plan
+
+  variables {
+    runner_lb_enabled                    = true
+    existing_runner_lb_security_group_id = "sg-0fedcba9876543210"
+  }
+
+  assert {
+    condition = (
+      module.runner_nlb[0].security_group_id == "sg-0fedcba9876543210" &&
+      output.runner_load_balancer.security_group_id == "sg-0fedcba9876543210"
+    )
+    error_message = "The runner load balancer should use the brought security group."
+  }
+
+  assert {
+    condition = (
+      length(output.required_runner_lb_owner_actions) == 3 &&
+      strcontains(output.required_runner_lb_owner_actions[0], "TCP 7233 and 8083 from 10.20.0.0/16") &&
+      strcontains(output.required_runner_lb_owner_actions[2], "TCP 7233 and 8083 from sg-0fedcba9876543210") &&
+      length(output.required_edge_owner_actions) == 0
+    )
+    error_message = "required_runner_lb_owner_actions should list the listener, target and node rules for the brought group."
+  }
+
+  assert {
+    condition     = local.node_ingress_ports == tolist([8443, 8090])
+    error_message = "With a brought runner security group the apply should open only the edge ports on the nodes."
+  }
+}
+
 # The main path for brought roles: we still create the Pod Identity
 # associations, bound to the brought roles. A role ARN with a path gives the
 # plain role name.
@@ -424,6 +456,42 @@ run "edge_lb_tags_without_load_balancer" {
   variables {
     edge_mode    = "istio"
     edge_lb_tags = { "acme:elb:cname" = "Require-CNAME" }
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}
+
+run "runner_lb_allowed_without_load_balancer" {
+  command = plan
+
+  variables {
+    runner_lb_allowed_cidr_blocks = ["10.60.8.0/22"]
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}
+
+run "runner_lb_security_group_in_other_vpc" {
+  command = plan
+
+  variables {
+    runner_lb_enabled                    = true
+    existing_runner_lb_security_group_id = "sg-0fedcba9876543210"
+  }
+
+  override_data {
+    target = data.aws_security_group.runner_lb
+    values = { vpc_id = "vpc-0ffffffffffffffff" }
+  }
+
+  expect_failures = [terraform_data.runner_lb_sg_guard]
+}
+
+run "runner_lb_security_group_without_load_balancer" {
+  command = plan
+
+  variables {
+    existing_runner_lb_security_group_id = "sg-0fedcba9876543210"
   }
 
   expect_failures = [terraform_data.validate_inputs]

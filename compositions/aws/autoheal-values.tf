@@ -18,10 +18,15 @@
 #                  <registry>/external. The chart checks that each copy matches
 #                  its fact or global.imageRegistry.
 #
+#   temporalFrontendLoadBalancer, toolResponseLoadBalancer
+#                  suggestions, only with runner_lb_enabled: the chart binds
+#                  the Temporal frontend and api-server-go's internal listener
+#                  to the runner load balancer's target groups.
+#
 # AWS has no identities block: the Pod Identity associations bind the chart's
-# service accounts to their roles, so the chart needs no annotation. In
-# loadbalancer mode the chart binds the proxy Service to
-# global.infra.targetGroups.
+# service accounts to their roles, so the chart needs no annotation. The chart
+# binds its Services to global.infra.targetGroups: the proxy in loadbalancer
+# mode, and the Temporal frontend and api-server-go with runner_lb_enabled.
 #
 # Bump infra_contract_version when the shape of global.infra changes; the chart
 # refuses a version older than it needs for the cloud.
@@ -29,7 +34,7 @@
 locals {
   infra_contract_version = "3.0.0"
 
-  autoheal_values = {
+  autoheal_values = merge({
     global = merge({
       infra = merge(
         {
@@ -61,9 +66,9 @@ locals {
             tenantBucketPrefix = local.tenant_bucket_prefix
           }
         },
-        # The edge NLB target groups (target type ip) the chart binds the proxy
-        # Service to, only in loadbalancer mode.
-        { for k, v in { targetGroups = local.target_group_arns } : k => v if local.create_edge_lb },
+        # The NLB target groups (target type ip) the chart binds its Services
+        # to, only when we create a load balancer.
+        { for k, v in { targetGroups = local.target_group_arns } : k => v if local.create_edge_lb || local.create_runner_lb },
         # Redis only when there is one.
         { for k, v in { redis = { host = local.redis_host, port = local.redis_port } } : k => v if local.redis_enabled },
       )
@@ -136,5 +141,11 @@ locals {
       { for k, v in { login = { image = { repository = "${local.image_registry}/external/zitadel-login" } } } : k => v if local.image_registry != "" },
       { for k, v in { imageRegistry = local.image_registry } : k => v if local.image_registry != "" },
     )
-  }
+    },
+    # The Services that bind to the runner load balancer.
+    { for k, v in {
+      temporalFrontendLoadBalancer = { enabled = true }
+      toolResponseLoadBalancer     = { enabled = true }
+    } : k => v if local.create_runner_lb },
+  )
 }

@@ -32,6 +32,11 @@ global:
     # istio:
     #   gateway: istio-system/shared-gateway
 
+  # Sandboxes, where the agents run commands. Turn them on once the runner of
+  # ../runner polls Temporal; with no runner, every agent run fails.
+  # sandbox:
+  #   enabled: true
+
   llm:
     # -- azure-openai, anthropic-foundry or bedrock.
     provider: bedrock

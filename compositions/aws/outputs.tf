@@ -18,10 +18,15 @@
 #   required_edge_owner_actions
 #                              what the owner of a brought edge security group
 #                              must do, filled only when one is brought
+#   required_runner_lb_owner_actions
+#                              the same for a brought runner load balancer
+#                              security group
 #   required_role_policies     the trust and inline policies for workload roles a
 #                              central team creates (existing_*_role_arn)
 #   network                   the VPC and subnets Autoheal runs in, created or
 #                              brought
+#   runner_load_balancer       the addresses compositions/aws-runner connects
+#                              to, filled only with runner_lb_enabled
 #
 # None of them holds a secret.
 
@@ -80,6 +85,11 @@ output "required_edge_owner_actions" {
   value       = local.edge_owner_actions
 }
 
+output "required_runner_lb_owner_actions" {
+  description = "What the owner of a brought runner load balancer security group must do, as readable lines: ingress on 7233 and 8083 from the runners, egress to the Temporal frontend and api-server-go pods, and ingress on the nodes' security group from it. Filled only when existing_runner_lb_security_group_id is set with runner_lb_enabled."
+  value       = local.runner_lb_owner_actions
+}
+
 output "network" {
   description = "The VPC and subnets Autoheal runs in: vpc_id, vpc_cidr_block, private_subnet_ids, data_subnet_ids and public_subnet_ids. For a brought network these are the IDs passed in existing_network, with the data subnets falling back to the private ones."
   value = {
@@ -89,4 +99,9 @@ output "network" {
     data_subnet_ids    = local.data_subnet_ids
     public_subnet_ids  = local.public_subnet_ids
   }
+}
+
+output "runner_load_balancer" {
+  description = "The internal runner load balancer, for compositions/aws-runner: dns_name, temporal_address (its temporal_address input), tool_response_url (its tool_response_url input) and security_group_id. null unless runner_lb_enabled."
+  value       = local.runner_lb
 }

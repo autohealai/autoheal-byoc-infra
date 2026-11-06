@@ -11,10 +11,10 @@
 #                  bedrock_access_enabled.
 #   agents_worker  agents-py-http and agents-py-worker. Read and write the
 #                  buckets. Bedrock when bedrock_access_enabled.
-#   lb_controller  kube-system/aws-load-balancer-controller, in loadbalancer
-#                  mode when we create the cluster
+#   lb_controller  kube-system/aws-load-balancer-controller, with the edge or
+#                  the runner load balancer, when we create the cluster
 #                  (create_load_balancer_controller_role). Registers pod IPs in
-#                  the edge load balancer's target groups only.
+#                  those load balancers' target groups only.
 #
 # With create_pod_identity_associations = false the roles are still created and
 # the required_role_assignments output lists the associations to make.

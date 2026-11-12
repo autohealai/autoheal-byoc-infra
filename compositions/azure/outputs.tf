@@ -18,8 +18,10 @@
 #   network                    the VNet and subnets Autoheal runs in, created or
 #                              brought
 #   runner_token               the runner key, for compositions/azure-runner
+#   runner_callback_token      the runner callback key, for compositions/azure-runner
 #
-# Only runner_token holds a secret, and it is marked sensitive.
+# Only runner_token and runner_callback_token hold a secret, and both are marked
+# sensitive.
 
 output "autoheal_values" {
   description = "Infra values for the Autoheal chart (global.infra facts, suggestions, and the Temporal and Zitadel copies). Pass to compositions/app as infra_values."
@@ -97,5 +99,11 @@ output "network" {
 output "runner_token" {
   description = "The runner key, also in the vault entry runner-token: the key a runner outside the cluster sends as TEMPORAL_TOKEN when the chart's global.edge.runner.host is set. Pass it to compositions/azure-runner as temporal_token. Sensitive: shown only with terraform output -raw runner_token."
   value       = random_password.runner_token.result
+  sensitive   = true
+}
+
+output "runner_callback_token" {
+  description = "The runner callback key, also in the vault entry runner-callback-token: the key a runner outside the cluster sends as SANDBOX_TOOL_RESPONSE_CALLBACK_TOKEN when it posts sandbox tool results through the edge (the chart's global.edge.runner.callback.enabled). Pass it to compositions/azure-runner as tool_response_token. Sensitive: shown only with terraform output -raw runner_callback_token."
+  value       = random_password.runner_callback_token.result
   sensitive   = true
 }

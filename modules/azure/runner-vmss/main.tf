@@ -55,6 +55,7 @@ locals {
     temporal_ca_certificate    = var.temporal_ca_certificate
     custom_ca_certificate      = var.custom_ca_certificate
     tool_response_callback_url = var.tool_response_callback_url
+    tool_response_token        = var.tool_response_token
     temporal_ip                = var.temporal_ip
     runner_network_cidr        = var.runner_network_cidr
     runner_image               = var.runner_image

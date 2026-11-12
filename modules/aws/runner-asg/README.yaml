@@ -27,6 +27,15 @@ description: |-
   which pulls the sandbox image through the Docker API and does not use
   credential helpers.
 
+  For tool results through the edge, tool_response_callback_url is the app
+  host on 443 and tool_response_token_secret_arn the secret that holds the
+  callback key. The role may read that one secret, and decrypt with
+  tool_response_token_kms_key_arn only through Secrets Manager. Before each
+  runner start a script reads the key with the AWS CLI and writes it to a
+  root-only file that runner-go gets as SANDBOX_TOOL_RESPONSE_CALLBACK_TOKEN, so
+  the key is never in the user data, and a changed key reaches the runner on its
+  next restart. Without the key the runner does not start.
+
   The launch template requires IMDSv2 with a hop limit of 1. runner-go runs on
   a Docker network of its own and starts sandboxes on Docker's default bridge.
   A firewall script in Docker's DOCKER-USER chain rejects container traffic to

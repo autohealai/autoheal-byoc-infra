@@ -18,6 +18,10 @@ global:
     # see ../runner. The edge certificate must cover it.
     # runner:
     #   host: runner.autoheal.acme.example
+    #   # Tool results from the runner through the edge on 443, with the
+    #   # callback key; see tool_response_url in ../runner.
+    #   callback:
+    #     enabled: true
 
   # Sandboxes, where the agents run commands. Turn them on once the runner of
   # ../runner polls Temporal; with no runner, every agent run fails.

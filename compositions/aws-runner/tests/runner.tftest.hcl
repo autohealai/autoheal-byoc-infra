@@ -358,6 +358,80 @@ run "http_tool_results_must_be_private" {
   expect_failures = [terraform_data.validate_inputs]
 }
 
+# Tool results through the edge: the app host on 443, and the callback key read
+# from Secrets Manager with the instance role.
+run "tool_results_through_the_edge" {
+  command = plan
+
+  variables {
+    tool_response_url = "https://autoheal.acme.example/api/v1/internal/sandbox-tool-responses"
+    tool_response_token_secret = {
+      arn         = "arn:aws:secretsmanager:us-west-2:123456789012:secret:acme-prod-autoheal/runner-callback-token-AbCdEf"
+      kms_key_arn = "arn:aws:kms:us-west-2:123456789012:key/0123abcd-4567-89ef-0123-456789abcdef"
+    }
+  }
+
+  assert {
+    condition = jsondecode(output.required_role_policies.inline_policies["callback-key"]) == {
+      Version = "2012-10-17"
+      Statement = [
+        {
+          Sid      = "ReadCallbackKey"
+          Effect   = "Allow"
+          Action   = "secretsmanager:GetSecretValue"
+          Resource = "arn:aws:secretsmanager:us-west-2:123456789012:secret:acme-prod-autoheal/runner-callback-token-AbCdEf"
+        },
+        {
+          Sid       = "DecryptCallbackKey"
+          Effect    = "Allow"
+          Action    = "kms:Decrypt"
+          Resource  = "arn:aws:kms:us-west-2:123456789012:key/0123abcd-4567-89ef-0123-456789abcdef"
+          Condition = { StringEquals = { "kms:ViaService" = "secretsmanager.us-west-2.amazonaws.com" } }
+        },
+      ]
+    }
+    error_message = "The role may read that one secret, and decrypt with its key only through Secrets Manager."
+  }
+
+  assert {
+    condition     = contains(output.required_network_owner_actions, "The runner subnets (10.60.1.0/24, 10.60.1.0/24) need a route to autoheal.acme.example and must be let in there on TCP 443 (sandbox tool results).")
+    error_message = "The app host gets its own rule on 443."
+  }
+
+  assert {
+    condition     = strcontains(join("\n", output.required_network_owner_actions), "Secrets Manager (the secretsmanager endpoint of us-west-2), for the callback key")
+    error_message = "The network owner lets the runner reach Secrets Manager."
+  }
+}
+
+# The key would cross the network in plain text.
+run "tool_response_token_secret_needs_https" {
+  command = plan
+
+  variables {
+    tool_response_token_secret = {
+      arn         = "arn:aws:secretsmanager:us-west-2:123456789012:secret:acme-prod-autoheal/runner-callback-token-AbCdEf"
+      kms_key_arn = "arn:aws:kms:us-west-2:123456789012:key/0123abcd-4567-89ef-0123-456789abcdef"
+    }
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}
+
+run "tool_response_token_secret_needs_a_key_arn" {
+  command = plan
+
+  variables {
+    tool_response_url = "https://autoheal.acme.example/api/v1/internal/sandbox-tool-responses"
+    tool_response_token_secret = {
+      arn         = "arn:aws:secretsmanager:us-west-2:123456789012:secret:acme-prod-autoheal/runner-callback-token-AbCdEf"
+      kms_key_arn = "arn:aws:kms:us-west-2:123456789012:alias/acme-prod-autoheal-secrets"
+    }
+  }
+
+  expect_failures = [var.tool_response_token_secret]
+}
+
 run "repository_prefix_needs_a_registry" {
   command = plan
 

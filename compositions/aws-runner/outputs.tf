@@ -14,7 +14,8 @@
 #   required_role_policies          what the instance role needs, for a role a
 #                                   central team creates
 #
-# None of them holds a secret: the runner uses no key.
+# None of them holds a secret. With tool_response_token_secret the runner reads
+# its callback key from Secrets Manager at each start; the key is not in state.
 
 locals {
   # The ports the runner dials on the Temporal address: Temporal, and the
@@ -32,6 +33,7 @@ locals {
   outbound_targets = concat(
     ["the image registry (${split("/", local.runner_image)[0]})"],
     var.ssm_enabled ? ["SSM Session Manager (the ssm, ssmmessages and ec2messages endpoints of ${var.region})"] : [],
+    var.tool_response_token_secret != null ? ["Secrets Manager (the secretsmanager endpoint of ${split(":", var.tool_response_token_secret.arn)[3]}), for the callback key"] : [],
     ["the git hosts and the endpoints the tools call"],
   )
 

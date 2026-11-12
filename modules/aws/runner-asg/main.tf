@@ -122,8 +122,31 @@ locals {
     ]
   })
 
+  # Read the callback key before each runner start (callback-key.sh): that one
+  # secret, and its KMS key only through Secrets Manager.
+  callback_key_region = var.tool_response_token_secret_arn == "" ? "" : split(":", var.tool_response_token_secret_arn)[3]
+  callback_key_policy = var.tool_response_token_secret_arn == "" ? null : jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ReadCallbackKey"
+        Effect   = "Allow"
+        Action   = "secretsmanager:GetSecretValue"
+        Resource = var.tool_response_token_secret_arn
+      },
+      {
+        Sid       = "DecryptCallbackKey"
+        Effect    = "Allow"
+        Action    = "kms:Decrypt"
+        Resource  = var.tool_response_token_kms_key_arn
+        Condition = { StringEquals = { "kms:ViaService" = "secretsmanager.${local.callback_key_region}.${data.aws_partition.current.dns_suffix}" } }
+      },
+    ]
+  })
+
   inline_policies = merge(
     local.ecr_pull_policy == null ? {} : { ecr-pull = local.ecr_pull_policy },
+    local.callback_key_policy == null ? {} : { callback-key = local.callback_key_policy },
     var.additional_inline_policies,
   )
 
@@ -140,9 +163,10 @@ locals {
   ))))
 
   # What sandboxes may not reach: the runner load balancer, which takes no key,
-  # and any more destinations given.
+  # and any more destinations given. An https:// tool-result host is the edge,
+  # which checks the callback key and serves the app, so sandboxes keep it.
   sandbox_blocked_destinations = distinct(compact(concat(
-    [local.temporal_hostname, local.tool_response_host],
+    [local.temporal_hostname, startswith(var.tool_response_callback_url, "https://") ? "" : local.tool_response_host],
     var.sandbox_blocked_destinations,
   )))
 
@@ -159,6 +183,8 @@ locals {
     no_proxy                     = local.no_proxy
     trusted_ca_certificates      = var.trusted_ca_certificates
     custom_ca_certificate        = var.custom_ca_certificate
+    callback_key_secret_arn      = var.tool_response_token_secret_arn
+    callback_key_region          = local.callback_key_region
   })
 }
 
@@ -333,6 +359,11 @@ resource "aws_launch_template" "this" {
     precondition {
       condition     = contains(data.aws_ec2_instance_type.this.supported_architectures, var.architecture)
       error_message = "instance_type does not support var.architecture (for example m7g is arm64, m7i is x86_64)."
+    }
+
+    precondition {
+      condition     = (var.tool_response_token_secret_arn == "") == (var.tool_response_token_kms_key_arn == "")
+      error_message = "tool_response_token_secret_arn and tool_response_token_kms_key_arn go together: the instance role needs the KMS key to read the secret."
     }
 
     # 16 KB of user data is 21848 characters in base64.

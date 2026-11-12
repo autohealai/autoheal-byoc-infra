@@ -126,6 +126,10 @@ resource "terraform_data" "validate_inputs" {
       condition     = var.temporal_tls || nonsensitive(var.temporal_token == "")
       error_message = "temporal_token is set but temporal_tls is false: the key would cross the network in plain text. Turn temporal_tls on, or leave the key empty for the runner load balancers."
     }
+    precondition {
+      condition     = nonsensitive(var.tool_response_token == "") || startswith(var.tool_response_url, "https://")
+      error_message = "tool_response_token is set but tool_response_url is not an https:// URL, so the key would cross the network in plain text, or go nowhere. Set tool_response_url to https://<app host>/api/v1/internal/sandbox-tool-responses, or leave the key empty for the runner load balancer on 8083."
+    }
   }
 }
 
@@ -156,6 +160,7 @@ module "runner" {
   temporal_ca_certificate    = var.temporal_ca_certificate
   custom_ca_certificate      = var.custom_ca_certificate
   tool_response_callback_url = var.tool_response_url
+  tool_response_token        = var.tool_response_token
   temporal_ip                = var.temporal_ip
   runner_network_cidr        = var.runner_network_cidr
   runner_image               = local.runner_image

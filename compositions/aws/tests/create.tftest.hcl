@@ -191,9 +191,16 @@ run "everything_created" {
       "postgres-admin-password", "api-server-db-password", "agents-db-password", "temporal-db-password",
       "zitadel-db-password", "api-server-database-url", "api-server-jwt-secret", "zitadel-master-key",
       "auth-app-session-secret", "first-admin-password", "oauth-encryption-key", "oauth-state-signing-key",
-      "tool-response-server-secret", "redis-access-key", "api-server-redis-url",
+      "tool-response-server-secret", "runner-callback-token", "redis-access-key", "api-server-redis-url",
     ])
     error_message = "Secret entries are wrong."
+  }
+
+  # The chart's proxy refuses a callback key that is shorter than 32 or has
+  # anything but letters and digits.
+  assert {
+    condition     = random_password.runner_callback_token.length >= 32 && !random_password.runner_callback_token.special
+    error_message = "The runner callback key must be 32+ letters and digits."
   }
 
   assert {

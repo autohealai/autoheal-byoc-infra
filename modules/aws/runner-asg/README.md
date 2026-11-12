@@ -26,6 +26,15 @@ instance role, and a timer writes a login file every hour for runner-go,
 which pulls the sandbox image through the Docker API and does not use
 credential helpers.
 
+For tool results through the edge, `tool_response_callback_url` is the app
+host on 443 and `tool_response_token_secret_arn` the secret that holds the
+callback key. The role may read that one secret, and decrypt with
+`tool_response_token_kms_key_arn` only through Secrets Manager. Before each
+runner start a script reads the key with the AWS CLI and writes it to a
+root-only file that runner-go gets as `SANDBOX_TOOL_RESPONSE_CALLBACK_TOKEN`, so
+the key is never in the user data, and a changed key reaches the runner on its
+next restart. Without the key the runner does not start.
+
 The launch template requires IMDSv2 with a hop limit of 1. runner-go runs on
 a Docker network of its own and starts sandboxes on Docker's default bridge.
 A firewall script in Docker's `DOCKER-USER` chain rejects container traffic to
@@ -133,7 +142,7 @@ that wires it to `compositions/aws`.
 | <a name="input_root_volume_throughput"></a> [root\_volume\_throughput](#input\_root\_volume\_throughput) | gp3 throughput of the root volume in MiB/s. 125 is the gp3 baseline. | `number` | `125` | no |
 | <a name="input_runner_image"></a> [runner\_image](#input\_runner\_image) | Fully qualified runner-go image, e.g. public.ecr.aws/e4h3h0d9/app/runner-go:chart-1.0.0. | `string` | n/a | yes |
 | <a name="input_runner_name"></a> [runner\_name](#input\_runner\_name) | NAME env the worker registers under, e.g. acme-prod-autoheal-runner. | `string` | n/a | yes |
-| <a name="input_sandbox_blocked_destinations"></a> [sandbox\_blocked\_destinations](#input\_sandbox\_blocked\_destinations) | More destinations sandboxes may not reach over TCP, on top of the hosts of temporal\_host and tool\_response\_callback\_url, which they never reach: IPv4 addresses, IPv4 CIDRs such as 10.60.0.0/16, or DNS names. Names are looked up when runner-go starts and every 5 minutes after. Sandboxes run untrusted code, and the runner load balancer takes no key, so only the runner itself may use it. | `list(string)` | `[]` | no |
+| <a name="input_sandbox_blocked_destinations"></a> [sandbox\_blocked\_destinations](#input\_sandbox\_blocked\_destinations) | More destinations sandboxes may not reach over TCP, on top of the host of temporal\_host and of an http:// tool\_response\_callback\_url, which they never reach: IPv4 addresses, IPv4 CIDRs such as 10.60.0.0/16, or DNS names. Names are looked up when runner-go starts and every 5 minutes after. Sandboxes run untrusted code, and the runner load balancer takes no key, so only the runner itself may use it. An https:// tool\_response\_callback\_url is the edge, which checks the callback key, so sandboxes keep it. | `list(string)` | `[]` | no |
 | <a name="input_sandbox_image"></a> [sandbox\_image](#input\_sandbox\_image) | Fully qualified sandbox image to pre-pull on boot. Empty skips the pre-pull. | `string` | `""` | no |
 | <a name="input_ssh_ingress_cidr_blocks"></a> [ssh\_ingress\_cidr\_blocks](#input\_ssh\_ingress\_cidr\_blocks) | IPv4 CIDRs that may reach the instances on TCP 22, on the module's security group, such as a jump host. Only useful with key\_name. Empty adds no ingress rule. | `list(string)` | `[]` | no |
 | <a name="input_ssm_enabled"></a> [ssm\_enabled](#input\_ssm\_enabled) | Attach AmazonSSMManagedInstanceCore to the instance role, so people reach the instances through SSM Session Manager. With existing\_instance\_profile\_arn it is listed in required\_role\_policies instead. | `bool` | `true` | no |
@@ -141,6 +150,8 @@ that wires it to `compositions/aws`.
 | <a name="input_tags"></a> [tags](#input\_tags) | Additional tags, merged into the generated tag set. | `map(string)` | `{}` | no |
 | <a name="input_temporal_host"></a> [temporal\_host](#input\_temporal\_host) | Temporal frontend host:port the runner polls, set as TEMPORAL\_HOST: the internal runner load balancer on 7233 (the temporal\_address of compositions/aws's runner\_load\_balancer output). The runner dials it as Autoheal's hosted runners do, in plain gRPC with no key, so it must be a private address that only the network reaches. | `string` | n/a | yes |
 | <a name="input_tool_response_callback_url"></a> [tool\_response\_callback\_url](#input\_tool\_response\_callback\_url) | URL the runner posts sandbox tool results to, set as SANDBOX\_TOOL\_RESPONSE\_CALLBACK\_URL: api-server-go's internal listener behind the runner load balancer (the tool\_response\_url of compositions/aws's runner\_load\_balancer output). Empty leaves it unset and tool results go through Temporal only. | `string` | `""` | no |
+| <a name="input_tool_response_token_kms_key_arn"></a> [tool\_response\_token\_kms\_key\_arn](#input\_tool\_response\_token\_kms\_key\_arn) | ARN of the KMS key that encrypts tool\_response\_token\_secret\_arn. The instance role may decrypt with it only through Secrets Manager. Needed with tool\_response\_token\_secret\_arn. | `string` | `""` | no |
+| <a name="input_tool_response_token_secret_arn"></a> [tool\_response\_token\_secret\_arn](#input\_tool\_response\_token\_secret\_arn) | ARN of the Secrets Manager secret that holds the callback key: the secret entry runner-callback-token of compositions/aws. Before each runner start the instance reads it with the instance role and writes it to a root-only file as SANDBOX\_TOOL\_RESPONSE\_CALLBACK\_TOKEN, so the key is never in the user data. Needs tool\_response\_token\_kms\_key\_arn. Empty sends no key. | `string` | `""` | no |
 | <a name="input_trusted_ca_certificates"></a> [trusted\_ca\_certificates](#input\_trusted\_ca\_certificates) | PEM CA certificates the instances trust on top of the system ones: the private CA of an image registry such as a Nexus mirror, or of a proxy that inspects TLS. Each entry holds one or more certificates. cloud-init adds them to the system trust store before dnf installs packages and before Docker starts, so dnf, the Docker daemon (image pulls) and the ECR login trust them. runner-go and sandboxes do not get them. Certificates are public, not secrets. Empty adds none. | `list(string)` | `[]` | no |
 | <a name="input_vpc_id"></a> [vpc\_id](#input\_vpc\_id) | VPC of subnet\_ids, where the module's security group lives. | `string` | n/a | yes |
 

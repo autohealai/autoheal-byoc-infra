@@ -243,6 +243,7 @@ with the AWS provider.
 | `api-server-jwt-secret`, `zitadel-master-key`, `auth-app-session-secret`, `first-admin-password` | Generated |
 | `oauth-encryption-key`, `oauth-state-signing-key` | Generated: base64 of 32 random bytes |
 | `tool-response-server-secret` | Generated: 64 letters and digits |
+| `runner-callback-token` | Generated: 64 letters and digits. The key a runner sends with each sandbox tool result it posts through the edge; the chart reads it only when `global.edge.runner.callback.enabled` is true. Also the `runner_callback_token` output. |
 | `redis-access-key`, `api-server-redis-url` | The AUTH token, generated for a Redis we create or `redis_auth_token`, when there is Redis. The URL is `rediss://:<token>@<host>:<port>/0`. |
 | `llm-api-key` | `llm_api_key`, when set. Not needed for Bedrock. |
 | `gateway-api-key`, `gateway-extra-headers` | `llm_gateway_api_key`, `llm_gateway_extra_headers`, when set; as in `compositions/azure` |
@@ -323,6 +324,8 @@ the chart pulls from your mirror, which must hold the images under `app/` and
 | `required_role_policies` | Per workload role (`secrets`, `api_server`, `agents_worker`): the service accounts, the Pod Identity trust policy and the inline policy JSON. For a central team that creates the roles (`existing_*_role_arn`). Always filled. |
 | `network` | `vpc_id`, `vpc_cidr_block`, `private_subnet_ids`, `data_subnet_ids`, `public_subnet_ids`. |
 | `runner_load_balancer` | `dns_name`, `temporal_address` (`<dns_name>:7233`), `tool_response_url` (`http://<dns_name>:8083/api/v1/internal/sandbox-tool-responses`) and `security_group_id` of the runner load balancer, for `compositions/aws-runner`. null without `runner_lb_enabled`. |
+| `runner_callback_secret` | `arn` of the secret entry `runner-callback-token` and `kms_key_arn` of the key that encrypts it. Pass it to `compositions/aws-runner` as `tool_response_token_secret`: the runner reads the key itself at each start. Not a secret. |
+| `runner_callback_token` | Sensitive. The callback key in the secret entry `runner-callback-token`, for a runner that posts sandbox tool results through the edge (the chart's `global.edge.runner.callback.enabled`) and is not built by `compositions/aws-runner`. |
 
 `autoheal_values` keys:
 
@@ -351,7 +354,13 @@ temporal.*.image.repository, zitadel.image.repository, zitadel.login.image.repos
 temporalFrontendLoadBalancer.enabled, toolResponseLoadBalancer.enabled         true, runner_lb_enabled only
 ```
 
-None of the outputs holds a secret.
+Only `runner_callback_token` holds a secret, and it is marked sensitive.
+
+## Upgrading from 4.7.x
+
+4.8.0 adds the secret entry `runner-callback-token` and the
+`runner_callback_secret` and `runner_callback_token` outputs: the apply adds
+the key and its entry and changes nothing else.
 
 ## Upgrading from 3.x
 

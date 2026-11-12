@@ -31,6 +31,11 @@ global:
     #   parentRef: { name: shared-gateway, namespace: gateway-system }
     # istio:
     #   gateway: istio-system/shared-gateway
+    # Tool results from the runner through the edge on 443, with the callback
+    # key, instead of the runner load balancer's 8083; see ../runner.
+    # runner:
+    #   callback:
+    #     enabled: true
 
   # Sandboxes, where the agents run commands. Turn them on once the runner of
   # ../runner polls Temporal; with no runner, every agent run fails.

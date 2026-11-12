@@ -6,6 +6,50 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+A runner outside the cluster can post sandbox tool results to the app host on
+443, through the chart's proxy, with a key of its own (the chart's
+`global.edge.runner.callback`). An install that keeps its inputs plans only the
+new key and its vault entry.
+
+### Added
+- `compositions/azure` and `compositions/aws`: the generated key
+  `runner_callback_token` (64 letters and digits), written as the vault or
+  secret entry `runner-callback-token` on every install, and the sensitive
+  `runner_callback_token` output. The chart reads the entry only when
+  `global.edge.runner.callback.enabled` is true; with the flag on and no entry,
+  its secrets hooks stop the install.
+- `compositions/azure-runner` and `modules/azure/runner-vmss`:
+  `tool_response_token`, the callback key, written as
+  `SANDBOX_TOOL_RESPONSE_CALLBACK_TOKEN` to the runner's root-only config file.
+  The plan stops on a key with a `tool_response_url` that is not `https://`.
+  Setting it reimages the runner VMs; an install that leaves it empty plans no
+  change.
+- `compositions/aws`: the `runner_callback_secret` output, the ARN of the
+  secret entry `runner-callback-token` and of the KMS key that encrypts it. Not
+  a secret.
+- `compositions/aws-runner` and `modules/aws/runner-asg`:
+  `tool_response_token_secret` (in the module, `tool_response_token_secret_arn`
+  and `tool_response_token_kms_key_arn`). Before each start the runner reads
+  the key from Secrets Manager with the instance role and writes it to a
+  root-only file as `SANDBOX_TOOL_RESPONSE_CALLBACK_TOKEN`, so the key is never
+  in the user data or the state; a failed read keeps runner-go from starting.
+  The role gets the inline policy `callback-key`: `GetSecretValue` on that one
+  secret and `kms:Decrypt` on its key only through Secrets Manager, listed in
+  `required_role_policies` for a brought role. The instances install
+  `awscli-2`. The plan stops on a secret with a `tool_response_url` that is not
+  `https://`. Setting it rolls the instances; an install that leaves it null
+  plans no change.
+- `examples/azure/{split,split-public,split-istio}` and `examples/aws/prod`:
+  commented `tool_response_url`, callback key and `callback.enabled` lines, and
+  placeholders for the new outputs.
+
+### Changed
+- `modules/aws/runner-asg`: an `https://` `tool_response_callback_url` is no
+  longer in the sandbox block list. It is the edge, which checks the callback
+  key and serves the app, so sandboxes keep the app host. An `http://` one, the
+  runner load balancer, stays blocked. `additional_inline_policies` may not use
+  the name `callback-key`.
+
 ## [4.7.0] - 2026-11-06
 
 On AWS and Azure, the runner and every sandbox it creates can trust the

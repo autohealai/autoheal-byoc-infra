@@ -68,11 +68,28 @@ variable "temporal_address" {
 variable "tool_response_url" {
   type        = string
   default     = ""
-  description = "URL the runner posts sandbox tool results to, set as SANDBOX_TOOL_RESPONSE_CALLBACK_URL: the tool_response_url of the runner_load_balancer output of compositions/aws, as on Autoheal's hosted runners. Empty sends tool results through Temporal, so the runner needs nothing but temporal_address. An http:// URL must be private like temporal_address; https:// may be any host."
+  description = "URL the runner posts sandbox tool results to, set as SANDBOX_TOOL_RESPONSE_CALLBACK_URL: the tool_response_url of the runner_load_balancer output of compositions/aws, as on Autoheal's hosted runners. Through the edge on 443 it is https://<app host>/api/v1/internal/sandbox-tool-responses, with tool_response_token_secret and the chart's global.edge.runner.callback.enabled. Empty sends tool results through Temporal, so the runner needs nothing but temporal_address. An http:// URL must be private like temporal_address; https:// may be any host."
 
   validation {
     condition     = var.tool_response_url == "" || can(regex("^https?://[^\\s/:]+(:[0-9]{1,5})?(/[^\\s]*)?$", var.tool_response_url))
     error_message = "tool_response_url must be empty or an http(s) URL."
+  }
+}
+
+variable "tool_response_token_secret" {
+  type = object({
+    arn         = string
+    kms_key_arn = string
+  })
+  default     = null
+  description = "Where the runner reads the callback key: the runner_callback_secret output of compositions/aws, the secret entry runner-callback-token and the KMS key that encrypts it. The instance role may read that secret, and decrypt with that key only through Secrets Manager. Before each start the runner reads the key and sends it as SANDBOX_TOOL_RESPONSE_CALLBACK_TOKEN with each tool result; the chart's proxy refuses tool results through the edge without it. The key is never in the user data or this state. Needs an https:// tool_response_url. Null sends no key, as for the runner load balancer on 8083."
+
+  validation {
+    condition = var.tool_response_token_secret == null || (
+      can(regex("^arn:aws[a-z-]*:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+$", var.tool_response_token_secret.arn)) &&
+      can(regex("^arn:aws[a-z-]*:kms:[a-z0-9-]+:[0-9]{12}:key/[A-Za-z0-9-]+$", var.tool_response_token_secret.kms_key_arn))
+    )
+    error_message = "tool_response_token_secret must be null or the runner_callback_secret output of compositions/aws: a Secrets Manager secret ARN and a KMS key ARN (key/..., not an alias)."
   }
 }
 
@@ -90,7 +107,7 @@ variable "private_dns_domains" {
 variable "sandbox_blocked_destinations" {
   type        = list(string)
   default     = []
-  description = "More destinations sandboxes may not reach over TCP, such as the VPC CIDR or the cluster API: IPv4 addresses, IPv4 CIDRs or DNS names. The hosts of temporal_address and tool_response_url are always blocked: they take no key, so only the runner itself may use them. Names are looked up when runner-go starts and every 5 minutes after."
+  description = "More destinations sandboxes may not reach over TCP, such as the VPC CIDR or the cluster API: IPv4 addresses, IPv4 CIDRs or DNS names. The hosts of temporal_address and of an http:// tool_response_url are always blocked: they take no key, so only the runner itself may use them. An https:// tool_response_url is the edge, which checks the callback key, so sandboxes keep it. Names are looked up when runner-go starts and every 5 minutes after."
 
   validation {
     condition = alltrue([for d in var.sandbox_blocked_destinations : (

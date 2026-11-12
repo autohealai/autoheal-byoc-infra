@@ -33,12 +33,14 @@ dependency "infra" {
   config_path = "../infra"
 
   # Before ../infra is applied there are no outputs yet, and an install still
-  # on 4.0.x has outputs but no runner_token. The plan uses this placeholder
+  # on 4.0.x has outputs but no runner_token (before 4.8.0, no
+  # runner_callback_token). The plan uses this placeholder
   # for what is missing (shallow); the apply always uses the real key.
   mock_outputs_allowed_terraform_commands = ["init", "validate", "plan"]
   mock_outputs_merge_strategy_with_state  = "shallow"
   mock_outputs = {
-    runner_token = "pendingpendingpendingpendingpending"
+    runner_token          = "pendingpendingpendingpendingpending"
+    runner_callback_token = "pendingpendingpendingpendingpending"
   }
 }
 
@@ -52,6 +54,12 @@ inputs = {
 
   temporal_address = "${local.runner_host}:443"
   temporal_token   = dependency.infra.outputs.runner_token
+
+  # Tool results through the edge on 443 instead of through Temporal. Needs
+  # global.edge.runner.callback.enabled in ../app/values-customer.yaml and a
+  # chart whose runner-go sends the callback key.
+  # tool_response_url   = "https://autoheal.acme.example/api/v1/internal/sandbox-tool-responses"
+  # tool_response_token = dependency.infra.outputs.runner_callback_token
 
   # The CA of the edge certificate, when a private CA signed it. Public CAs
   # need nothing here.

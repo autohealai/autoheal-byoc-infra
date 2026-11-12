@@ -29,8 +29,9 @@ and retries with a backoff (15 seconds, doubling up to 5 minutes) until the
 pull succeeds, so the image may be pushed to a new registry after the apply
 without reimaging the VMs. `tool_response_callback_url` sets
 `SANDBOX_TOOL_RESPONSE_CALLBACK_URL`; empty sends sandbox tool results through
-Temporal. Naming and tags follow the repo's null-label convention (see
-`label.tf` and [docs/MODULE_STANDARD.md](../../../docs/MODULE_STANDARD.md)).
+Temporal. `tool_response_token` sets `SANDBOX_TOOL_RESPONSE_CALLBACK_TOKEN` in
+the same root-only file, for tool results through the edge. Naming and tags
+follow the repo's null-label convention (see `label.tf` and [docs/MODULE_STANDARD.md](../../../docs/MODULE_STANDARD.md)).
 
 With `temporal_ip`, the IP of a Temporal VM from `compositions/azure-temporal`,
 runner-go runs on a Docker network of its own (`runner_network_cidr`), and the
@@ -106,6 +107,7 @@ See [examples/basic](examples/basic) for a runnable configuration.
 | <a name="input_temporal_tls"></a> [temporal\_tls](#input\_temporal\_tls) | Dial Temporal over TLS (TEMPORAL\_TLS). True for the chart's runner host; false only for a Temporal load balancer on a private route. | `bool` | `true` | no |
 | <a name="input_temporal_token"></a> [temporal\_token](#input\_temporal\_token) | Key the runner sends with each Temporal call (TEMPORAL\_TOKEN): the vault entry runner-token that the chart's proxy checks on the runner host. Written to a root-only file on the VMs. Empty sends none. | `string` | `""` | no |
 | <a name="input_tool_response_callback_url"></a> [tool\_response\_callback\_url](#input\_tool\_response\_callback\_url) | URL the runner posts sandbox tool results to, set as SANDBOX\_TOOL\_RESPONSE\_CALLBACK\_URL: the api-server-go internal listener, e.g. http://10.60.15.253:8083/api/v1/internal/sandbox-tool-responses. Empty leaves it unset and tool results go through Temporal only. | `string` | `""` | no |
+| <a name="input_tool_response_token"></a> [tool\_response\_token](#input\_tool\_response\_token) | Key the runner sends with each tool result it posts (SANDBOX\_TOOL\_RESPONSE\_CALLBACK\_TOKEN): the vault entry runner-callback-token that the chart's proxy checks on the edge's tool-result route. Written to a root-only file on the VMs. Empty sends none. | `string` | `""` | no |
 | <a name="input_upgrade_mode"></a> [upgrade\_mode](#input\_upgrade\_mode) | VMSS upgrade mode. With Manual, an apply that changes the model (such as a new runner image tag) updates and reimages each instance, through the azurerm features roll\_instances\_when\_required and reimage\_on\_manual\_upgrade (both on by default). Automatic makes the provider start a rolling OS upgrade, which needs a health probe this module does not set, so such an apply fails. | `string` | `"Manual"` | no |
 | <a name="input_vm_sku"></a> [vm\_sku](#input\_vm\_sku) | VM size. Some policies forbid Intel Dsv5; D4s\_v6 is validated. | `string` | `"Standard_D4s_v6"` | no |
 

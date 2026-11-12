@@ -56,9 +56,11 @@ containers in Docker's `DOCKER-USER` chain:
 
 - off the instance metadata address, so only the host can use the instance
   role;
-- for sandboxes, off the hosts of `temporal_address` and `tool_response_url`
-  and off `sandbox_blocked_destinations`. Sandboxes run untrusted code, and
-  the runner load balancer takes no key, so only runner-go may use it.
+- for sandboxes, off the hosts of `temporal_address` and an `http://`
+  `tool_response_url`, and off `sandbox_blocked_destinations`. Sandboxes run
+  untrusted code, and the runner load balancer takes no key, so only
+  runner-go may use it. An `https://` `tool_response_url` is the edge, which
+  checks the callback key and serves the app, so sandboxes keep it.
   runner-go runs on a Docker network of its own (`runner-go`) and starts the
   sandboxes on Docker's default bridge, where the rule applies.
 
@@ -69,6 +71,27 @@ does not resolve stops it until it does.
 The cloud-init is gzipped into the user data. EC2 takes at most 16 KB; with a
 proxy and a long block list the plain cloud-init can be larger, gzipped it is
 far smaller. The plan stops if even the gzipped one does not fit.
+
+### Tool results through the edge
+
+The runner can post sandbox tool results to the app host on 443 instead of the
+runner load balancer's 8083, which takes no key. Set
+`global.edge.runner.callback.enabled: true` in the chart values, then:
+
+- `tool_response_url = "https://<app host>/api/v1/internal/sandbox-tool-responses"`;
+- `tool_response_token_secret` = the `runner_callback_secret` output of
+  `compositions/aws`: the secret entry `runner-callback-token` and its KMS key.
+
+The chart's proxy passes a tool result on only with that key. The runner reads
+the key from Secrets Manager with the instance role before each start, so it
+is never in the user data or the state, and a changed key reaches the runner on
+its next restart. The role gets an inline policy, `callback-key`:
+`secretsmanager:GetSecretValue` on that one secret and `kms:Decrypt` on its key
+only through Secrets Manager (listed in `required_role_policies` for a brought
+role). The plan stops on a secret with a URL that is not `https://`. The
+runner-go image must send the key, as the one for a chart with
+`global.edge.runner.callback` does; an older one sends none and every tool call
+fails with 401.
 
 ## Order
 
@@ -164,9 +187,10 @@ lets nothing in, apart from `ssh_ingress_cidr_blocks` on TCP 22. With
 | `namespace`, `environment`, `name` | `name` = `autoheal` | Naming, as in `compositions/aws`. Resources are `<namespace>-<environment>-<name>-runner...`. |
 | `tags` | `{}` | Tags on everything we create, such as those a company's policies require on instances. |
 | `temporal_address` | required | `<host>:<port>`: the `temporal_address` of the `runner_load_balancer` output of `compositions/aws`, such as `acme-prod-autoheal-runner-0123456789abcdef.elb.us-west-2.amazonaws.com:7233`. Must be private (see above). |
-| `tool_response_url` | `""` | Where the runner posts sandbox tool results: the `tool_response_url` of the same output, `http://<load balancer>:8083/api/v1/internal/sandbox-tool-responses`, as on Autoheal's hosted runners. Empty sends them through Temporal. An `http://` URL must be private like `temporal_address`; `https://` may be any host. |
+| `tool_response_url` | `""` | Where the runner posts sandbox tool results: the `tool_response_url` of the same output, `http://<load balancer>:8083/api/v1/internal/sandbox-tool-responses`, as on Autoheal's hosted runners. Empty sends them through Temporal. Through the edge, `https://<app host>/api/v1/internal/sandbox-tool-responses` with `tool_response_token_secret`. An `http://` URL must be private like `temporal_address`; `https://` may be any host. |
+| `tool_response_token_secret` | `null` | The `runner_callback_secret` output of `compositions/aws`: `arn` of the secret that holds the callback key and `kms_key_arn` of its key. The runner reads the key at each start. Needs an `https://` `tool_response_url`. |
 | `private_dns_domains` | `[]` | Domains whose names resolve only to private addresses, such as a Route 53 private zone (`acme.internal`). `temporal_address` and `tool_response_url` may use names under them. |
-| `sandbox_blocked_destinations` | `[]` | More destinations sandboxes may not reach over TCP, such as the VPC CIDR or the cluster API endpoint: IPv4 addresses, IPv4 CIDRs or DNS names. The hosts of `temporal_address` and `tool_response_url` are always blocked. |
+| `sandbox_blocked_destinations` | `[]` | More destinations sandboxes may not reach over TCP, such as the VPC CIDR or the cluster API endpoint: IPv4 addresses, IPv4 CIDRs or DNS names. The hosts of `temporal_address` and an `http://` `tool_response_url` are always blocked. |
 | `chart_version` | required | The chart version of the app step. The image tag is `chart-<chart_version>`. |
 | `runner_image` | `public.ecr.aws/e4h3h0d9/app/runner-go` | Repository, without a tag or digest. For a copy in your registry, its repository. |
 | `runner_image_tag` | `""` | Overrides `chart-<chart_version>`, for a registry that keeps other tags. |
@@ -207,10 +231,10 @@ lets nothing in, apart from `ssh_ingress_cidr_blocks` on TCP 22. With
 | `instance_profile_arn`, `iam_role_arn` | The instance profile, ours or brought, and our role (empty when brought). |
 | `subnet_cidrs` | The runner subnets' ranges, the source of the network rules. |
 | `required_network_owner_actions` | What the network owner must do, as readable lines. |
-| `required_role_policies` | What the instance role needs: `trust_policy`, `inline_policies` (`ecr-pull` pulls from `ecr_registry_host`) and `managed_policy_arns` (`ssm`, and `additional_iam_policy_arns`). |
+| `required_role_policies` | What the instance role needs: `trust_policy`, `inline_policies` (`ecr-pull` pulls from `ecr_registry_host`, `callback-key` reads the callback key) and `managed_policy_arns` (`ssm`, and `additional_iam_policy_arns`). |
 
-None of the outputs holds a secret, and neither does the state: the runner uses
-no key.
+None of the outputs holds a secret, and neither does the state: the runner
+reads its only key, the callback key, from Secrets Manager at each start.
 
 ## Who runs it
 

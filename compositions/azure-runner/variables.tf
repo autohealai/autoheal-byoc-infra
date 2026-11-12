@@ -165,11 +165,23 @@ variable "runner_network_cidr" {
 variable "tool_response_url" {
   type        = string
   default     = ""
-  description = "URL the runner posts sandbox tool results to, set as SANDBOX_TOOL_RESPONSE_CALLBACK_URL. Empty, the default, sends tool results through Temporal, so the runner needs nothing but temporal_address. With the chart's runner load balancers it may be http://<address>:8083/api/v1/internal/sandbox-tool-responses. An http:// URL must be a private IPv4 address; https:// may be any host."
+  description = "URL the runner posts sandbox tool results to, set as SANDBOX_TOOL_RESPONSE_CALLBACK_URL. Empty, the default, sends tool results through Temporal, so the runner needs nothing but temporal_address. Through the edge on 443 it is https://<app host>/api/v1/internal/sandbox-tool-responses, with tool_response_token and the chart's global.edge.runner.callback.enabled. With the chart's runner load balancers it may be http://<address>:8083/api/v1/internal/sandbox-tool-responses. An http:// URL must be a private IPv4 address; https:// may be any host."
 
   validation {
     condition     = var.tool_response_url == "" || can(regex("^https?://[^\\s/:]+(:[0-9]{1,5})?(/[^\\s]*)?$", var.tool_response_url))
     error_message = "tool_response_url must be empty or an http(s) URL."
+  }
+}
+
+variable "tool_response_token" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "The runner callback key: the runner_callback_token output of compositions/azure, the vault entry runner-callback-token. The runner sends it with each tool result (SANDBOX_TOOL_RESPONSE_CALLBACK_TOKEN), and the chart's proxy refuses tool results through the edge without it. Needs an https:// tool_response_url. Empty for the runner load balancer on 8083, which takes no key. It is in the VMs' custom data, which Azure never returns on read, and in this state."
+
+  validation {
+    condition     = var.tool_response_token == "" || can(regex("^[A-Za-z0-9]{32,}$", var.tool_response_token))
+    error_message = "tool_response_token must be letters and digits, at least 32 of them: the runner_callback_token output of compositions/azure."
   }
 }
 

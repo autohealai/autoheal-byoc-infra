@@ -269,6 +269,38 @@ run "custom_ca_with_temporal_ip" {
   }
 }
 
+# Tool results through the edge: the callback key is one more line in the
+# root-only config.env, next to the URL, and nothing else changes.
+run "callback_token_adds_its_line" {
+  command = apply
+
+  module {
+    source = "../../modules/azure/runner-vmss"
+  }
+
+  variables {
+    temporal_host              = "198.51.100.7:7233"
+    temporal_server_name       = "temporal.autoheal.internal"
+    temporal_ca_certificate    = "-----BEGIN CERTIFICATE-----\nplaceholder-ca\n-----END CERTIFICATE-----\n"
+    tool_response_callback_url = "https://autoheal.acme.example/api/v1/internal/sandbox-tool-responses"
+    tool_response_token        = "ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210zyxwvutsrqponmlkjihgfedcba98" # pragma: allowlist secret
+    sandbox_image              = "public.ecr.aws/e4h3h0d9/app/sandbox:chart-1.0.0-rc.12"
+    acr_name                   = "cracmeprodautoheal"
+  }
+
+  assert {
+    condition     = [for f in yamldecode(nonsensitive(local.cloud_init)).write_files : f.permissions if f.path == "/opt/runner-go/config.env"] == ["0600"] && strcontains([for f in yamldecode(nonsensitive(local.cloud_init)).write_files : f.content if f.path == "/opt/runner-go/config.env"][0], "\nSANDBOX_TOOL_RESPONSE_CALLBACK_URL=https://autoheal.acme.example/api/v1/internal/sandbox-tool-responses\nSANDBOX_TOOL_RESPONSE_CALLBACK_TOKEN=ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210zyxwvutsrqponmlkjihgfedcba98\n") # pragma: allowlist secret
+    error_message = "The callback key goes to the root-only config.env as SANDBOX_TOOL_RESPONSE_CALLBACK_TOKEN, after the URL."
+  }
+
+  assert {
+    condition = replace(nonsensitive(local.cloud_init),
+      "      SANDBOX_TOOL_RESPONSE_CALLBACK_URL=https://autoheal.acme.example/api/v1/internal/sandbox-tool-responses\n      SANDBOX_TOOL_RESPONSE_CALLBACK_TOKEN=ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210zyxwvutsrqponmlkjihgfedcba98\n", # pragma: allowlist secret
+    "      SANDBOX_TOOL_RESPONSE_CALLBACK_URL=http://10.60.15.253:8083/api/v1/internal/sandbox-tool-responses\n") == file("tests/fixtures/cloud-init-all-options.yaml")
+    error_message = "tool_response_token adds its line and changes nothing else."
+  }
+}
+
 # Another range for the runner network.
 run "custom_runner_network" {
   command = apply

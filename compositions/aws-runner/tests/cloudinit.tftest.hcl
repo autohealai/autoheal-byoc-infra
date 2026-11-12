@@ -156,6 +156,108 @@ run "long_block_list_fits" {
   }
 }
 
+# The callback key: the AWS CLI package, the script that reads the key before
+# each start, its ExecStartPre and the env file. Taking those out gives the
+# default cloud-init again, so the key adds nothing else, and never the key
+# itself.
+run "callback_key_adds_only_its_parts" {
+  command = plan
+
+  module {
+    source = "../../modules/aws/runner-asg"
+  }
+
+  variables {
+    tool_response_token_secret_arn  = "arn:aws:secretsmanager:us-west-2:123456789012:secret:acme-prod-autoheal/runner-callback-token-AbCdEf"
+    tool_response_token_kms_key_arn = "arn:aws:kms:us-west-2:123456789012:key/0123abcd-4567-89ef-0123-456789abcdef"
+  }
+
+  assert {
+    condition     = strcontains([for f in yamldecode(local.user_data).write_files : f.content if f.path == "/usr/local/bin/callback-key.sh"][0], "key=$(aws secretsmanager get-secret-value --region us-west-2 --secret-id 'arn:aws:secretsmanager:us-west-2:123456789012:secret:acme-prod-autoheal/runner-callback-token-AbCdEf' --query SecretString --output text)\n")
+    error_message = "callback-key.sh reads the secret in its own region."
+  }
+
+  assert {
+    condition     = [for l in split("\n", [for f in yamldecode(local.user_data).write_files : f.content if f.path == "/etc/systemd/system/runner-go.service"][0]) : l if startswith(l, "ExecStartPre=")][3] == "ExecStartPre=/usr/local/bin/callback-key.sh"
+    error_message = "The key is read last before each start, and a failed read fails the start."
+  }
+
+  assert {
+    condition = replace(replace(replace(replace(local.user_data,
+      "/  - path: /usr/local/bin/callback-key\\.sh\n(    [^\n]*\n)+/", ""),
+      "  - awscli-2\n", ""),
+      "      # No \"-\": without the callback key the runner does not start.\n      ExecStartPre=/usr/local/bin/callback-key.sh\n", ""),
+    "        --env-file /opt/runner-go/callback.env \\\n", "") == file("tests/fixtures/cloud-init-default.yaml")
+    error_message = "The callback key adds the package, the script, its ExecStartPre and the env file, and nothing else."
+  }
+}
+
+# Through the edge, with a proxy and private CAs: the script uses the proxy and
+# the system CA bundle, and sandboxes keep the app host.
+run "callback_key_through_the_edge" {
+  command = plan
+
+  module {
+    source = "../../modules/aws/runner-asg"
+  }
+
+  variables {
+    tool_response_callback_url      = "https://autoheal.acme.example/api/v1/internal/sandbox-tool-responses"
+    tool_response_token_secret_arn  = "arn:aws:secretsmanager:us-west-2:123456789012:secret:acme-prod-autoheal/runner-callback-token-AbCdEf"
+    tool_response_token_kms_key_arn = "arn:aws:kms:us-west-2:123456789012:key/0123abcd-4567-89ef-0123-456789abcdef"
+    http_proxy                      = "http://proxy.acme.example:8080"
+    trusted_ca_certificates         = ["-----BEGIN CERTIFICATE-----\nplaceholder-proxy-ca\n-----END CERTIFICATE-----\n"]
+  }
+
+  assert {
+    condition     = local.sandbox_blocked_destinations == tolist(["acme-prod-autoheal-runner-0123456789abcdef.elb.us-west-2.amazonaws.com"])
+    error_message = "An https:// tool-result host is not blocked: it is the edge, which checks the key and serves the app."
+  }
+
+  assert {
+    condition = alltrue([for s in [
+      "set -a; . /opt/runner-go/proxy.env; set +a\n",
+      "export AWS_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt\n",
+    ] : strcontains([for f in yamldecode(local.user_data).write_files : f.content if f.path == "/usr/local/bin/callback-key.sh"][0], s)])
+    error_message = "With a proxy and private CAs, callback-key.sh uses the proxy and the system CA bundle."
+  }
+
+  assert {
+    condition     = contains(yamldecode(local.user_data).packages, "awscli-2")
+    error_message = "The AWS CLI is installed."
+  }
+}
+
+# The role needs the KMS key to read the secret.
+run "callback_key_needs_its_kms_key" {
+  command = plan
+
+  module {
+    source = "../../modules/aws/runner-asg"
+  }
+
+  variables {
+    tool_response_token_secret_arn = "arn:aws:secretsmanager:us-west-2:123456789012:secret:acme-prod-autoheal/runner-callback-token-AbCdEf"
+  }
+
+  expect_failures = [aws_launch_template.this]
+}
+
+# The module writes callback-key itself.
+run "reserved_callback_key_policy_name" {
+  command = plan
+
+  module {
+    source = "../../modules/aws/runner-asg"
+  }
+
+  variables {
+    additional_inline_policies = { callback-key = "{}" }
+  }
+
+  expect_failures = [var.additional_inline_policies]
+}
+
 # The module writes ecr-pull itself.
 run "reserved_inline_policy_names" {
   command = plan

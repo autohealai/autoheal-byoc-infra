@@ -87,6 +87,9 @@ write_files:
 %{ if tool_response_callback_url != "" ~}
       SANDBOX_TOOL_RESPONSE_CALLBACK_URL=${tool_response_callback_url}
 %{ endif ~}
+%{ if tool_response_token != "" ~}
+      SANDBOX_TOOL_RESPONSE_CALLBACK_TOKEN=${tool_response_token}
+%{ endif ~}
 %{ if acr_name != "" ~}
   - path: /usr/local/bin/acr-login.sh
     permissions: '0755'

@@ -16,6 +16,9 @@ packages:
 %{ if ecr_registry_host != "" ~}
   - amazon-ecr-credential-helper
 %{ endif ~}
+%{ if callback_key_secret_arn != "" ~}
+  - awscli-2
+%{ endif ~}
 write_files:
 %{ if http_proxy != "" ~}
   # The proxy for dnf, the Docker daemon, the scripts below and runner-go.
@@ -164,6 +167,31 @@ write_files:
       [Install]
       WantedBy=timers.target
 %{ endif ~}
+%{ if callback_key_secret_arn != "" ~}
+  - path: /usr/local/bin/callback-key.sh
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      # Write the callback key runner-go sends with each tool result to a
+      # root-only file, read from Secrets Manager with the instance role, so
+      # the key is never in the user data. It runs before each runner start,
+      # so a changed key reaches the runner on its next restart. A failed read
+      # fails the start, and systemd retries. The file is written to a
+      # temporary name and renamed, so a start never reads a partial file.
+      set -euo pipefail
+%{ if http_proxy != "" ~}
+      set -a; . /opt/runner-go/proxy.env; set +a
+%{ endif ~}
+%{ if length(trusted_ca_certificates) > 0 ~}
+      # The AWS CLI keeps its own CA bundle; a proxy's private CA is in the
+      # system one.
+      export AWS_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt
+%{ endif ~}
+      key=$(aws secretsmanager get-secret-value --region ${callback_key_region} --secret-id '${callback_key_secret_arn}' --query SecretString --output text)
+      test -n "$key"
+      (umask 077; printf 'SANDBOX_TOOL_RESPONSE_CALLBACK_TOKEN=%s\n' "$key" > /opt/runner-go/callback.env.new)
+      mv -f /opt/runner-go/callback.env.new /opt/runner-go/callback.env
+%{ endif ~}
   - path: /usr/local/bin/container-firewall.sh
     permissions: '0755'
     content: |
@@ -271,6 +299,10 @@ write_files:
       # No "-": without the rules the runner does not start, and systemd retries.
       ExecStartPre=/usr/local/bin/container-firewall.sh
       ExecStartPre=/usr/local/bin/runner-pull.sh ${runner_image}
+%{ if callback_key_secret_arn != "" ~}
+      # No "-": without the callback key the runner does not start.
+      ExecStartPre=/usr/local/bin/callback-key.sh
+%{ endif ~}
       # --group-add <docker-gid>: the runner container runs as uid/gid 1000
       # (alpine adduser 'runner'); the host docker.sock is root:docker mode 660,
       # so the runner must join the host docker group to drive the daemon (DooD).
@@ -310,6 +342,9 @@ write_files:
         -v /opt/runner-go/ca:/opt/runner-go/ca:ro \
 %{ endif ~}
         --env-file /opt/runner-go/config.env \
+%{ if callback_key_secret_arn != "" ~}
+        --env-file /opt/runner-go/callback.env \
+%{ endif ~}
 %{ if http_proxy != "" ~}
         --env-file /opt/runner-go/proxy.env \
 %{ endif ~}

@@ -104,6 +104,13 @@ variable "tool_response_callback_url" {
   }
 }
 
+variable "tool_response_token" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Key the runner sends with each tool result it posts (SANDBOX_TOOL_RESPONSE_CALLBACK_TOKEN): the vault entry runner-callback-token that the chart's proxy checks on the edge's tool-result route. Written to a root-only file on the VMs. Empty sends none."
+}
+
 variable "temporal_ip" {
   type        = string
   default     = ""

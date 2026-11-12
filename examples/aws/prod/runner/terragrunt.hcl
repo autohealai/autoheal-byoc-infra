@@ -24,12 +24,13 @@ terraform {
   source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/aws-runner?ref=v${local.v.infra_version}"
 }
 
-# The runner load balancer and the subnets. This unit reads nothing else from
-# ../infra.
+# The runner load balancer, the subnets and, through the edge, where the
+# callback key is. This unit reads nothing else from ../infra.
 dependency "infra" {
   config_path = "../infra"
 
-  # An install still on 4.5.x has outputs but no runner_load_balancer. The plan
+  # An install still on 4.5.x has outputs but no runner_load_balancer, and one
+  # before 4.8.0 no runner_callback_secret. The plan
   # uses these placeholders for what is missing (shallow); the apply always
   # uses the real outputs. They are private addresses so that the plan passes
   # its checks. Before ../infra is applied at all, the plan of this unit stops
@@ -42,6 +43,10 @@ dependency "infra" {
       tool_response_url = "http://10.255.255.254:8083/api/v1/internal/sandbox-tool-responses"
     }
     network = { private_subnet_ids = ["subnet-00000000000000000"] }
+    runner_callback_secret = {
+      arn         = "arn:aws:secretsmanager:us-west-2:111111111111:secret:pending-runner-callback-token-AAAAAA"
+      kms_key_arn = "arn:aws:kms:us-west-2:111111111111:key/00000000-0000-0000-0000-000000000000"
+    }
   }
 }
 
@@ -54,6 +59,12 @@ inputs = {
   # Temporal on 7233 and tool results on 8083, on the runner load balancer.
   temporal_address  = dependency.infra.outputs.runner_load_balancer.temporal_address
   tool_response_url = dependency.infra.outputs.runner_load_balancer.tool_response_url
+
+  # Tool results through the edge on 443 instead, with the callback key the
+  # runner reads from Secrets Manager. Needs runner.callback.enabled in
+  # ../app/values-customer.yaml and a chart whose runner-go sends the key.
+  # tool_response_url          = "https://autoheal.acme.example/api/v1/internal/sandbox-tool-responses"
+  # tool_response_token_secret = dependency.infra.outputs.runner_callback_secret
 
   # More destinations sandboxes may not reach, on top of the load balancer,
   # such as the VPC range or the cluster API endpoint.

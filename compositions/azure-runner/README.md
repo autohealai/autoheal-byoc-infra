@@ -85,6 +85,24 @@ a private IPv4 address. The plan stops on a public address, and on a host name,
 which could resolve to a public one. The runner VNet needs a private connection
 to the cluster's VNet. The same goes for an `http://` `tool_response_url`.
 
+### Tool results through the edge
+
+The runner can post sandbox tool results to the app host on 443 instead of
+returning them through Temporal or the runner load balancer on 8083. Set
+`global.edge.runner.callback.enabled: true` in the chart values, then:
+
+- `tool_response_url = "https://<app host>/api/v1/internal/sandbox-tool-responses"`;
+- `tool_response_token` = the `runner_callback_token` output of
+  `compositions/azure` (the vault entry `runner-callback-token`).
+
+The chart's proxy passes a tool result on to api-server-go only when it carries
+that key, and answers 401 to the rest. The key is separate from the runner key,
+so a leaked callback key cannot reach Temporal. The plan stops on a key with a
+URL that is not `https://`, where the key would cross the network in plain
+text. The runner-go image must send the key, as the one for a chart with
+`global.edge.runner.callback` does; an older one sends none and every tool call
+fails with 401.
+
 ### On a Temporal VM
 
 When the cluster cannot host Temporal, `compositions/azure-temporal` runs it on
@@ -168,7 +186,8 @@ one on the subnet if your policy needs it; the runner needs no inbound rule.
 | `custom_ca_certificate` | `""` | PEM of your private root CAs, one after another: the same PEM you store in the vault for the chart's `global.trust.caVaultEntry`, such as `file("${get_terragrunt_dir()}/custom-ca.pem")` or the value of an `azurerm_key_vault_secret` data source on a secret that holds only the CAs, not one behind a Key Vault certificate, which holds its key. The runner and every sandbox it creates trust them on top of the public CAs. Certificates only, at most 40,000 characters. Changing it reimages the runner VMs. |
 | `temporal_ip` | `""` | The `temporal_ip` output of `compositions/azure-temporal`. Puts runner-go on its own Docker network and keeps other containers off TCP 7233 to that IP. Needs `temporal_tls`. An IP in `temporal_address` must be this one. Empty changes nothing on the VMs. |
 | `runner_network_cidr` | `172.31.255.240/28` | With `temporal_ip`, the range of runner-go's own Docker network. Change it when it overlaps the VNet, a route the runner uses, or Docker's default bridge. |
-| `tool_response_url` | `""` | Empty sends tool results through Temporal. With the runner load balancers it may be `http://<address>:8083/api/v1/internal/sandbox-tool-responses`. An `http://` URL must be a private IPv4 address; `https://` may be any host. |
+| `tool_response_url` | `""` | Empty sends tool results through Temporal. Through the edge, `https://<app host>/api/v1/internal/sandbox-tool-responses` with `tool_response_token`. With the runner load balancers it may be `http://<address>:8083/api/v1/internal/sandbox-tool-responses`. An `http://` URL must be a private IPv4 address; `https://` may be any host. |
+| `tool_response_token` | `""` | Sensitive. The callback key: the `runner_callback_token` output of `compositions/azure`. Needs an `https://` `tool_response_url`. Letters and digits, at least 32. |
 | `chart_version` | required | The chart version of the app step. The image tag is `chart-<chart_version>`. |
 | `runner_image` | `public.ecr.aws/e4h3h0d9/app/runner-go` | Repository, without a tag or digest. For your ACR copy, also set `acr_id`. |
 | `runner_image_tag` | `""` | Overrides `chart-<chart_version>`. |
@@ -194,9 +213,9 @@ one on the subnet if your policy needs it; the runner needs no inbound rule.
 | `required_network_owner_actions` | What the network owner must do, as readable lines. |
 | `required_role_assignments` | The AcrPull grant, only with `acr_id` and `create_role_assignments = false`. |
 
-None of the outputs holds a secret. `temporal_token` and a generated SSH
-private key are in the state, and the key is in the VMs' custom data, which
-Azure never returns on read.
+None of the outputs holds a secret. `temporal_token`, `tool_response_token` and
+a generated SSH private key are in the state, and the two keys are in the VMs'
+custom data, which Azure never returns on read.
 
 ## Who runs it
 
@@ -244,8 +263,9 @@ the apply updates and reimages each VM in place (the azurerm features
 `roll_instances_when_required` and `reimage_on_manual_upgrade`, both on by
 default). A sandbox running on a VM during the reimage fails.
 
-Setting or changing `temporal_ip` or `custom_ca_certificate` changes the custom
-data, so it reimages the VMs the same way. Leaving them empty does not.
+Setting or changing `temporal_ip`, `custom_ca_certificate`, `tool_response_url`
+or `tool_response_token` changes the custom data, so it reimages the VMs the
+same way. Leaving them empty does not.
 
 ## Tests
 

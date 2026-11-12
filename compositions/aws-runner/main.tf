@@ -107,6 +107,10 @@ resource "terraform_data" "validate_inputs" {
       error_message = "An http:// tool_response_url must be private like temporal_address: tool results carry command output. ${local.tool_response_host} is not a private IPv4 address, an internal load balancer of this account and region, or a name under private_dns_domains. Use the tool_response_url of the runner_load_balancer output of compositions/aws, or leave it empty to send tool results through Temporal."
     }
     precondition {
+      condition     = var.tool_response_token_secret == null || startswith(var.tool_response_url, "https://")
+      error_message = "tool_response_token_secret is set but tool_response_url is not an https:// URL, so the key would cross the network in plain text, or go nowhere. Set tool_response_url to https://<app host>/api/v1/internal/sandbox-tool-responses, or leave tool_response_token_secret null for the runner load balancer on 8083."
+    }
+    precondition {
       condition     = var.ecr_repository_prefix == "" || var.ecr_registry_host != ""
       error_message = "ecr_repository_prefix limits the pull policy on ecr_registry_host, which is empty. Set ecr_registry_host, or leave ecr_repository_prefix empty."
     }
@@ -159,4 +163,7 @@ module "runner" {
   max_concurrent_activities    = var.max_concurrent_activities
   ecr_registry_host            = var.ecr_registry_host
   ecr_repository_prefix        = var.ecr_repository_prefix
+
+  tool_response_token_secret_arn  = try(var.tool_response_token_secret.arn, "")
+  tool_response_token_kms_key_arn = try(var.tool_response_token_secret.kms_key_arn, "")
 }

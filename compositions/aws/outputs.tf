@@ -27,8 +27,11 @@
 #                              brought
 #   runner_load_balancer       the addresses compositions/aws-runner connects
 #                              to, filled only with runner_lb_enabled
+#   runner_callback_secret     where compositions/aws-runner reads the runner
+#                              callback key: its secret ARN and KMS key
+#   runner_callback_token      the runner callback key itself
 #
-# None of them holds a secret.
+# Only runner_callback_token holds a secret, and it is marked sensitive.
 
 output "autoheal_values" {
   description = "Infra values for the Autoheal chart (global.infra facts, suggestions, and the Temporal and Zitadel copies). Pass to compositions/app as infra_values."
@@ -104,4 +107,18 @@ output "network" {
 output "runner_load_balancer" {
   description = "The internal runner load balancer, for compositions/aws-runner: dns_name, temporal_address (its temporal_address input), tool_response_url (its tool_response_url input) and security_group_id. null unless runner_lb_enabled."
   value       = local.runner_lb
+}
+
+output "runner_callback_secret" {
+  description = "Where a runner reads the callback key, for compositions/aws-runner as tool_response_token_secret: arn, the secret entry runner-callback-token, and kms_key_arn, the key that encrypts it. Not a secret."
+  value = {
+    arn         = module.secrets.secret_arns["runner-callback-token"]
+    kms_key_arn = local.kms_key_arns.secrets
+  }
+}
+
+output "runner_callback_token" {
+  description = "The runner callback key, also in the secret entry runner-callback-token: the key a runner sends as SANDBOX_TOOL_RESPONSE_CALLBACK_TOKEN when it posts sandbox tool results through the edge (the chart's global.edge.runner.callback.enabled). Pass it to compositions/aws-runner as tool_response_token. Sensitive: shown only with terraform output -raw runner_callback_token."
+  value       = random_password.runner_callback_token.result
+  sensitive   = true
 }

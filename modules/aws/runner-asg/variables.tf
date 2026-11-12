@@ -281,8 +281,8 @@ variable "additional_inline_policies" {
   description = "More inline policies for the instance role, name => policy JSON, e.g. { logs = <JSON> }. The names must be known at plan time. With existing_instance_profile_arn they are listed in required_role_policies instead."
 
   validation {
-    condition     = !contains(keys(var.additional_inline_policies), "ecr-pull")
-    error_message = "additional_inline_policies may not use the name ecr-pull: the module writes it from ecr_registry_host."
+    condition     = length(setintersection(keys(var.additional_inline_policies), ["ecr-pull", "callback-key"])) == 0
+    error_message = "additional_inline_policies may not use the names ecr-pull or callback-key: the module writes them from ecr_registry_host and tool_response_token_secret_arn."
   }
 }
 
@@ -321,10 +321,32 @@ variable "tool_response_callback_url" {
   }
 }
 
+variable "tool_response_token_secret_arn" {
+  type        = string
+  default     = ""
+  description = "ARN of the Secrets Manager secret that holds the callback key: the secret entry runner-callback-token of compositions/aws. Before each runner start the instance reads it with the instance role and writes it to a root-only file as SANDBOX_TOOL_RESPONSE_CALLBACK_TOKEN, so the key is never in the user data. Needs tool_response_token_kms_key_arn. Empty sends no key."
+
+  validation {
+    condition     = var.tool_response_token_secret_arn == "" || can(regex("^arn:aws[a-z-]*:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+$", var.tool_response_token_secret_arn))
+    error_message = "tool_response_token_secret_arn must be empty or a Secrets Manager secret ARN."
+  }
+}
+
+variable "tool_response_token_kms_key_arn" {
+  type        = string
+  default     = ""
+  description = "ARN of the KMS key that encrypts tool_response_token_secret_arn. The instance role may decrypt with it only through Secrets Manager. Needed with tool_response_token_secret_arn."
+
+  validation {
+    condition     = var.tool_response_token_kms_key_arn == "" || can(regex("^arn:aws[a-z-]*:kms:[a-z0-9-]+:[0-9]{12}:key/[A-Za-z0-9-]+$", var.tool_response_token_kms_key_arn))
+    error_message = "tool_response_token_kms_key_arn must be empty or a KMS key ARN (key/..., not an alias)."
+  }
+}
+
 variable "sandbox_blocked_destinations" {
   type        = list(string)
   default     = []
-  description = "More destinations sandboxes may not reach over TCP, on top of the hosts of temporal_host and tool_response_callback_url, which they never reach: IPv4 addresses, IPv4 CIDRs such as 10.60.0.0/16, or DNS names. Names are looked up when runner-go starts and every 5 minutes after. Sandboxes run untrusted code, and the runner load balancer takes no key, so only the runner itself may use it."
+  description = "More destinations sandboxes may not reach over TCP, on top of the host of temporal_host and of an http:// tool_response_callback_url, which they never reach: IPv4 addresses, IPv4 CIDRs such as 10.60.0.0/16, or DNS names. Names are looked up when runner-go starts and every 5 minutes after. Sandboxes run untrusted code, and the runner load balancer takes no key, so only the runner itself may use it. An https:// tool_response_callback_url is the edge, which checks the callback key, so sandboxes keep it."
 
   validation {
     condition = alltrue([for d in var.sandbox_blocked_destinations : (

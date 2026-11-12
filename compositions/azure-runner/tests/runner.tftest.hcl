@@ -621,6 +621,55 @@ run "tool_response_url_must_be_http" {
   expect_failures = [var.tool_response_url]
 }
 
+# Tool results through the edge: the app host on 443 with the callback key.
+run "tool_results_through_the_edge" {
+  command = plan
+
+  variables {
+    tool_response_url   = "https://autoheal.acme.example/api/v1/internal/sandbox-tool-responses"
+    tool_response_token = "ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210zyxwvutsrqponmlkjihgfedcba98" # pragma: allowlist secret
+  }
+
+  assert {
+    condition     = contains(output.required_network_owner_actions, "Allow the runner subnet 10.61.0.0/24 to autoheal.acme.example on TCP 443 (sandbox tool results).")
+    error_message = "The app host gets its own rule on 443."
+  }
+}
+
+run "tool_response_token_must_be_letters_and_digits" {
+  command = plan
+
+  variables {
+    tool_response_url   = "https://autoheal.acme.example/api/v1/internal/sandbox-tool-responses"
+    tool_response_token = "too-short"
+  }
+
+  expect_failures = [var.tool_response_token]
+}
+
+# The key would cross the network in plain text.
+run "tool_response_token_needs_https" {
+  command = plan
+
+  variables {
+    tool_response_url   = "http://10.40.15.253:8083/api/v1/internal/sandbox-tool-responses"
+    tool_response_token = "ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210zyxwvutsrqponmlkjihgfedcba98" # pragma: allowlist secret
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}
+
+# A key with no URL goes nowhere: tool results would go through Temporal.
+run "tool_response_token_needs_a_url" {
+  command = plan
+
+  variables {
+    tool_response_token = "ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210zyxwvutsrqponmlkjihgfedcba98" # pragma: allowlist secret
+  }
+
+  expect_failures = [terraform_data.validate_inputs]
+}
+
 run "chart_version_must_be_semver" {
   command = plan
 

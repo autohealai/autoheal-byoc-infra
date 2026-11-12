@@ -56,8 +56,8 @@ inputs = {
   temporal_token   = dependency.infra.outputs.runner_token
 
   # Tool results through the edge on 443 instead of through Temporal. Needs
-  # global.edge.runner.callback.enabled in ../app/values-customer.yaml and a
-  # chart whose runner-go sends the callback key.
+  # global.edge.runner.callback.enabled in ../app/values-customer.yaml and chart
+  # 1.0.0-rc.16 or later, whose runner-go sends the callback key.
   # tool_response_url   = "https://autoheal.acme.example/api/v1/internal/sandbox-tool-responses"
   # tool_response_token = dependency.infra.outputs.runner_callback_token
 

@@ -6,10 +6,12 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [4.8.0] - 2026-11-12
+
 A runner outside the cluster can post sandbox tool results to the app host on
 443, through the chart's proxy, with a key of its own (the chart's
-`global.edge.runner.callback`). An install that keeps its inputs plans only the
-new key and its vault entry.
+`global.edge.runner.callback`, chart 1.0.0-rc.16 or later). An install on 4.7.0
+that keeps its inputs plans only the new key and its vault entry.
 
 ### Added
 - `compositions/azure` and `compositions/aws`: the generated key
@@ -49,6 +51,8 @@ new key and its vault entry.
   key and serves the app, so sandboxes keep the app host. An `http://` one, the
   runner load balancer, stays blocked. `additional_inline_policies` may not use
   the name `callback-key`.
+- `README.md`, `docs` and `examples`: infra 4.8.0 and chart 1.0.0-rc.16, the
+  first published chart with `global.edge.runner.callback`.
 
 ## [4.7.0] - 2026-11-06
 

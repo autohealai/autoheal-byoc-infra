@@ -103,7 +103,6 @@ data "aws_iam_policy_document" "storage" {
       "s3:GetObject",
       "s3:GetObjectVersion",
       "s3:PutObject",
-      "s3:PutObjectTagging",
       "s3:DeleteObject",
       "s3:DeleteObjectVersion",
       "s3:AbortMultipartUpload",
@@ -125,8 +124,8 @@ data "aws_iam_policy_document" "storage" {
   }
 }
 
-# api-server-go tags tool outputs it writes (lifecycle=auto-expire), hence
-# s3:PutObjectTagging above.
+# api-server-go only. It tags the tool outputs it writes in the tenant bucket
+# (lifecycle=auto-expire), and a PutObject with tags needs s3:PutObjectTagging.
 #
 # The chart's migration Job (api-server provision-tenant-buckets) turns
 # versioning on in the tenant bucket and merges the Git Registry and tool
@@ -149,6 +148,12 @@ data "aws_iam_policy_document" "tenant_bucket" {
       ],
     )
     resources = [local.bucket_arns.tenant]
+  }
+
+  statement {
+    sid       = "TagToolOutputs"
+    actions   = ["s3:PutObjectTagging"]
+    resources = ["${local.bucket_arns.tenant}/*"]
   }
 }
 

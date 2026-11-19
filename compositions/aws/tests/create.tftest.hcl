@@ -137,14 +137,20 @@ run "everything_created" {
   assert {
     condition = (
       local.bucket_arns.tenant == "arn:aws:s3:::acme-prod-autoheal-00000000-0000-0000-0000-000000000001" &&
-      !contains(data.aws_iam_policy_document.tenant_bucket.statement[0].actions, "s3:CreateBucket")
+      !contains(one([for s in data.aws_iam_policy_document.tenant_bucket.statement : s.actions if s.sid == "KeepTenantBucket"]), "s3:CreateBucket")
     )
     error_message = "With a tenant bucket we create, the roles should reach it by its exact ARN and not create buckets."
   }
 
+  # Statements are picked by sid, so a reorder cannot make these pass by
+  # checking the wrong one: one() of an empty list is null, and contains fails.
   assert {
-    condition     = contains(data.aws_iam_policy_document.storage.statement[1].actions, "s3:PutObjectTagging")
-    error_message = "api-server-go tags tool outputs, so the storage policy needs s3:PutObjectTagging."
+    condition = (
+      one([for s in data.aws_iam_policy_document.tenant_bucket.statement : s.actions if s.sid == "TagToolOutputs"]) == toset(["s3:PutObjectTagging"]) &&
+      one([for s in data.aws_iam_policy_document.tenant_bucket.statement : s.resources if s.sid == "TagToolOutputs"]) == toset(["arn:aws:s3:::acme-prod-autoheal-00000000-0000-0000-0000-000000000001/*"]) &&
+      !contains(one([for s in data.aws_iam_policy_document.storage.statement : s.actions if s.sid == "ReadWriteObjects"]), "s3:PutObjectTagging")
+    )
+    error_message = "Only api-server-go tags objects (tool outputs), so s3:PutObjectTagging is on the tenant bucket's objects in the api-server policy, not in the shared storage policy."
   }
 
   assert {
@@ -502,7 +508,8 @@ run "tenant_bucket_by_api_server" {
   assert {
     condition = (
       local.bucket_arns.tenant == "arn:aws:s3:::acme-prod-autoheal-*" &&
-      contains(data.aws_iam_policy_document.tenant_bucket.statement[0].actions, "s3:CreateBucket")
+      contains(one([for s in data.aws_iam_policy_document.tenant_bucket.statement : s.actions if s.sid == "KeepTenantBucket"]), "s3:CreateBucket") &&
+      one([for s in data.aws_iam_policy_document.tenant_bucket.statement : s.resources if s.sid == "TagToolOutputs"]) == toset(["arn:aws:s3:::acme-prod-autoheal-*/*"])
     )
     error_message = "create_tenant_bucket = false should let the api-server role create and use buckets named <prefix>*."
   }

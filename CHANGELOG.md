@@ -15,12 +15,17 @@ those charts the migration Job could not create the bucket it looked for (a
 warning in its log), and the Git Registry and tool outputs did not work. The
 bucket we create is now passed to the chart by name.
 
-Breaking, on AWS: 5.0.0 needs chart 1.0.0-rc.17 or later, since an older chart
-rejects the new key. Move the chart first (it works with 4.x values), then this
-release; see "Upgrading from 4.x" in `compositions/aws/README.md`. With the
-bucket named, the install holds one tenant. An existing install keeps its
-tenant ID and its bucket; the plan changes only `autoheal_values` and the
-api-server and agents-worker role policies. Azure is unchanged.
+Breaking, on AWS with `create_tenant_bucket = true` (the default): 5.0.0 needs
+chart 1.0.0-rc.17 or later, since an older chart rejects the new key. Move the
+chart first (it works with 4.x values), then this release, then the app again;
+see "Upgrading from 4.x" in `compositions/aws/README.md`. With the bucket named,
+the install holds one tenant and the roles reach only that bucket, so check
+first that no bucket made by hand holds its data. From 4.8.x the plan changes
+only `autoheal_values` and the api-server and agents-worker role policies; from
+4.7.x it also adds the 4.8.0 runner callback key. Roles a central team created
+(`existing_*_role_arn`) need the new policies from `required_role_policies`.
+With `create_tenant_bucket = false` any chart that takes 4.x values works.
+Azure is unchanged.
 
 ### Fixed
 - `compositions/aws`: `autoheal_values` sets
@@ -28,9 +33,9 @@ api-server and agents-worker role policies. Azure is unchanged.
   `create_tenant_bucket` is true. With `create_tenant_bucket = false` only
   `tenantBucketPrefix` is passed, as before, and api-server-go creates
   `<prefix><tenant id>` itself.
-- `compositions/aws`: the api-server and agents-worker roles get
-  `s3:PutObjectTagging` on the three buckets. api-server-go tags the tool
-  outputs it writes (`lifecycle=auto-expire`), and the write failed without it.
+- `compositions/aws`: the api-server role gets `s3:PutObjectTagging` on the
+  tenant bucket's objects. api-server-go tags the tool outputs it writes there
+  (`lifecycle=auto-expire`), and the write failed without it.
 
 ### Changed
 - `compositions/aws`: with `create_tenant_bucket = true` the roles reach the
@@ -41,7 +46,11 @@ api-server and agents-worker role policies. Azure is unchanged.
   for the new `objectStore.tenantBucket` key. Azure stays on 3.0.0.
 - `compositions/aws`: the `tenant_id`, `tenant_bucket_prefix` and
   `create_tenant_bucket` descriptions say how the bucket reaches the chart.
-- `README.md`, `docs` and `examples`: infra 5.0.0 and chart 1.0.0-rc.19.
+- `README.md`, `docs` and `examples`: infra 5.0.0 and chart 1.0.0-rc.19, and
+  the AWS 4.x to 5.x apply order.
+- `compositions/aws`: the README and the storage comment no longer say the
+  tenant bucket gets the multipart and old-version rules; Terraform sets none
+  on it.
 
 ## [4.8.0] - 2026-11-12
 

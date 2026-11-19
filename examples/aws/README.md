@@ -224,7 +224,9 @@ private registries, a proxy, a company AMI and how to check the runner.
 
 Change the two numbers in `prod/versions.hcl` (after staging has run them), then
 run the folders again in order: infra, app, and runner when you have one. Read
-the release notes in autoheal-byoc-infra's `CHANGELOG.md` first.
+the release notes in autoheal-byoc-infra's `CHANGELOG.md` first. From infra 4.x
+to 5.x, run app first with chart 1.0.0-rc.17 or later, then infra, app and
+runner.
 
 ## Installing with Helm or Flux instead
 

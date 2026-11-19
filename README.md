@@ -81,6 +81,6 @@ from `versions.hcl`:
 source = "git::https://github.com/autohealai/autoheal-byoc-infra.git//compositions/azure?ref=v5.0.0"
 ```
 
-Upgrading from 1.x or 3.x: see the upgrade notes in [CHANGELOG.md](CHANGELOG.md).
+Upgrading from 1.x, 3.x or 4.x: see the upgrade notes in [CHANGELOG.md](CHANGELOG.md).
 [docs/MODULE_STANDARD.md](docs/MODULE_STANDARD.md) is the contributor contract
 (naming, provider pinning, docs, CI gates, the output contract).

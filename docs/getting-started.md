@@ -542,7 +542,7 @@ kubectl get targetgroupbindings -n autoheal
 
 Change the two numbers in `prod/versions.hcl`, then plan and apply `prod/infra`
 and `prod/app` again. Read `CHANGELOG.md` first; upgrading from 1.x has its own
-notes there, and upgrading from 3.x to 4.x, or on AWS from 4.x to 5.x, applies `prod/app` first. An AWS install on the 1.x `aws-byoc` composition is not upgraded in
+notes there, and upgrading from 3.x to 4.x applies `prod/app` first. On AWS from 4.x to 5.x, apply `prod/app` with chart 1.0.0-rc.17 or later, then `prod/infra`, then `prod/app` again. An AWS install on the 1.x `aws-byoc` composition is not upgraded in
 place: install 3.x next to it and move the data.
 
 ---

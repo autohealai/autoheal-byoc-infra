@@ -47,7 +47,7 @@ resource "terraform_data" "validate_inputs" {
     }
     precondition {
       condition     = length(local.tenant_bucket_prefix) >= 8
-      error_message = "The tenant bucket prefix ${local.tenant_bucket_prefix} is shorter than 8 characters. The api-server role may use every bucket named <prefix>*, so a short prefix would reach unrelated buckets in the account. Set tenant_bucket_prefix."
+      error_message = "The tenant bucket prefix ${local.tenant_bucket_prefix} is shorter than 8 characters. With create_tenant_bucket = false the api-server role may use every bucket named <prefix>*, so a short prefix would reach unrelated buckets in the account. Set tenant_bucket_prefix."
     }
     precondition {
       condition     = can(regex("^[a-z0-9][a-z0-9-]*$", local.tenant_bucket_prefix)) && !strcontains(local.tenant_bucket_prefix, "--") && !startswith(local.tenant_bucket_prefix, "sthree-") && !startswith(local.tenant_bucket_prefix, "amzn-s3-demo-")

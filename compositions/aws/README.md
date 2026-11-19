@@ -187,8 +187,8 @@ limit 1) and no long-lived AWS key exists anywhere.
 | Role | Service accounts | Can |
 |------|------------------|-----|
 | secrets | `autoheal-hooks` | read `<secrets_prefix>*` and decrypt with the secrets key |
-| api-server | `api-server-go` | read and write the three buckets; keep the tenant bucket's versioning and lifecycle rules (and create it when `create_tenant_bucket = false`); manage secrets under `<runtime_secrets_prefix>/`; Bedrock |
-| agents-worker | `agents-py-http`, `agents-py-worker` | read and write the three buckets; Bedrock |
+| api-server | `api-server-go` | read, write and tag objects in the three buckets; keep the tenant bucket's versioning and lifecycle rules (and create it when `create_tenant_bucket = false`); manage secrets under `<runtime_secrets_prefix>/`; Bedrock |
+| agents-worker | `agents-py-http`, `agents-py-worker` | read, write and tag objects in the three buckets; Bedrock |
 | lb-controller | `kube-system/aws-load-balancer-controller` | describe load balancers and network state; register targets in our load balancers' target groups only |
 
 Bedrock (`InvokeModel`, `InvokeModelWithResponseStream`) is on by default, on
@@ -278,15 +278,28 @@ from `global.infra.runtimeSecrets`.
 | tenant | `<tenant_bucket_prefix><tenant_id>` | the Git Registry and tool outputs |
 
 Every bucket we create has the public access block, BucketOwnerEnforced, SSE-KMS
-with the storage key and a bucket key, versioning, a TLS-only policy, aborted
-multipart cleanup and expiry of old versions after
-`s3_noncurrent_version_expiration_days`. api-server-go adds the Git Registry
-lifecycle rules to the tenant bucket at startup, so Terraform leaves its rules
-alone. `tenant_bucket_prefix` defaults to `<namespace>-<environment>-<name>-`;
-it is 8 to 27 characters (a bucket name is at most 63 and the tenant ID 36, and
-the api-server role may use every bucket named `<prefix>*`) and cannot change
-after install. S3 names are global, so a name taken in another
-account fails the apply.
+with the storage key and a bucket key, versioning and a TLS-only policy. The
+attachments and artifacts buckets also clean up aborted multipart uploads and
+expire old versions after `s3_noncurrent_version_expiration_days`. Terraform
+sets no lifecycle rules on the tenant bucket: the chart's migration Job adds the
+Git Registry and tool output rules. api-server-go tags the tool outputs it
+writes there, so the api-server role has `s3:PutObjectTagging` on the tenant
+bucket's objects.
+`tenant_bucket_prefix` defaults to `<namespace>-<environment>-<name>-`; it is 8
+to 27 characters (a bucket name is at most 63 and the tenant ID 36) and cannot
+change after install. S3 names are global, so a name taken in another account
+fails the apply.
+
+Chart 1.0.0-rc.17 and later give a new install a random tenant ID, so the
+bucket we create (named with `tenant_id`, by default
+`00000000-0000-0000-0000-000000000001`) is passed to the chart by name as
+`global.infra.objectStore.tenantBucket`, and the roles reach it by its exact
+ARN. With the bucket named, the install holds one tenant. Those charts are
+needed on AWS from 5.0.0: older ones reject the key. With
+`create_tenant_bucket = false` only the prefix is passed: the migration Job
+creates `<prefix><tenant id>` with the install's own tenant ID, and the roles
+may use every bucket named `<prefix>*`. With the default prefix that includes
+the attachments and artifacts buckets.
 
 ## Encryption
 
@@ -330,7 +343,7 @@ the chart pulls from your mirror, which must hold the images under `app/` and
 `autoheal_values` keys:
 
 ```text
-global.infra.version                          infra contract version, 3.0.0
+global.infra.version                          infra contract version, 3.1.0
 global.infra.cloud                            aws
 global.infra.region
 global.infra.hosts.{app,auth,authApp}
@@ -339,6 +352,7 @@ global.infra.runtimeSecrets.{kind,region,prefix}   awssecretsmanager, no trailin
 global.infra.database.{host,port,adminUser,adminPasswordVaultEntry}
 global.infra.redis.{host,port}                when there is Redis
 global.infra.objectStore.{kind,bucket,artifactsBucket,tenantBucketPrefix}
+global.infra.objectStore.tenantBucket         the tenant bucket we create; not with create_tenant_bucket = false
 global.infra.targetGroups.{edgeHttps,edgeHttp}   loadbalancer mode only
 global.infra.targetGroups.{temporal,toolResponse}   runner_lb_enabled only
 global.imageRegistry                          suggestion, with a registry
@@ -355,6 +369,49 @@ temporalFrontendLoadBalancer.enabled, toolResponseLoadBalancer.enabled         t
 ```
 
 Only `runner_callback_token` holds a secret, and it is marked sensitive.
+
+## Upgrading from 4.x
+
+With `create_tenant_bucket` true (the default), 5.0.0 passes the tenant bucket
+to the chart by name, as `global.infra.objectStore.tenantBucket`, which charts
+before 1.0.0-rc.17 reject. The roles then reach only that bucket. First check
+that no other bucket holds the install's data:
+
+```bash
+aws s3api list-buckets --prefix <tenant_bucket_prefix> --query 'Buckets[].Name'
+```
+
+It should list `<tenant_bucket_prefix><tenant_id>` and, with the default prefix
+(`<id>-`), the attachments and artifacts buckets. Any other bucket there was
+made by hand; do not upgrade until its objects are moved. Then apply in this
+order:
+
+1. `compositions/app` with chart 1.0.0-rc.17 or later, still on the 4.x infra
+   values. Those charts work with them: an existing install keeps its tenant
+   ID, so `<tenant_bucket_prefix><tenant id>` is still the bucket we created.
+2. This composition. From 4.8.x the plan changes `autoheal_values` and the
+   api-server and agents-worker role policies, nothing else: the api-server
+   role gets `s3:PutObjectTagging` on the tenant bucket's objects, and both
+   roles reach the tenant bucket by its exact ARN. From 4.7.x it also adds the
+   4.8.0 runner callback key; see "Upgrading from 4.7.x".
+3. `compositions/app` again, to pass the new values.
+
+With roles a central team created (`existing_api_server_role_arn`,
+`existing_agents_worker_role_arn`) step 2 changes no policy, only the
+`required_role_policies` output. Ask that team to replace the inline policies
+on those roles with the ones in the output. Until then api-server-go cannot
+save large tool outputs.
+
+With `create_tenant_bucket = false` nothing new reaches the chart: apply this
+composition, then `compositions/app`, with any chart that takes the 4.x values.
+
+With `create_tenant_bucket` true (the default) the install then holds one
+tenant: api-server-go refuses to create more. Set `create_tenant_bucket = false`
+on a new install to keep one bucket per tenant, made by api-server-go.
+
+A new install made with 4.x and chart 1.0.0-rc.17 or later got a random tenant
+ID, and its migration Job logged a warning that it could not create the tenant
+bucket. Steps 2 and 3 fix it: the next migration Job finds the bucket by name.
 
 ## Upgrading from 4.7.x
 

@@ -137,7 +137,7 @@ az account set --subscription "<subscription-id>"   # az account show --query id
 Copy `examples/azure` from a released tag into a repository you own:
 
 ```bash
-git clone --branch v4.8.0 https://github.com/autohealai/autoheal-byoc-infra.git
+git clone --branch v5.0.0 https://github.com/autohealai/autoheal-byoc-infra.git
 mkdir acme-autoheal && cp -r autoheal-byoc-infra/examples/azure/. acme-autoheal/
 cd acme-autoheal
 ```
@@ -426,7 +426,7 @@ A first apply takes roughly 30 minutes; EKS and Aurora are the slow parts.
 ### Step 2: Copy the example into your repository
 
 ```bash
-git clone --branch v4.8.0 https://github.com/autohealai/autoheal-byoc-infra.git
+git clone --branch v5.0.0 https://github.com/autohealai/autoheal-byoc-infra.git
 mkdir acme-autoheal && cp -r autoheal-byoc-infra/examples/aws/. acme-autoheal/
 cd acme-autoheal
 ```
@@ -542,7 +542,7 @@ kubectl get targetgroupbindings -n autoheal
 
 Change the two numbers in `prod/versions.hcl`, then plan and apply `prod/infra`
 and `prod/app` again. Read `CHANGELOG.md` first; upgrading from 1.x has its own
-notes there, and upgrading from 3.x to 4.x applies `prod/app` first. An AWS install on the 1.x `aws-byoc` composition is not upgraded in
+notes there, and upgrading from 3.x to 4.x applies `prod/app` first. On AWS from 4.x to 5.x, apply `prod/app` with chart 1.0.0-rc.17 or later, then `prod/infra`, then `prod/app` again. An AWS install on the 1.x `aws-byoc` composition is not upgraded in
 place: install 3.x next to it and move the data.
 
 ---

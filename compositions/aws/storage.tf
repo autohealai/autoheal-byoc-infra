@@ -4,14 +4,16 @@
 #
 # Every bucket we create has versioning, SSE-KMS with the storage key and an S3
 # bucket key, all four public access blocks, bucket-owner-enforced object
-# ownership, a policy that denies requests without TLS, a rule that cleans up
-# incomplete multipart uploads and optional server access logs. The attachments
-# bucket also allows browser uploads from https://<hostname>.
+# ownership, a policy that denies requests without TLS and optional server
+# access logs. The attachments and artifacts buckets also have a rule that
+# cleans up incomplete multipart uploads and expires old versions, and the
+# attachments bucket allows browser uploads from https://<hostname>.
 #
 # The tenant bucket (<tenant_bucket_prefix><tenant_id>) holds the Git Registry
-# and tool outputs. api-server-go owns its lifecycle rules, which it merges at
-# startup, so we set none on it. With create_tenant_bucket = false api-server-go
-# creates the bucket itself at first use.
+# and tool outputs, and is passed to the chart by name. api-server-go owns its
+# lifecycle rules, which the chart's migration Job merges in, so we set none on
+# it. With create_tenant_bucket = false that Job creates the bucket instead,
+# named <tenant_bucket_prefix><tenant id>.
 
 locals {
   bucket_lifecycle_rules = [

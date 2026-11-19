@@ -32,7 +32,7 @@
 # refuses a version older than it needs for the cloud.
 
 locals {
-  infra_contract_version = "3.0.0"
+  infra_contract_version = "3.1.0"
 
   autoheal_values = merge({
     global = merge({
@@ -59,12 +59,19 @@ locals {
             adminUser               = local.postgres_admin_login
             adminPasswordVaultEntry = "postgres-admin-password"
           }
-          objectStore = {
-            kind               = "s3"
-            bucket             = local.attachments_bucket
-            artifactsBucket    = local.artifacts_bucket
-            tenantBucketPrefix = local.tenant_bucket_prefix
-          }
+          objectStore = merge(
+            {
+              kind               = "s3"
+              bucket             = local.attachments_bucket
+              artifactsBucket    = local.artifacts_bucket
+              tenantBucketPrefix = local.tenant_bucket_prefix
+            },
+            # Chart 1.0.0-rc.17 and later give a new install a random tenant ID,
+            # so <prefix><tenant id> is no longer the bucket we create: name it.
+            # The install then holds one tenant. Without the bucket,
+            # api-server-go creates <prefix><tenant id>.
+            { for k, v in { tenantBucket = one(module.tenant_bucket[*].bucket_id) } : k => v if var.create_tenant_bucket },
+          )
         },
         # The NLB target groups (target type ip) the chart binds its Services
         # to, only when we create a load balancer.

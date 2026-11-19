@@ -418,7 +418,7 @@ variable "artifacts_bucket_name" {
 variable "tenant_bucket_prefix" {
   type        = string
   default     = ""
-  description = "Prefix of the per-tenant bucket api-server-go uses for the Git Registry and tool outputs: <prefix><tenant id>. Empty means <namespace>-<environment>-<name>-. 8 to 27 characters: a bucket name is at most 63 and the tenant ID is 36, and the api-server role may use every bucket named <prefix>*. Cannot change after install."
+  description = "Prefix of the tenant bucket, which holds the Git Registry and tool outputs: <prefix><tenant_id>. Empty means <namespace>-<environment>-<name>-. 8 to 27 characters: a bucket name is at most 63 and the tenant ID is 36, and with create_tenant_bucket = false the api-server role may use every bucket named <prefix>*. Cannot change after install."
 
   validation {
     condition = var.tenant_bucket_prefix == "" || (
@@ -436,7 +436,7 @@ variable "tenant_bucket_prefix" {
 variable "tenant_id" {
   type        = string
   default     = "00000000-0000-0000-0000-000000000001"
-  description = "Tenant ID of the install. A single-tenant install always uses the default."
+  description = "Tenant ID in the name of the tenant bucket we create, <tenant_bucket_prefix><tenant_id>. Keep the default. Chart 1.0.0-rc.17 and later give a new install a random tenant ID and get this bucket by name (tenantBucket in autoheal_values), so the two need not match. Cannot change after install."
 
   validation {
     condition     = can(regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", var.tenant_id))
@@ -447,7 +447,7 @@ variable "tenant_id" {
 variable "create_tenant_bucket" {
   type        = bool
   default     = true
-  description = "Create the tenant bucket (<tenant_bucket_prefix><tenant_id>) with the same encryption, versioning and policy as the other buckets. When false, api-server-go creates it at first use and its role gets s3:CreateBucket on the prefix."
+  description = "Create the tenant bucket (<tenant_bucket_prefix><tenant_id>) with the same encryption, versioning and policy as the other buckets, and pass it to the chart by name. The install then holds one tenant. When false, the chart's migration Job creates <tenant_bucket_prefix><tenant id> with the install's own tenant ID, and the api-server role gets s3:CreateBucket and object access on every bucket named <tenant_bucket_prefix>*."
 }
 
 variable "s3_noncurrent_version_expiration_days" {

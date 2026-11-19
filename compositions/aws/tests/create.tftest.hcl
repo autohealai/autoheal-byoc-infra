@@ -91,7 +91,7 @@ run "everything_created" {
 
   assert {
     condition = (
-      output.autoheal_values.global.infra.version == "3.0.0" &&
+      output.autoheal_values.global.infra.version == "3.1.0" &&
       output.autoheal_values.global.infra.cloud == "aws" &&
       output.autoheal_values.global.infra.region == "us-west-2"
     )
@@ -132,6 +132,19 @@ run "everything_created" {
       local.tenant_bucket == "acme-prod-autoheal-00000000-0000-0000-0000-000000000001"
     )
     error_message = "The tenant bucket should be created with the default tenant ID."
+  }
+
+  assert {
+    condition = (
+      local.bucket_arns.tenant == "arn:aws:s3:::acme-prod-autoheal-00000000-0000-0000-0000-000000000001" &&
+      !contains(data.aws_iam_policy_document.tenant_bucket.statement[0].actions, "s3:CreateBucket")
+    )
+    error_message = "With a tenant bucket we create, the roles should reach it by its exact ARN and not create buckets."
+  }
+
+  assert {
+    condition     = contains(data.aws_iam_policy_document.storage.statement[1].actions, "s3:PutObjectTagging")
+    error_message = "api-server-go tags tool outputs, so the storage policy needs s3:PutObjectTagging."
   }
 
   assert {
@@ -484,6 +497,32 @@ run "tenant_bucket_by_api_server" {
       !contains(keys(output.autoheal_values.global.infra.objectStore), "tenantBucket")
     )
     error_message = "create_tenant_bucket = false should pass only the prefix, so api-server-go creates <prefix><tenant id>."
+  }
+
+  assert {
+    condition = (
+      local.bucket_arns.tenant == "arn:aws:s3:::acme-prod-autoheal-*" &&
+      contains(data.aws_iam_policy_document.tenant_bucket.statement[0].actions, "s3:CreateBucket")
+    )
+    error_message = "create_tenant_bucket = false should let the api-server role create and use buckets named <prefix>*."
+  }
+}
+
+run "tenant_bucket_custom_name" {
+  command = plan
+
+  variables {
+    tenant_bucket_prefix = "acme-tenant-"
+    tenant_id            = "11111111-2222-3333-4444-555555555555"
+  }
+
+  assert {
+    condition = (
+      output.autoheal_values.global.infra.objectStore.tenantBucketPrefix == "acme-tenant-" &&
+      output.autoheal_values.global.infra.objectStore.tenantBucket == "acme-tenant-11111111-2222-3333-4444-555555555555" &&
+      local.bucket_arns.tenant == "arn:aws:s3:::acme-tenant-11111111-2222-3333-4444-555555555555"
+    )
+    error_message = "tenantBucket should be <tenant_bucket_prefix><tenant_id>, reached by its exact ARN."
   }
 }
 

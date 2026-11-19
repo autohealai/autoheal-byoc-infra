@@ -418,7 +418,7 @@ variable "artifacts_bucket_name" {
 variable "tenant_bucket_prefix" {
   type        = string
   default     = ""
-  description = "Prefix of the per-tenant bucket api-server-go uses for the Git Registry and tool outputs: <prefix><tenant id>. Empty means <namespace>-<environment>-<name>-. 8 to 27 characters: a bucket name is at most 63 and the tenant ID is 36, and the api-server role may use every bucket named <prefix>*. Cannot change after install."
+  description = "Prefix of the tenant bucket, which holds the Git Registry and tool outputs: <prefix><tenant_id>. Empty means <namespace>-<environment>-<name>-. 8 to 27 characters: a bucket name is at most 63 and the tenant ID is 36, and with create_tenant_bucket = false the api-server role may use every bucket named <prefix>*. Cannot change after install."
 
   validation {
     condition = var.tenant_bucket_prefix == "" || (
@@ -447,7 +447,7 @@ variable "tenant_id" {
 variable "create_tenant_bucket" {
   type        = bool
   default     = true
-  description = "Create the tenant bucket (<tenant_bucket_prefix><tenant_id>) with the same encryption, versioning and policy as the other buckets. When false, api-server-go creates it at first use and its role gets s3:CreateBucket on the prefix."
+  description = "Create the tenant bucket (<tenant_bucket_prefix><tenant_id>) with the same encryption, versioning and policy as the other buckets, and pass it to the chart by name. The install then holds one tenant. When false, the chart's migration Job creates <tenant_bucket_prefix><tenant id> with the install's own tenant ID, and the api-server role gets s3:CreateBucket and object access on every bucket named <tenant_bucket_prefix>*."
 }
 
 variable "s3_noncurrent_version_expiration_days" {

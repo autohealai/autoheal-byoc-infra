@@ -103,6 +103,7 @@ data "aws_iam_policy_document" "storage" {
       "s3:GetObject",
       "s3:GetObjectVersion",
       "s3:PutObject",
+      "s3:PutObjectTagging",
       "s3:DeleteObject",
       "s3:DeleteObjectVersion",
       "s3:AbortMultipartUpload",
@@ -124,9 +125,13 @@ data "aws_iam_policy_document" "storage" {
   }
 }
 
-# api-server-go checks the tenant bucket at startup: it turns versioning on and
-# merges the Git Registry lifecycle rules. When we do not create the bucket it
-# creates it, with SSE-S3 and the public access block.
+# api-server-go tags tool outputs it writes (lifecycle=auto-expire), hence
+# s3:PutObjectTagging above.
+#
+# The chart's migration Job (api-server provision-tenant-buckets) turns
+# versioning on in the tenant bucket and merges the Git Registry and tool
+# output lifecycle rules into the ones it has. With create_tenant_bucket = false
+# it also creates the bucket, with SSE-S3 and the public access block.
 data "aws_iam_policy_document" "tenant_bucket" {
   statement {
     sid = "KeepTenantBucket"

@@ -83,7 +83,9 @@ locals {
   attachments_bucket_create_name = var.attachments_bucket_name != "" ? var.attachments_bucket_name : "${local.id}-attachments"
   artifacts_bucket_create_name   = var.artifacts_bucket_name != "" ? var.artifacts_bucket_name : "${local.id}-artifacts"
 
-  # api-server-go names the tenant bucket <prefix><tenant id>.
+  # We create the tenant bucket <prefix><tenant_id> and pass it to the chart by
+  # name. With create_tenant_bucket = false api-server-go names it
+  # <prefix><tenant id> itself, with the ID the install was given.
   tenant_bucket_prefix = var.tenant_bucket_prefix != "" ? var.tenant_bucket_prefix : "${local.id}-"
   tenant_bucket        = "${local.tenant_bucket_prefix}${var.tenant_id}"
 
@@ -195,10 +197,12 @@ locals {
   artifacts_bucket   = local.create_artifacts_bucket ? module.artifacts_bucket[0].bucket_id : local.existing.artifacts_bucket
 
   # ARNs built from plan-time names, so the IAM policies need no bucket attribute.
+  # The tenant ARN is the bucket we create, or every bucket named <prefix>*
+  # when api-server-go creates it.
   bucket_arns = {
     attachments = "arn:${local.partition}:s3:::${local.create_attachments_bucket ? local.attachments_bucket_create_name : local.existing.attachments_bucket}"
     artifacts   = "arn:${local.partition}:s3:::${local.create_artifacts_bucket ? local.artifacts_bucket_create_name : local.existing.artifacts_bucket}"
-    tenant      = "arn:${local.partition}:s3:::${local.tenant_bucket_prefix}*"
+    tenant      = "arn:${local.partition}:s3:::${var.create_tenant_bucket ? local.tenant_bucket : "${local.tenant_bucket_prefix}*"}"
   }
 
   # Registry the chart pulls from, as host/path, or "" for the public registry.

@@ -6,16 +6,21 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
-## [4.9.0] - 2026-11-18
+## [5.0.0] - 2026-11-18
 
 Chart 1.0.0-rc.17 and later give a new install a random tenant ID, so on AWS
 the tenant bucket this repo creates, `<tenant_bucket_prefix><tenant_id>`, no
-longer matches the name api-server-go looks for. A new AWS install on those
-charts failed when api-server-go tried to create its own bucket. The bucket we
-create is now passed to the chart by name. On AWS, 4.9.0 needs chart
-1.0.0-rc.17 or later; an older chart rejects the new key. Azure is unchanged.
-An existing install keeps its tenant ID and its bucket; the plan changes only
-`autoheal_values`.
+longer matches the name api-server-go looks for. On a new AWS install with
+those charts the migration Job could not create the bucket it looked for (a
+warning in its log), and the Git Registry and tool outputs did not work. The
+bucket we create is now passed to the chart by name.
+
+Breaking, on AWS: 5.0.0 needs chart 1.0.0-rc.17 or later, since an older chart
+rejects the new key. Move the chart first (it works with 4.x values), then this
+release; see "Upgrading from 4.x" in `compositions/aws/README.md`. With the
+bucket named, the install holds one tenant. An existing install keeps its
+tenant ID and its bucket; the plan changes only `autoheal_values` and the
+api-server and agents-worker role policies. Azure is unchanged.
 
 ### Fixed
 - `compositions/aws`: `autoheal_values` sets
@@ -23,11 +28,20 @@ An existing install keeps its tenant ID and its bucket; the plan changes only
   `create_tenant_bucket` is true. With `create_tenant_bucket = false` only
   `tenantBucketPrefix` is passed, as before, and api-server-go creates
   `<prefix><tenant id>` itself.
+- `compositions/aws`: the api-server and agents-worker roles get
+  `s3:PutObjectTagging` on the three buckets. api-server-go tags the tool
+  outputs it writes (`lifecycle=auto-expire`), and the write failed without it.
 
 ### Changed
-- `compositions/aws`: the `tenant_id` description says the chart gets the
-  bucket by name, so the two IDs need not match.
-- `README.md`, `docs` and `examples`: infra 4.9.0 and chart 1.0.0-rc.19.
+- `compositions/aws`: with `create_tenant_bucket = true` the roles reach the
+  tenant bucket by its exact ARN, not every bucket named
+  `<tenant_bucket_prefix>*`. With the default prefix, `<id>-`, that pattern
+  also covered the attachments and artifacts buckets.
+- `compositions/aws`: `global.infra.version` (the infra contract) is 3.1.0,
+  for the new `objectStore.tenantBucket` key. Azure stays on 3.0.0.
+- `compositions/aws`: the `tenant_id`, `tenant_bucket_prefix` and
+  `create_tenant_bucket` descriptions say how the bucket reaches the chart.
+- `README.md`, `docs` and `examples`: infra 5.0.0 and chart 1.0.0-rc.19.
 
 ## [4.8.0] - 2026-11-12
 

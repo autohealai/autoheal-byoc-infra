@@ -9,9 +9,10 @@
 # bucket also allows browser uploads from https://<hostname>.
 #
 # The tenant bucket (<tenant_bucket_prefix><tenant_id>) holds the Git Registry
-# and tool outputs. api-server-go owns its lifecycle rules, which it merges at
-# startup, so we set none on it. With create_tenant_bucket = false api-server-go
-# creates the bucket itself at first use.
+# and tool outputs, and is passed to the chart by name. api-server-go owns its
+# lifecycle rules, which the chart's migration Job merges in, so we set none on
+# it. With create_tenant_bucket = false that Job creates the bucket instead,
+# named <tenant_bucket_prefix><tenant id>.
 
 locals {
   bucket_lifecycle_rules = [

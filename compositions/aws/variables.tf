@@ -436,7 +436,7 @@ variable "tenant_bucket_prefix" {
 variable "tenant_id" {
   type        = string
   default     = "00000000-0000-0000-0000-000000000001"
-  description = "Tenant ID of the install. A single-tenant install always uses the default."
+  description = "Tenant ID in the name of the tenant bucket we create, <tenant_bucket_prefix><tenant_id>. Keep the default. Chart 1.0.0-rc.17 and later give a new install a random tenant ID and get this bucket by name (tenantBucket in autoheal_values), so the two need not match. Cannot change after install."
 
   validation {
     condition     = can(regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", var.tenant_id))

@@ -120,7 +120,8 @@ run "everything_created" {
       output.autoheal_values.global.infra.objectStore.kind == "s3" &&
       output.autoheal_values.global.infra.objectStore.bucket == "acme-prod-autoheal-attachments" &&
       output.autoheal_values.global.infra.objectStore.artifactsBucket == "acme-prod-autoheal-artifacts" &&
-      output.autoheal_values.global.infra.objectStore.tenantBucketPrefix == "acme-prod-autoheal-"
+      output.autoheal_values.global.infra.objectStore.tenantBucketPrefix == "acme-prod-autoheal-" &&
+      output.autoheal_values.global.infra.objectStore.tenantBucket == "acme-prod-autoheal-00000000-0000-0000-0000-000000000001"
     )
     error_message = "objectStore is wrong."
   }
@@ -466,6 +467,23 @@ run "no_redis" {
       !contains(local.secret_entry_names, "redis-access-key")
     )
     error_message = "redis_enabled = false should leave out Redis."
+  }
+}
+
+run "tenant_bucket_by_api_server" {
+  command = plan
+
+  variables {
+    create_tenant_bucket = false
+  }
+
+  assert {
+    condition = (
+      length(module.tenant_bucket) == 0 &&
+      output.autoheal_values.global.infra.objectStore.tenantBucketPrefix == "acme-prod-autoheal-" &&
+      !contains(keys(output.autoheal_values.global.infra.objectStore), "tenantBucket")
+    )
+    error_message = "create_tenant_bucket = false should pass only the prefix, so api-server-go creates <prefix><tenant id>."
   }
 }
 

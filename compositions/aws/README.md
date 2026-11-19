@@ -288,6 +288,13 @@ the api-server role may use every bucket named `<prefix>*`) and cannot change
 after install. S3 names are global, so a name taken in another
 account fails the apply.
 
+Chart 1.0.0-rc.17 and later give a new install a random tenant ID, so the
+bucket we create (named with `tenant_id`, by default
+`00000000-0000-0000-0000-000000000001`) is passed to the chart by name as
+`global.infra.objectStore.tenantBucket`. Those charts are needed on AWS from
+4.9.0: older ones reject the key. With `create_tenant_bucket = false` only the
+prefix is passed, and api-server-go creates `<prefix><tenant id>` itself.
+
 ## Encryption
 
 With no `existing_kms_key_arn` we create five keys, one per purpose, with
@@ -339,6 +346,7 @@ global.infra.runtimeSecrets.{kind,region,prefix}   awssecretsmanager, no trailin
 global.infra.database.{host,port,adminUser,adminPasswordVaultEntry}
 global.infra.redis.{host,port}                when there is Redis
 global.infra.objectStore.{kind,bucket,artifactsBucket,tenantBucketPrefix}
+global.infra.objectStore.tenantBucket         the tenant bucket we create; not with create_tenant_bucket = false
 global.infra.targetGroups.{edgeHttps,edgeHttp}   loadbalancer mode only
 global.infra.targetGroups.{temporal,toolResponse}   runner_lb_enabled only
 global.imageRegistry                          suggestion, with a registry

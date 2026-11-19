@@ -6,6 +6,29 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [4.9.0] - 2026-11-18
+
+Chart 1.0.0-rc.17 and later give a new install a random tenant ID, so on AWS
+the tenant bucket this repo creates, `<tenant_bucket_prefix><tenant_id>`, no
+longer matches the name api-server-go looks for. A new AWS install on those
+charts failed when api-server-go tried to create its own bucket. The bucket we
+create is now passed to the chart by name. On AWS, 4.9.0 needs chart
+1.0.0-rc.17 or later; an older chart rejects the new key. Azure is unchanged.
+An existing install keeps its tenant ID and its bucket; the plan changes only
+`autoheal_values`.
+
+### Fixed
+- `compositions/aws`: `autoheal_values` sets
+  `global.infra.objectStore.tenantBucket` to the tenant bucket when
+  `create_tenant_bucket` is true. With `create_tenant_bucket = false` only
+  `tenantBucketPrefix` is passed, as before, and api-server-go creates
+  `<prefix><tenant id>` itself.
+
+### Changed
+- `compositions/aws`: the `tenant_id` description says the chart gets the
+  bucket by name, so the two IDs need not match.
+- `README.md`, `docs` and `examples`: infra 4.9.0 and chart 1.0.0-rc.19.
+
 ## [4.8.0] - 2026-11-12
 
 A runner outside the cluster can post sandbox tool results to the app host on

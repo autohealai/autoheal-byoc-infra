@@ -6,6 +6,19 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [5.0.1] - 2026-11-24
+
+Docs and examples only. The modules and compositions are the same as 5.0.0, so
+an install moving from 5.0.0 plans no changes in the infra and cluster units.
+The examples move to chart 1.0.0-rc.20 (newer service and runner-go images, no
+new values): the app unit plans the chart upgrade, and the runner unit an
+update of the runners to `runner-go:chart-1.0.0-rc.20`. On Azure the apply
+reimages each runner VM, and on AWS it starts an instance refresh, so a
+sandbox running on a runner at that time fails.
+
+### Changed
+- `README.md`, `docs` and `examples`: infra 5.0.1 and chart 1.0.0-rc.20.
+
 ## [5.0.0] - 2026-11-18
 
 Chart 1.0.0-rc.17 and later give a new install a random tenant ID, so on AWS

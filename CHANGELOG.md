@@ -6,6 +6,29 @@ All notable changes to this repo are documented here. Format follows
 
 ## [Unreleased]
 
+## [5.0.2] - 2026-11-25
+
+Docs and examples only. The modules and compositions are the same as 5.0.0, so
+an install moving from 5.0.0 or 5.0.1 plans no changes in the infra and cluster
+units. The examples move to chart 1.0.0-rc.21 (newer service images, the same
+runner-go image under a new tag, no new values needed): the app unit plans the
+chart upgrade, and the runner unit an update of the runners to
+`runner-go:chart-1.0.0-rc.21`. On Azure the apply reimages each runner VM, and
+on AWS it starts an instance refresh, so a sandbox running on a runner at that
+time fails.
+
+With chart 1.0.0-rc.21 on Azure, the browser uploads and downloads chat
+attachments on the app host, at `/api/v1/public/artifacts/`, and the storage
+account stays private. A firewall, WAF or web proxy in front of the app host
+must accept a request body of up to 10 MiB on that path and let a request run
+for up to 300 seconds.
+
+### Changed
+- `README.md`, `docs` and `examples`: infra 5.0.2 and chart 1.0.0-rc.21.
+- `docs/azure-shared-istio-quickstart.md` (step 9b) and
+  `docs/azure-two-subscriptions-public-runbook.md`: what a WAF or web proxy in
+  front of a shared gateway must allow for chat attachments.
+
 ## [5.0.1] - 2026-11-24
 
 Docs and examples only. The modules and compositions are the same as 5.0.0, so

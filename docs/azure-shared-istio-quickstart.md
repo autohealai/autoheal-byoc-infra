@@ -28,7 +28,7 @@ gateway:
 - The chart adds Istio VirtualServices bound to the gateway. It makes no
   Gateway and no load balancer.
 
-It uses autoheal-byoc-infra **v5.0.1** and chart **1.0.0-rc.20**.
+It uses autoheal-byoc-infra **v5.0.2** and chart **1.0.0-rc.21**.
 
 ## Before you start: what the cluster owner provides
 
@@ -142,6 +142,12 @@ api-server-go, so it trusts the gateway certificate.
 `auth.$AUTOHEAL_HOSTNAME` and `auth-app.$AUTOHEAL_HOSTNAME` at the gateway,
 with CNAMEs or A records. `terragrunt output required_dns_records` lists the
 three names.
+
+When a WAF or web proxy sits in front of the gateway, it must accept a request
+body of up to 10 MiB on `$AUTOHEAL_HOSTNAME/api/v1/public/artifacts/` and let
+a request on that path run for up to 300 seconds. The browser uploads and
+downloads chat attachments there (chart 1.0.0-rc.21 and later), and the storage
+account stays private.
 
 **9c.** The cluster owner adds the storage network rule.
 

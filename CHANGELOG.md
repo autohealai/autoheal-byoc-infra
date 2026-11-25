@@ -19,9 +19,9 @@ time fails.
 
 With chart 1.0.0-rc.21 on Azure, the browser uploads and downloads chat
 attachments on the app host, at `/api/v1/public/artifacts/`, and the storage
-account stays private. A WAF or web proxy in front of a shared gateway must
-accept a request body of up to 10 MiB on that path and let a request run for up
-to 300 seconds.
+account stays private. A firewall, WAF or web proxy in front of the app host
+must accept a request body of up to 10 MiB on that path and let a request run
+for up to 300 seconds.
 
 ### Changed
 - `README.md`, `docs` and `examples`: infra 5.0.2 and chart 1.0.0-rc.21.
